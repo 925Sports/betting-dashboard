@@ -1,6 +1,19 @@
 {
-  "updated": "2026-08-29T22:40:00Z",
+  "updated": "2026-08-29T23:11:37Z",
   "sport": "NFL",
+  "sport_key": "americanfootball_nfl",
+  "regions": "us,us_dfs",
+  "markets": [
+    "player_pass_yds",
+    "player_rush_yds",
+    "player_receptions",
+    "player_reception_yds",
+    "player_rush_reception_yds",
+    "player_pass_tds",
+    "player_anytime_td"
+  ],
+  "hours_ahead": 72,
+  "event_count": 0,
   "row_count": 0,
   "props": []
 }
