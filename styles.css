@@ -1,0 +1,52 @@
+:root {
+  --bg: #070b14;
+  --panel: #101827;
+  --panel-2: #0c1320;
+  --line: #1c2a3f;
+  --text: #e8eef8;
+  --muted: #8b9bb4;
+  --green: #19c37d;
+  --green-bg: rgba(25, 195, 125, 0.18);
+  --yellow: #e7b549;
+  --yellow-bg: rgba(231, 181, 73, 0.16);
+  --red: #e05d6f;
+  --red-bg: rgba(224, 93, 111, 0.14);
+  --chip: #182236;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg); color: var(--text);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+.wrap { max-width: 1400px; margin: 0 auto; padding: 18px 16px 40px; }
+.top { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 14px; }
+h1 { margin: 0; font-size: 22px; letter-spacing: 0.04em; }
+.sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.filters {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 14px; padding: 10px; margin-bottom: 12px;
+}
+select, input[type="search"], input[type="number"] {
+  background: var(--chip); color: var(--text);
+  border: 1px solid var(--line); border-radius: 999px;
+  padding: 8px 12px; font-size: 13px; outline: none;
+}
+input[type="search"] { min-width: 180px; flex: 1; }
+label.chk { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); padding: 0 6px; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-2); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 10px; border-bottom: 1px solid var(--line); white-space: nowrap; text-align: left; }
+th { background: #152036; color: #b7c4d8; font-weight: 600; position: sticky; top: 0; cursor: pointer; }
+tr:hover td { background: rgba(255,255,255,0.02); }
+.player { font-weight: 650; }
+.game { color: var(--muted); font-size: 11px; margin-top: 2px; }
+.pct { font-weight: 700; border-radius: 8px; padding: 6px 8px; display: inline-block; min-width: 58px; text-align: center; }
+.pct.good { background: var(--green-bg); color: var(--green); }
+.pct.ok { background: var(--yellow-bg); color: var(--yellow); }
+.pct.bad { background: var(--red-bg); color: var(--red); }
+.price { font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.tag { display: inline-block; background: var(--chip); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; font-size: 11px; }
+.empty { padding: 40px 16px; text-align: center; color: var(--muted); }
