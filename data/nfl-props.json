@@ -1,7 +1,7 @@
 {
-  "updated": "2026-08-29T23:11:37Z",
+  "updated": "2026-08-29T23:17:49Z",
   "sport": "NFL",
-  "sport_key": "americanfootball_nfl",
+  "sport_key": "americanfootball_nfl_preseason",
   "regions": "us,us_dfs",
   "markets": [
     "player_pass_yds",
@@ -13,7 +13,7 @@
     "player_anytime_td"
   ],
   "hours_ahead": 72,
-  "event_count": 0,
+  "event_count": 1,
   "row_count": 0,
   "props": []
 }
