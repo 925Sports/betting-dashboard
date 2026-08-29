@@ -23,6 +23,7 @@ jobs:
       - name: Fetch and normalize props
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          SPORT_KEY: "americanfootball_nfl_preseason"
           HOURS_AHEAD: "72"
           REGIONS: "us,us_dfs"
           MARKETS: "player_pass_yds,player_rush_yds,player_receptions,player_reception_yds,player_rush_reception_yds,player_pass_tds,player_anytime_td"
