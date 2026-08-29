@@ -1,0 +1,41 @@
+name: Update NFL Props
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "10,40 * * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch and normalize props
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          HOURS_AHEAD: "72"
+          REGIONS: "us,us_dfs"
+          MARKETS: "player_pass_yds,player_rush_yds,player_receptions,player_reception_yds,player_rush_reception_yds,player_pass_tds,player_anytime_td"
+        run: python scripts/fetch_nfl_props.py
+
+      - name: Commit updated data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/nfl-props.json data/meta.json
+          if git diff --staged --quiet; then
+            echo "No data changes"
+          else
+            git commit -m "chore: refresh NFL props $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push
+          fi
