@@ -146,6 +146,7 @@ tr:hover td { background: rgba(255,255,255,0.025); }
 .tier.std { background: #173056; color: #cfe0ff; }
 .tier.demon { background: rgba(224,93,111,0.18); color: #e05d6f; }
 .tier.goblin { background: rgba(25,195,125,0.16); color: #19c37d; }
+.tier.alt { background: rgba(158,192,255,0.16); color: #9ec0ff; }
 
 .loader {
   position: fixed; inset: 0; z-index: 80;
@@ -314,6 +315,26 @@ th[data-key="line"], td.line-cell, td.line-stack {
   letter-spacing: 0.04em;
   margin-right: 4px;
 }
+.flags { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; }
+.flag {
+  width: 16px; height: 16px; border-radius: 4px;
+  display: inline-grid; place-items: center;
+  cursor: default; flex: 0 0 16px;
+}
+.flag.inj { background: var(--red-bg); color: var(--red); }
+.flag.inj.doubtful { background: rgba(231,181,73,0.2); color: #e7b549; }
+.flag.inj.questionable { background: #173056; color: #cfe0ff; }
+.flag.news { background: #173056; color: #9ec0ff; }
+.flag-tip {
+  position: fixed; z-index: 70;
+  max-width: 280px;
+  background: #101827; color: var(--text);
+  border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px 10px; font-size: 12px; line-height: 1.35;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.45);
+  pointer-events: none;
+}
+.flag-tip b { display: block; margin-bottom: 2px; }
 .inj-pill {
   display: inline-block;
   margin-left: 6px;
@@ -353,3 +374,24 @@ th[data-key="line"], td.line-cell, td.line-stack {
 .fresh-note { color: var(--muted); font-size: 11px; margin: 0 0 8px; }
 .logs-mini { font-variant-numeric: tabular-nums; font-size: 12px; }
 .popup-logs th, .popup-logs td { font-variant-numeric: tabular-nums; }
+.split-note { color: var(--muted); font-size: 11px; margin: -4px 0 8px; }
+.split-chart { display: grid; gap: 8px; margin-bottom: 14px; }
+.split-row { display: grid; grid-template-columns: 72px 1fr; gap: 8px; align-items: center; }
+.split-lab { font-size: 11px; font-weight: 700; color: #cfe0ff; }
+.split-lab span { display: block; color: var(--muted); font-weight: 500; font-size: 10px; }
+.split-bars { display: grid; gap: 3px; }
+.split-bar {
+  position: relative; height: 16px; border-radius: 99px;
+  background: #182236; overflow: hidden;
+}
+.split-bar i {
+  display: block; height: 100%; width: 0;
+  background: linear-gradient(90deg, #1f4fd0, #3d7bff);
+}
+.split-bar.hit i { background: linear-gradient(90deg, #0f6b45, #19c37d); }
+.split-bar em {
+  position: absolute; inset: 0 8px;
+  display: flex; align-items: center;
+  font-size: 10px; font-style: normal; font-weight: 700;
+  color: #e8eef8;
+}
