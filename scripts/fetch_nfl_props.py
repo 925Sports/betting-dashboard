@@ -51,6 +51,22 @@ STAT_LABELS = {
     "player_pats": "PATs",
     "player_rush_reception_tds": "Rush+Rec TDs",
     "player_pass_rush_reception_tds": "Pass+Rush+Rec TDs",
+    "player_fantasy_points": "Fantasy Score",
+    "player_fantasy_score": "Fantasy Score",
+    "batter_hits": "Hits",
+    "batter_home_runs": "Home Runs",
+    "batter_rbis": "RBIs",
+    "batter_runs_scored": "Runs",
+    "batter_stolen_bases": "Stolen Bases",
+    "batter_total_bases": "Total Bases",
+    "batter_hits_runs_rbis": "Hits+Runs+RBIs",
+    "batter_singles": "Singles",
+    "batter_walks": "Walks",
+    "batter_strikeouts": "Hitter Ks",
+    "pitcher_strikeouts": "Pitcher Ks",
+    "pitcher_outs": "Outs",
+    "pitcher_hits_allowed": "Hits Allowed",
+    "pitcher_earned_runs": "ER",
 }
 
 
