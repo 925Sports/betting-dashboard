@@ -23,7 +23,7 @@
       <span class="logo">925</span>
       <div>
         <div class="brand-title">+EV Optimizer</div>
-        <div class="brand-sub">NFL player props</div>
+        <div class="brand-sub">NFL + CFB · props + games</div>
       </div>
     </div>
     <nav class="tabs">
@@ -37,7 +37,14 @@
 
   <div class="wrap">
     <div class="filters">
-      <div class="chip">NFL</div>
+      <select id="sport">
+        <option value="nfl">NFL</option>
+        <option value="cfb">CFB</option>
+      </select>
+      <select id="section">
+        <option value="props">Player props</option>
+        <option value="games">Game lines</option>
+      </select>
       <select id="game"></select>
       <select id="stat"></select>
       <select id="side">
@@ -78,6 +85,20 @@
         <tbody id="tbody"></tbody>
       </table>
       <div class="empty" id="empty" style="display:none">No rows match these filters.</div>
+    </div>
+
+    <div class="table-wrap" id="gamesWrap" style="display:none">
+      <table>
+        <thead>
+          <tr>
+            <th>Game</th><th>Spread</th><th>Total</th>
+            <th>ML Away</th><th>ML Home</th>
+            <th>Kalshi ML</th><th>Kalshi Spread</th><th>Kalshi Total</th>
+          </tr>
+        </thead>
+        <tbody id="gamesBody"></tbody>
+      </table>
+      <div class="empty" id="gamesEmpty" style="display:none">No game lines yet. Run the Action.</div>
     </div>
   </div>
   <div id="popup" class="popup" hidden>
