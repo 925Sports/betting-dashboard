@@ -42,10 +42,7 @@ const DEFAULT_ON = new Set(BOOKS.filter((b) => b.on).map((b) => b.key));
 const BOOK_BY_KEY = Object.fromEntries(BOOKS.map((b) => [b.key, b]));
 
 const state = {
-  data: null,
-  sortKey: "ev",
-  sortDir: "desc",
-  view: "pp",
+  data: null, sortKey: "ev", sortDir: "desc", view: "pp",
   booksOn: new Set(DEFAULT_ON),
 };
 
@@ -57,72 +54,54 @@ function american(price) {
   if (Number.isNaN(n)) return "—";
   return n > 0 ? `+${Math.round(n)}` : String(Math.round(n));
 }
-
 function pickSize() { return Number($("picks").value || 5); }
 function breakEven() { return PP_BE[pickSize()] || 54.93; }
-
 function rowEdge(row) {
   if (row.pct_to_hit == null) return null;
   return +(row.pct_to_hit - breakEven()).toFixed(1);
 }
-
 function pctClass(pct) {
   if (pct == null) return "pct";
   if (pct >= breakEven()) return "pct good";
   if (pct >= breakEven() - 2) return "pct ok";
   return "pct bad";
 }
-
 function fmtWhen(iso) {
   if (!iso) return "";
   return new Date(iso).toLocaleString(undefined, {
     weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
   });
 }
-
 function abbr(team) { return TEAM_ABBR[team] || team || ""; }
-
 function matchup(row) {
   const away = abbr(row.away_team);
   const home = abbr(row.home_team);
   if (!away && !home) return row.game || "";
   return `${away} @ ${home}`;
 }
-
 function unique(arr) { return [...new Set(arr.filter(Boolean))]; }
-
 function escapeHtml(s) {
   return String(s ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+    .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
-
 function bookMark(book, size) {
   const cls = size === "sm" ? "book-logo sm" : "book-logo";
   const tile = book.tile ? ` style="background:${book.tile}"` : "";
   if (book.logo) {
-    return `<img class="${cls}"${tile} src="${book.logo}" alt="${escapeHtml(book.label)}" title="${escapeHtml(book.name)}" onerror="this.classList.add('hide');this.nextElementSibling?.classList.remove('hide');" /><span class="book-mark ${size === "sm" ? "sm" : ""} hide" style="--c:${book.color}">${escapeHtml(book.label)}</span>`;
+    return `<img class="${cls}"${tile} src="${book.logo}" alt="${escapeHtml(book.label)}" title="${escapeHtml(book.name)}" referrerpolicy="no-referrer" loading="lazy" onerror="this.classList.add('hide');this.nextElementSibling?.classList.remove('hide');" /><span class="book-mark ${size === "sm" ? "sm" : ""} hide" style="--c:${book.color}">${escapeHtml(book.label)}</span>`;
   }
   return `<span class="book-mark ${size === "sm" ? "sm" : ""}" style="--c:${book.color}" title="${escapeHtml(book.name)}">${escapeHtml(book.label)}</span>`;
 }
-
 function bookOffer(row, key) {
   const meta = BOOK_BY_KEY[key];
   if (meta?.dfs) return row.dfs?.[key] || null;
   return row.books?.[key] || null;
 }
-
 function applyFilters(rows) {
-  const game = $("game").value;
-  const stat = $("stat").value;
-  const side = $("side").value;
-  const tier = $("tier").value;
-  const minPct = Number($("minPct").value || 0);
-  const q = $("q").value.trim().toLowerCase();
-  const be = breakEven();
-
+  const game = $("game").value, stat = $("stat").value, side = $("side").value;
+  const tier = $("tier").value, minPct = Number($("minPct").value || 0);
+  const q = $("q").value.trim().toLowerCase(), be = breakEven();
   return rows.filter((r) => {
     if (state.view === "pp" && !r.dfs?.prizepicks) return false;
     if (state.view === "ud" && !r.dfs?.underdog) return false;
@@ -141,12 +120,10 @@ function applyFilters(rows) {
     return true;
   });
 }
-
 function sortRows(rows) {
   const dir = state.sortDir === "asc" ? 1 : -1;
   return [...rows].sort((a, b) => {
-    let va = a[state.sortKey];
-    let vb = b[state.sortKey];
+    let va = a[state.sortKey], vb = b[state.sortKey];
     if (state.sortKey === "ev") { va = rowEdge(a); vb = rowEdge(b); }
     if (va == null && vb == null) return 0;
     if (va == null) return 1;
@@ -155,13 +132,11 @@ function sortRows(rows) {
     return String(va).localeCompare(String(vb)) * dir;
   });
 }
-
 function displayLine(row) {
   if (state.view === "pp" && row.dfs?.prizepicks?.line != null) return row.dfs.prizepicks.line;
   if (state.view === "ud" && row.dfs?.underdog?.line != null) return row.dfs.underdog.line;
   return row.line;
 }
-
 function bookCell(row, key) {
   const src = bookOffer(row, key);
   if (!src) return `<td class="muted">—</td>`;
@@ -170,18 +145,13 @@ function bookCell(row, key) {
   const note = same ? "" : `<div class="line-note">${src.line}</div>`;
   return `<td class="price">${american(src.price)}${note}</td>`;
 }
-
 function fillSelect(sel, values, allLabel) {
   const current = sel.value;
   sel.innerHTML = `<option value="">${allLabel}</option>` +
     values.map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
   if ([...sel.options].some((o) => o.value === current)) sel.value = current;
 }
-
-function visibleBooks() {
-  return BOOKS.filter((b) => state.booksOn.has(b.key));
-}
-
+function visibleBooks() { return BOOKS.filter((b) => state.booksOn.has(b.key)); }
 function renderBookPicks() {
   $("bookPicks").innerHTML = BOOKS.map((b) => {
     const on = state.booksOn.has(b.key) ? "on" : "";
@@ -191,39 +161,29 @@ function renderBookPicks() {
     </button>`;
   }).join("");
 }
-
 function renderHead() {
-  const fixed = `
+  $("headrow").innerHTML = `
     <th data-key="player">Player</th>
     <th data-key="stat">Stat</th>
     <th data-key="line">Line</th>
     <th data-key="pp_tier">Tier</th>
     <th data-key="pct_to_hit">% to Hit</th>
     <th data-key="ev">Edge</th>
-    <th>Best</th>`;
-  const books = visibleBooks().map((b) =>
-    `<th data-book="${b.key}">${bookMark(b)}</th>`
-  ).join("");
-  $("headrow").innerHTML = fixed + books;
+    <th>Best</th>` + visibleBooks().map((b) => `<th data-book="${b.key}">${bookMark(b)}</th>`).join("");
   $("headrow").querySelectorAll("th[data-key]").forEach((th) => {
     th.addEventListener("click", () => {
       const key = th.dataset.key;
       if (state.sortKey === key) state.sortDir = state.sortDir === "desc" ? "asc" : "desc";
-      else {
-        state.sortKey = key;
-        state.sortDir = (key === "player" || key === "stat") ? "asc" : "desc";
-      }
+      else { state.sortKey = key; state.sortDir = (key === "player" || key === "stat") ? "asc" : "desc"; }
       render();
     });
   });
 }
-
 function tierBadge(tier) {
   if (!tier) return `<span class="muted">—</span>`;
   const cls = tier === "Demon" ? "tier demon" : tier === "Goblin" ? "tier goblin" : "tier std";
   return `<span class="${cls}">${tier}</span>`;
 }
-
 function bestCell(row) {
   const b = row.best;
   if (!b) return `<td class="muted">—</td>`;
@@ -231,7 +191,6 @@ function bestCell(row) {
   const mark = meta ? bookMark(meta, "sm") : `<span class="muted">${escapeHtml(b.book)}</span>`;
   return `<td class="price">${mark} ${american(b.price)}</td>`;
 }
-
 function scriptLine(row) {
   const bits = [];
   if (row.spread != null) {
@@ -242,48 +201,38 @@ function scriptLine(row) {
   if (row.total != null) bits.push(`O/U ${Number(row.total)}`);
   return bits.join(" · ") || "—";
 }
-
 function render() {
   if (!state.data) return;
   const all = state.data.props || [];
   $("updated").textContent = `Updated ${fmtWhen(state.data.updated)} · BE ${breakEven()}%`;
   fillSelect($("game"), unique(all.map((r) => r.game)).sort(), "All games");
   const stats = unique(all.map((r) => r.stat));
-  const coreFirst = [...stats.filter((s) => CORE_STATS.has(s)).sort(), ...stats.filter((s) => !CORE_STATS.has(s)).sort()];
-  fillSelect($("stat"), coreFirst, "All props");
-
+  fillSelect($("stat"), [...stats.filter((s) => CORE_STATS.has(s)).sort(), ...stats.filter((s) => !CORE_STATS.has(s)).sort()], "All props");
   renderBookPicks();
   renderHead();
-
   const rows = sortRows(applyFilters(all));
   $("count").textContent = `${rows.length.toLocaleString()} shown`;
-
-  if (!rows.length) {
-    $("tbody").innerHTML = "";
-    $("empty").style.display = "block";
-    return;
-  }
+  if (!rows.length) { $("tbody").innerHTML = ""; $("empty").style.display = "block"; return; }
   $("empty").style.display = "none";
   const cols = visibleBooks();
   $("tbody").innerHTML = rows.map((r) => {
     const sideClass = r.side === "Over" || r.side === "Yes" ? "over" : (r.side === "Under" || r.side === "No" ? "under" : "");
     const lineTxt = displayLine(r);
     const edge = rowEdge(r);
-    return `
-      <tr>
-        <td>
-          <div class="player">${escapeHtml(r.player)}</div>
-          <div class="game">${escapeHtml(matchup(r))} · ${escapeHtml(fmtWhen(r.commence_time))}</div>
-          <div class="script">${scriptLine(r)}</div>
-        </td>
-        <td>${escapeHtml(r.stat)}</td>
-        <td class="line-stack"><span class="tag ${sideClass}">${escapeHtml(r.side)}</span><div class="line-num">${lineTxt ?? "—"}</div></td>
-        <td>${tierBadge(r.pp_tier)}</td>
-        <td><span class="${pctClass(r.pct_to_hit)}">${r.pct_to_hit != null ? r.pct_to_hit.toFixed(1) + "%" : "—"}</span></td>
-        <td class="${edge >= 0 ? "" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</td>
-        ${bestCell(r)}
-        ${cols.map((b) => bookCell(r, b.key)).join("")}
-      </tr>`;
+    return `<tr>
+      <td>
+        <button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}</button>
+        <div class="game">${escapeHtml(matchup(r))} · ${escapeHtml(fmtWhen(r.commence_time))}</div>
+        <div class="script">${scriptLine(r)}</div>
+      </td>
+      <td>${escapeHtml(r.stat)}</td>
+      <td class="line-stack"><span class="tag ${sideClass}">${escapeHtml(r.side)}</span><div class="line-num">${lineTxt ?? "—"}</div></td>
+      <td>${tierBadge(r.pp_tier)}</td>
+      <td><span class="${pctClass(r.pct_to_hit)}">${r.pct_to_hit != null ? r.pct_to_hit.toFixed(1) + "%" : "—"}</span></td>
+      <td class="${edge >= 0 ? "" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</td>
+      ${bestCell(r)}
+      ${cols.map((b) => bookCell(r, b.key)).join("")}
+    </tr>`;
   }).join("");
 }
 
@@ -295,55 +244,93 @@ document.querySelectorAll(".tab[data-view]").forEach((btn) => {
     render();
   });
 });
-
 $("bookPicks").addEventListener("click", (e) => {
   const btn = e.target.closest(".book-pick");
   if (!btn) return;
   const key = btn.dataset.book;
-  if (state.booksOn.has(key)) {
-    if (state.booksOn.size === 1) return;
-    state.booksOn.delete(key);
-  } else {
-    state.booksOn.add(key);
-  }
+  if (state.booksOn.has(key)) { if (state.booksOn.size === 1) return; state.booksOn.delete(key); }
+  else state.booksOn.add(key);
   render();
 });
-
-$("booksReset").addEventListener("click", () => {
-  state.booksOn = new Set(DEFAULT_ON);
-  render();
-});
-
+$("booksReset").addEventListener("click", () => { state.booksOn = new Set(DEFAULT_ON); render(); });
 ["game", "stat", "side", "tier", "picks", "q", "minPct"].forEach((id) => {
   $(id).addEventListener("input", render);
   $(id).addEventListener("change", render);
 });
 
-const LOAD_LINES = [
-  "Warming up the slate…",
-  "Checking the books…",
-  "Hiking the props…",
-  "Sharpening the edges…",
-  "Two-minute drill…",
-];
-
-function setLoader(msg) {
-  const el = $("loaderText");
-  if (el && msg) el.textContent = msg;
+function closePopup() { const el = $("popup"); if (el) el.hidden = true; }
+function openPlayerPopup(player, eventId, market, side) {
+  const all = state.data?.props || [];
+  const mine = all.filter((r) => r.player === player);
+  const focus = mine.find((r) => r.event_id === eventId && r.market === market && r.side === side) || mine[0];
+  if (!focus) return;
+  const edge = rowEdge(focus);
+  const books = Object.entries(focus.books || {}).sort((a, b) => (a[0] > b[0] ? 1 : -1));
+  const dfs = Object.entries(focus.dfs || {});
+  const others = mine.filter((r) => !(r.event_id === focus.event_id && r.market === focus.market && r.side === focus.side))
+    .sort((a, b) => String(a.stat).localeCompare(String(b.stat)));
+  $("popupCard").innerHTML = `
+    <div class="popup-top">
+      <div>
+        <div class="popup-name">${escapeHtml(focus.player)}</div>
+        <div class="popup-sub">${escapeHtml(matchup(focus))} · ${escapeHtml(fmtWhen(focus.commence_time))}<br>${escapeHtml(scriptLine(focus))}</div>
+      </div>
+      <button type="button" class="popup-x" id="popupClose">✕</button>
+    </div>
+    <div class="popup-grid">
+      <div class="popup-stat"><b>Stat</b>${escapeHtml(focus.stat)} ${escapeHtml(focus.side)} ${focus.line ?? ""}</div>
+      <div class="popup-stat"><b>Tier</b>${escapeHtml(focus.pp_tier || "—")}</div>
+      <div class="popup-stat"><b>% to hit</b>${focus.pct_to_hit != null ? focus.pct_to_hit.toFixed(1) + "%" : "—"}</div>
+      <div class="popup-stat"><b>Edge</b>${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</div>
+    </div>
+    <div class="popup-stat" style="margin-bottom:12px">
+      <b>DFS lines</b>
+      ${dfs.length ? dfs.map(([k, v]) => {
+        const meta = BOOK_BY_KEY[k];
+        return `${meta ? bookMark(meta, "sm") : k} ${v.line ?? "—"} ${american(v.price)}`;
+      }).join("&nbsp;&nbsp;&nbsp;") : "—"}
+    </div>
+    <table class="popup-table">
+      <thead><tr><th>Book</th><th>Line</th><th>Price</th><th>Same line</th></tr></thead>
+      <tbody>
+        ${books.map(([k, v]) => {
+          const meta = BOOK_BY_KEY[k];
+          return `<tr><td>${meta ? bookMark(meta, "sm") + " " + escapeHtml(meta.name) : escapeHtml(k)}</td><td>${v.line ?? "—"}</td><td>${american(v.price)}</td><td>${v.same_line ? "Yes" : "No"}</td></tr>`;
+        }).join("") || `<tr><td colspan="4" class="muted">No sportsbook prices</td></tr>`}
+      </tbody>
+    </table>
+    ${others.length ? `<h4 style="margin:16px 0 8px">Other ${escapeHtml(player)} props</h4>
+    <table class="popup-table">
+      <thead><tr><th>Stat</th><th>Side</th><th>Line</th><th>% to hit</th></tr></thead>
+      <tbody>${others.slice(0, 24).map((r) => `<tr>
+        <td>${escapeHtml(r.stat)}</td><td>${escapeHtml(r.side)}</td>
+        <td>${r.line ?? "—"}</td><td>${r.pct_to_hit != null ? r.pct_to_hit.toFixed(1) + "%" : "—"}</td>
+      </tr>`).join("")}</tbody>
+    </table>` : ""}`;
+  $("popup").hidden = false;
+  $("popupClose").onclick = closePopup;
 }
+$("tbody").addEventListener("click", (e) => {
+  const btn = e.target.closest(".player-btn");
+  if (!btn) return;
+  openPlayerPopup(btn.dataset.player, btn.dataset.eid, btn.dataset.market, btn.dataset.side);
+});
+$("popup")?.addEventListener("click", (e) => { if (e.target.id === "popup") closePopup(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePopup(); });
+
+const LOAD_LINES = ["Warming up the slate…", "Checking the books…", "Hiking the props…", "Sharpening the edges…", "Two-minute drill…"];
+function setLoader(msg) { const el = $("loaderText"); if (el && msg) el.textContent = msg; }
 function hideLoader() {
   const el = $("loader");
   if (!el) return;
   el.classList.add("out");
   setTimeout(() => el.remove(), 500);
 }
-
 let lineIdx = 0;
 const lineTimer = setInterval(() => {
   lineIdx = (lineIdx + 1) % LOAD_LINES.length;
   setLoader(LOAD_LINES[lineIdx]);
 }, 700);
-
 async function loadData() {
   try {
     setLoader("Checking the books…");
@@ -356,8 +343,7 @@ async function loadData() {
     const url = version ? `${DATA_URL}?v=${encodeURIComponent(version)}` : DATA_URL;
     const res = await fetch(url);
     if (!res.ok) throw new Error(res.statusText);
-    const data = await res.json();
-    state.data = data;
+    state.data = await res.json();
     render();
   } catch (err) {
     $("updated").textContent = "Could not load data/nfl-props.json";
@@ -369,5 +355,4 @@ async function loadData() {
     hideLoader();
   }
 }
-
 loadData();
