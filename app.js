@@ -18,7 +18,6 @@ const BOOKS = [
 ];
 
 const PP_BE = { 2: 57.74, 3: 58.48, 4: 56.23, 5: 54.93, 6: 54.09 };
-
 const TEAM_ABBR = {
   "Arizona Cardinals": "ARI", "Atlanta Falcons": "ATL", "Baltimore Ravens": "BAL",
   "Buffalo Bills": "BUF", "Carolina Panthers": "CAR", "Chicago Bears": "CHI",
@@ -32,12 +31,11 @@ const TEAM_ABBR = {
   "San Francisco 49ers": "SF", "Seattle Seahawks": "SEA", "Tampa Bay Buccaneers": "TB",
   "Tennessee Titans": "TEN", "Washington Commanders": "WAS",
 };
-
-const CORE_STATS = new Set(["Pass Yds", "Rush Yds", "Receptions", "Rec Yds", "Rush+Rec Yds", "Pass TDs", "Anytime TD"]);
+const CORE_STATS = new Set(["Pass Yds", "Rush Yds", "Receptions", "Rec Yds", "Rush+Rec Yds", "Pass TDs", "Anytime TD", "Fantasy Score", "Pass+Rush Yds"]);
+const FALLBACK_HEAD = "https://www.freeiconspng.com/uploads/--tie-user-users-work-worker-working-icon--icon-search-engine-6.png";
 const DEFAULT_ON = new Set(BOOKS.filter((b) => b.on).map((b) => b.key));
 const BOOK_BY_KEY = Object.fromEntries(BOOKS.map((b) => [b.key, b]));
-
-const state = { data: null, sortKey: "ev", sortDir: "desc", view: "pp", sport: "nfl", section: "props", booksOn: new Set(DEFAULT_ON) };
+const state = { data: null, sortKey: "ev", sortDir: "desc", view: "pp", sport: "nfl", section: "props", booksOn: new Set(DEFAULT_ON), slip: [] };
 const $ = (id) => document.getElementById(id);
 
 function american(price) {
@@ -175,12 +173,68 @@ function scriptLine(row) {
   if (row.total != null) bits.push(`O/U ${Number(row.total)}`);
   return bits.join(" · ") || "—";
 }
-function kalshiCell(list, hint) {
-  const hit = (list || []).find((m) => (m.title || "").toLowerCase().includes((hint || "").toLowerCase())) || (list || [])[0];
-  if (!hit) return "—";
-  const px = hit.implied != null ? hit.implied + "¢" : "—";
+function kalshiMatch(list, game) {
+  const blob = `${game.away_team || ""} ${game.home_team || ""} ${game.game || ""}`.toLowerCase();
+  const bits = blob.split(/[^a-z0-9]+/).filter((w) => w.length > 3);
+  return (list || []).filter((m) => bits.filter((w) => (m.title || "").toLowerCase().includes(w)).length >= 1)[0] || null;
+}
+function kalshiCell(list, game) {
+  const hit = typeof game === "string" ? (list || []).find((m) => (m.title || "").toLowerCase().includes(game.toLowerCase())) : kalshiMatch(list, game || {});
+  if (!hit) return `<span class="muted">—</span>`;
+  const px = hit.implied != null ? `${hit.implied}¢` : "—";
   const vol = hit.volume != null ? ` · ${Math.round(hit.volume)}` : "";
-  return `${px}${vol}`;
+  return `<div class="price">${px}${vol}</div><div class="line-note">${escapeHtml((hit.title || "").slice(0, 42))}</div>`;
+}
+function bookImplied(price) {
+  if (price == null) return null;
+  const n = Number(price);
+  if (Number.isNaN(n) || n === 0) return null;
+  return n < 0 ? (Math.abs(n) / (Math.abs(n) + 100)) * 100 : (100 / (n + 100)) * 100;
+}
+function gameBestEdge(g, k) {
+  const mlHomeImp = bookImplied(g.ml_home);
+  const kHome = kalshiMatch(k.ml, g);
+  if (kHome && kHome.implied != null && mlHomeImp != null) return +(kHome.implied - mlHomeImp).toFixed(1);
+  return null;
+}
+function headshotTag(url) {
+  const src = url || FALLBACK_HEAD;
+  return `<img class="headshot" src="${escapeHtml(src)}" alt="" referrerpolicy="no-referrer" onerror="if(this.dataset.fb)return;this.dataset.fb=1;this.src='${FALLBACK_HEAD}'" />`;
+}
+function ppSlipLink(row) {
+  const id = row.pp_id || row.dfs?.prizepicks?.id;
+  if (!id) return "https://app.prizepicks.com/";
+  const ou = row.side === "Under" || row.side === "No" ? "u" : "o";
+  const line = row.dfs?.prizepicks?.line ?? row.line ?? "";
+  return `https://app.prizepicks.com/?projections=${encodeURIComponent(`${id}-${ou}-${line}`)}`;
+}
+function renderSlip() {
+  const bar = $("slipBar");
+  if (!bar) return;
+  bar.hidden = state.section === "games" || state.slip.length === 0;
+  if ($("slipCount")) $("slipCount").textContent = String(state.slip.length);
+  if ($("slipPicks")) {
+    $("slipPicks").innerHTML = state.slip.map((r, i) =>
+      `<button type="button" class="book-pick on" data-slip="${i}">${escapeHtml(r.player)} ${escapeHtml(r.side)} ${r.line ?? ""} ✕</button>`
+    ).join("");
+  }
+  const open = $("slipOpen");
+  if (open) {
+    const parts = state.slip.map((r) => {
+      const id = r.pp_id || r.dfs?.prizepicks?.id;
+      if (!id) return null;
+      const ou = r.side === "Under" || r.side === "No" ? "u" : "o";
+      return `${id}-${ou}-${r.dfs?.prizepicks?.line ?? r.line ?? ""}`;
+    }).filter(Boolean);
+    open.href = parts.length ? `https://app.prizepicks.com/?projections=${encodeURIComponent(parts.join(","))}` : "https://app.prizepicks.com/";
+  }
+}
+function addToSlip(row) {
+  if (state.slip.length >= 6) return;
+  const sig = `${row.player}|${row.stat}|${row.side}|${row.line}`;
+  if (state.slip.some((r) => `${r.player}|${r.stat}|${r.side}|${r.line}` === sig)) return;
+  state.slip.push(row);
+  renderSlip();
 }
 function renderGames() {
   const wrap = $("gamesWrap");
@@ -199,16 +253,21 @@ function renderGames() {
   if (!showGames) return;
   const games = state.data.games || [];
   const k = state.data.kalshi || {};
-  $("gamesBody").innerHTML = games.map((g) => `<tr>
+  const ranked = games.map((g) => ({ ...g, edge: gameBestEdge(g, k) })).sort((a, b) => (b.edge ?? -999) - (a.edge ?? -999));
+  $("gamesBody").innerHTML = ranked.map((g) => `<tr>
     <td><div class="player">${escapeHtml(g.game)}</div><div class="game">${escapeHtml(fmtWhen(g.commence_time))}</div></td>
-    <td>${g.spread ?? "—"}</td><td>${g.total ?? "—"}</td>
-    <td>${american(g.ml_away)}</td><td>${american(g.ml_home)}</td>
-    <td>${kalshiCell(k.ml, g.home_team || "")}</td>
-    <td>${(k.spread || []).length} mkts</td>
-    <td>${(k.total || []).length} mkts</td>
+    <td class="line-stack"><div class="line-num">${g.spread ?? "—"}</div>${g.spread_proj != null ? `<div class="line-note">proj ${g.spread_proj}</div>` : ""}</td>
+    <td class="line-stack"><div class="line-num">${g.total ?? "—"}</div>${g.total_proj != null ? `<div class="line-note">proj ${g.total_proj}</div>` : ""}</td>
+    <td class="price">${american(g.ml_away)}<div class="line-note">${bookImplied(g.ml_away) != null ? bookImplied(g.ml_away).toFixed(1) + "%" : ""}</div></td>
+    <td class="price">${american(g.ml_home)}<div class="line-note">${bookImplied(g.ml_home) != null ? bookImplied(g.ml_home).toFixed(1) + "%" : ""}</div></td>
+    <td>${kalshiCell(k.ml, g)}</td>
+    <td>${kalshiCell(k.spread, g)}</td>
+    <td>${kalshiCell(k.total, g)}</td>
+    <td class="${g.edge != null && g.edge >= 0 ? "" : "muted"}">${g.edge == null ? "—" : (g.edge > 0 ? "+" : "") + g.edge.toFixed(1)}</td>
   </tr>`).join("");
   $("gamesEmpty").style.display = games.length ? "none" : "block";
   $("count").textContent = `${games.length} games · Kalshi ML ${(k.ml || []).length}`;
+  renderSlip();
 }
 function render() {
   if (!state.data) return;
@@ -231,7 +290,7 @@ function render() {
     const edge = rowEdge(r);
     return `<tr>
       <td>
-        <div class="player-row">${r.headshot ? `<img class="headshot" src="${escapeHtml(r.headshot)}" alt="" referrerpolicy="no-referrer" />` : ""}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}</button></div>
+        <div class="player-row">${headshotTag(r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}</button></div>
         <div class="game">${escapeHtml(matchup(r))} · ${escapeHtml(fmtWhen(r.commence_time))}</div>
         <div class="script">${scriptLine(r)}</div>
       </td>
@@ -239,7 +298,7 @@ function render() {
       <td class="line-stack"><span class="tag ${sideClass}">${escapeHtml(r.side)}</span><div class="line-num">${displayLine(r) ?? "—"}</div></td>
       <td>${tierBadge(r.pp_tier)}</td>
       <td><span class="${pctClass(r.pct_to_hit)}">${r.pct_to_hit != null ? r.pct_to_hit.toFixed(1) + "%" : "—"}</span></td>
-      <td class="${edge >= 0 ? "" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</td>
+      <td class="${edge >= 0 ? "" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}${r.dfs?.prizepicks ? `<button type="button" class="slip-add" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">+ slip</button>` : ""}</td>
       ${bestCell(r)}
       ${cols.map((b) => bookCell(r, b.key)).join("")}
     </tr>`;
@@ -282,7 +341,7 @@ function openPlayerPopup(player, eventId, market, side) {
   const others = mine.filter((r) => !(r.event_id === focus.event_id && r.market === focus.market && r.side === focus.side)).sort((a, b) => String(a.stat).localeCompare(String(b.stat)));
   $("popupCard").innerHTML = `
     <div class="popup-top"><div>
-      <div class="popup-name">${escapeHtml(focus.player)}</div>
+      <div class="popup-name">${headshotTag(focus.headshot)} ${escapeHtml(focus.player)}</div>
       <div class="popup-sub">${escapeHtml(matchup(focus))} · ${escapeHtml(fmtWhen(focus.commence_time))}<br>${escapeHtml(scriptLine(focus))}</div>
     </div><button type="button" class="popup-x" id="popupClose">✕</button></div>
     <div class="popup-grid">
@@ -296,17 +355,36 @@ function openPlayerPopup(player, eventId, market, side) {
     </div>
     <table class="popup-table"><thead><tr><th>Book</th><th>Line</th><th>Price</th><th>Same line</th></tr></thead>
     <tbody>${books.map(([k, v]) => { const meta = BOOK_BY_KEY[k]; return `<tr><td>${meta ? bookMark(meta, "sm") + " " + escapeHtml(meta.name) : escapeHtml(k)}</td><td>${v.line ?? "—"}</td><td>${american(v.price)}</td><td>${v.same_line ? "Yes" : "No"}</td></tr>`; }).join("") || `<tr><td colspan="4" class="muted">No sportsbook prices</td></tr>`}</tbody></table>
+    <div style="margin:12px 0 8px;display:flex;gap:8px;flex-wrap:wrap">
+      <button type="button" class="tab on" id="popupSlip">Add to PP slip</button>
+      <a class="tab" href="${ppSlipLink(focus)}" target="_blank" rel="noopener">Open this pick in PrizePicks</a>
+    </div>
     ${others.length ? `<h4 style="margin:16px 0 8px">Other ${escapeHtml(player)} props</h4>
     <table class="popup-table"><thead><tr><th>Stat</th><th>Side</th><th>Line</th><th>% to hit</th></tr></thead>
     <tbody>${others.slice(0, 24).map((r) => `<tr><td>${escapeHtml(r.stat)}</td><td>${escapeHtml(r.side)}</td><td>${r.line ?? "—"}</td><td>${r.pct_to_hit != null ? r.pct_to_hit.toFixed(1) + "%" : "—"}</td></tr>`).join("")}</tbody></table>` : ""}`;
   $("popup").hidden = false;
   $("popupClose").onclick = closePopup;
+  const slipBtn = $("popupSlip");
+  if (slipBtn) slipBtn.onclick = () => addToSlip(focus);
 }
 $("tbody").addEventListener("click", (e) => {
+  const add = e.target.closest(".slip-add");
+  if (add) {
+    const row = (state.data?.props || []).find((r) => r.player === add.dataset.player && r.event_id === add.dataset.eid && r.market === add.dataset.market && r.side === add.dataset.side);
+    if (row) addToSlip(row);
+    return;
+  }
   const btn = e.target.closest(".player-btn");
   if (!btn) return;
   openPlayerPopup(btn.dataset.player, btn.dataset.eid, btn.dataset.market, btn.dataset.side);
 });
+$("slipPicks")?.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-slip]");
+  if (!btn) return;
+  state.slip.splice(Number(btn.dataset.slip), 1);
+  renderSlip();
+});
+$("slipClear")?.addEventListener("click", () => { state.slip = []; renderSlip(); });
 $("popup")?.addEventListener("click", (e) => { if (e.target.id === "popup") closePopup(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePopup(); });
 
@@ -332,7 +410,7 @@ async function loadData() {
     state.data = await res.json();
     render();
   } catch (err) {
-    $("updated").textContent = "Could not load props JSON";
+    $("updated").textContent = "Could not load data/nfl-props.json";
     $("empty").style.display = "block";
     $("empty").textContent = "No data yet. Run the GitHub Action.";
     console.error(err);
