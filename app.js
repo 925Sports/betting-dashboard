@@ -17,15 +17,15 @@ const BOOKS = [
   { key: "pick6", label: "P6", name: "Pick6", color: "#FF6A00", dfs: true, on: true, tile: "#FF6A00", logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTbqxkzAMYVivcvVOqljmDRMjW0xq78Wu_YksmtYFcaPg&s=10" },
   { key: "draftkings", label: "DK", name: "DraftKings", color: "#53D337", dfs: false, on: true, logo: "https://play-lh.googleusercontent.com/Aqu9BtAN0cgtogg7AJErJ0RT82ivWsA2EiBI4iloW6kPfnBMZ-gmoj8Iy8_Z1nmxYkgOSQatDI57zdhq4an0Rg=s0-br30" },
   { key: "fanduel", label: "FD", name: "FanDuel", color: "#1493FF", dfs: false, on: true, logo: "https://play-lh.googleusercontent.com/dg5hlupv1IDaHY2ibnZH1OJNCsw4dEac6jfeFxcVPpxs8rViIRgycCzduFTfiRS9HSNCJRVEBJMZ8YJAJw_T6vk" },
-  { key: "williamhill_us", label: "CZR", name: "Caesars", color: "#C4A35A", dfs: false, on: true, logo: "https://www.liblogo.com/img-logo/wi5810wdec-william-hill-logo-william-hill-deposit-bonus-amp-review--com.png" },
-  { key: "novig", label: "NOV", name: "Novig", color: "#9B7DFF", dfs: false, on: true, exchange: true, logo: "https://mma.prnewswire.com/media/2189555/Novig_WhiteBackground_BlackWordmark_Logo.jpg?p=facebook" },
-  { key: "betrivers", label: "RIV", name: "BetRivers", color: "#E23B3B", dfs: false, on: false, logo: "" },
+  { key: "williamhill_us", label: "CZR", name: "Caesars", color: "#C4A35A", dfs: false, on: true, logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTsnSJDGtHOCIv5imAbtjXUGGjsdjVRhCfgpGD651QsDg&s" },
+  { key: "novig", label: "NOV", name: "Novig", color: "#9B7DFF", dfs: false, on: true, exchange: true, logo: "https://play-lh.googleusercontent.com/q65mzlKmwoQiqMqwpamDZ12bgt1YpOc_nTH_N0waJ-6oOd1tUdMT8YGSdYsmEaTeIkdhTNC7hFDqq8T5OvAwi1I=w240-h480-rw" },
+  { key: "betrivers", label: "RIV", name: "BetRivers", color: "#E23B3B", dfs: false, on: false, logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRRUZHtfy1YTi8HJghX7jST2Z8b-cJTZokW7i2vONeU1A&s=10" },
   { key: "espnbet", label: "ESPN", name: "theScore Bet", color: "#1B4FA3", dfs: false, on: false, logo: "https://elitesportsny.com/app/uploads/2023/11/cgen-partner-icon-thescorebet-300x300-1.png" },
   { key: "betparx", label: "PARX", name: "BetParx", color: "#2BB0A6", dfs: false, on: false, logo: "https://mma.prnewswire.com/media/1952755/betPARX_logo.jpg?p=facebook" },
   { key: "ballybet", label: "BAL", name: "Bally Bet", color: "#E6C200", dfs: false, on: false, logo: "https://assets.actionnetwork.com/261589_BallyBet.png" },
   { key: "betonlineag", label: "BOL", name: "BetOnline", color: "#3D7BFF", dfs: false, on: false, logo: "https://mma.prnewswire.com/media/2323695/betonline_logo.jpg?p=facebook" },
-  { key: "prophetx", label: "PX", name: "ProphetX", color: "#4CC9F0", dfs: false, on: true, exchange: true, logo: "https://sportsbooksonline-com.imgix.net/assets/local/Company/logos/prophetx-logo-transparent.png" },
-  { key: "betmgm", label: "MGM", name: "BetMGM", color: "#C4A35A", dfs: false, on: false, logo: "https://logos-world.net/wp-content/uploads/2024/10/BetMGM-Logo.jpg" },
+  { key: "prophetx", label: "PX", name: "ProphetX", color: "#4CC9F0", dfs: false, on: true, exchange: true, logo: "https://play-lh.googleusercontent.com/zeTZent4Try2Ck1Rl93lOPtLpO6y5jAZ6IZTid-x4eDA-k_sGX6PQAO8XoHL5cETPVnUxddoR_kHASzg6riBxQ" },
+  { key: "betmgm", label: "MGM", name: "BetMGM", color: "#C4A35A", dfs: false, on: false, logo: "https://play-lh.googleusercontent.com/8GjU4o5tBpLJ5AT_4eqEiwTz9dy_nVFsLsmlPpsMjMIOCrskJSNLzZkpsgHQp1c1cNhRqfsZns1BPK9Qywh8eXY" },
 ];
 
 const PP_BE = { 2: 57.74, 3: 58.48, 4: 56.23, 5: 54.93, 6: 54.09 };
@@ -144,6 +144,32 @@ function injPill(inj) {
   return `<span class="inj-pill ${injClass(label)}" title="${escapeHtml(inj.injury || "")}">${escapeHtml(label)}</span>`;
 }
 
+function playerNewsItems(row) {
+  const meta = intelPlayer(row.player);
+  const gsis = row.gsis_id || meta?.gsis_id;
+  const name = String(row.player || "").toLowerCase();
+  return (state.intel?.news || []).filter((n) => {
+    if (gsis && (n.players || []).includes(gsis)) return true;
+    const blob = `${n.headline || ""} ${n.description || ""}`.toLowerCase();
+    return name && blob.includes(name);
+  }).slice(0, 3);
+}
+
+function flagIcons(row) {
+  const bits = [];
+  if (row.injury?.status) {
+    const cls = injClass(row.injury.status);
+    const body = `<b>${escapeHtml(row.injury.status)}</b>${row.injury.injury ? ` · ${escapeHtml(row.injury.injury)}` : ""}${row.injury.season ? `<div>${row.injury.season}w${row.injury.week || ""}</div>` : ""}`;
+    bits.push(`<span class="flag inj ${cls}" data-tip="1" aria-label="Injury"><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M8 1.5A6.5 6.5 0 1 0 8 14.5 6.5 6.5 0 0 0 8 1.5zm.75 3v2.75H11.5v1.5H8.75V12h-1.5V8.75H4.5v-1.5h2.75V4.5h1.5z"/></svg><span class="tip-src" hidden>${body}</span></span>`);
+  }
+  const news = playerNewsItems(row);
+  if (news.length) {
+    const body = news.map((n) => `<b>${escapeHtml(n.source || "News")}</b><div>${escapeHtml(n.headline || "")}</div>${n.published ? `<div class="muted">${escapeHtml(n.published)}</div>` : ""}`).join("");
+    bits.push(`<span class="flag news" data-tip="1" aria-label="News"><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M2 3.5h9.5A1.5 1.5 0 0 1 13 5v7.5h1V5a2.5 2.5 0 0 0-2.5-2.5H2v1zm0 2h8v1H2v-1zm0 2.5h8v1H2V8zm0 2.5h5v1H2v-1zM1 3v11h10.5A1.5 1.5 0 0 0 13 12.5v-7H2.5V3H1z"/></svg><span class="tip-src" hidden>${body}</span></span>`);
+  }
+  return bits.length ? `<span class="flags">${bits.join("")}</span>` : "";
+}
+
 function avgLogs(recs, key) {
   const list = (recs || []).slice(-5);
   if (!list.length) return null;
@@ -154,6 +180,98 @@ function avgLogs(recs, key) {
 function playerByGsis(gsis) {
   const players = state.intel?.players || {};
   return Object.values(players).find((p) => p.gsis_id === gsis) || null;
+}
+
+const LOG_STAT = {
+  "Receptions": (g) => g.rec,
+  "Rec Yds": (g) => g.rec_yds,
+  "Targets": (g) => g.tgt,
+  "Rush Yds": (g) => g.rush_yds,
+  "Rush Att": (g) => g.car,
+  "Pass Yds": (g) => g.pass_yds,
+  "Pass TDs": (g) => g.pass_td,
+  "Pass Att": (g) => g.att,
+  "Completions": (g) => g.cmp,
+  "INTs": (g) => g.int,
+  "Rush+Rec Yds": (g) => (g.rush_yds || 0) + (g.rec_yds || 0),
+  "Pass+Rush Yds": (g) => (g.pass_yds || 0) + (g.rush_yds || 0),
+  "Fantasy Score": (g) => g.fant,
+  "Anytime TD": (g) => (g.rush_td || 0) + (g.rec_td || 0),
+  "Rec TDs": (g) => g.rec_td,
+  "Rush TDs": (g) => g.rush_td,
+};
+
+function logValue(g, stat) {
+  const fn = LOG_STAT[stat];
+  if (fn) return Number(fn(g) || 0);
+  return null;
+}
+
+function splitStats(games, stat, line, side) {
+  const vals = (games || []).map((g) => ({ g, v: logValue(g, stat) })).filter((x) => x.v != null);
+  if (!vals.length) return null;
+  const ln = line == null ? null : Number(line);
+  const over = String(side || "Over").toLowerCase() !== "under";
+  function pack(label, list) {
+    if (!list.length) return { label, n: 0, avg: null, hit: null, hits: 0, pushes: 0 };
+    const nums = list.map((x) => x.v);
+    const avg = +(nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(1);
+    let hits = 0, pushes = 0, graded = 0;
+    if (ln != null) {
+      list.forEach((x) => {
+        if (x.v === ln) { pushes += 1; return; }
+        graded += 1;
+        if (over ? x.v > ln : x.v < ln) hits += 1;
+      });
+    }
+    const hit = graded ? +((hits / graded) * 100).toFixed(0) : null;
+    return { label, n: list.length, avg, hit, hits, pushes };
+  }
+  const last = (n) => pack(`L${n}`, vals.slice(-n));
+  const home = pack("Home", vals.filter((x) => x.g.home === true));
+  const away = pack("Away", vals.filter((x) => x.g.home === false));
+  return { L5: last(5), L10: last(10), L15: last(15), L20: last(20), home, away, all: pack("Avg", vals) };
+}
+
+function vsOppSplit(games, stat, line, side, opp) {
+  if (!opp) return null;
+  const needle = String(opp).toUpperCase();
+  const list = (games || []).filter((g) => String(g.opp || "").toUpperCase() === needle);
+  const pack = splitStats(list, stat, line, side);
+  return pack ? { ...pack.all, label: `vs ${needle}` } : null;
+}
+
+function upcomingOpp(focus) {
+  const team = focus.nfl_team || intelPlayer(focus.player)?.team || "";
+  const home = abbr(focus.home_team);
+  const away = abbr(focus.away_team);
+  if (team && home && team === home) return away;
+  if (team && away && team === away) return home;
+  return "";
+}
+
+function renderSplitChart(focus, recs) {
+  if (!recs.length || !focus?.stat) return "";
+  const splits = splitStats(recs, focus.stat, focus.line, focus.side);
+  if (!splits) return "";
+  const opp = vsOppSplit(recs, focus.stat, focus.line, focus.side, upcomingOpp(focus));
+  const rows = [splits.L5, splits.L10, splits.L15, splits.L20, splits.home, splits.away, opp, splits.all].filter(Boolean);
+  const maxAvg = Math.max(...rows.map((r) => r.avg || 0), Number(focus.line) || 0, 1);
+  return `<h4 style="margin:16px 0 8px">Trend vs ${escapeHtml(focus.side || "")} ${focus.line ?? ""} ${escapeHtml(focus.stat || "")}</h4>
+    <div class="split-note">${state.intel?.has_2026_logs ? "" : "2025 logs until Week 1 · "}hit rate ignores pushes</div>
+    <div class="split-chart">
+      ${rows.map((r) => {
+        const w = r.avg == null ? 0 : Math.max(4, Math.round((r.avg / maxAvg) * 100));
+        const hw = r.hit == null ? 0 : r.hit;
+        return `<div class="split-row">
+          <div class="split-lab">${escapeHtml(r.label)}<span>${r.n}g</span></div>
+          <div class="split-bars">
+            <div class="split-bar"><i style="width:${w}%"></i><em>avg ${r.avg ?? "—"}</em></div>
+            <div class="split-bar hit"><i style="width:${hw}%"></i><em>hit ${r.hit == null ? "—" : r.hit + "%"}</em></div>
+          </div>
+        </div>`;
+      }).join("")}
+    </div>`;
 }
 
 function bookMark(book, size) {
@@ -188,9 +306,10 @@ function applyFilters(rows) {
     if (state.view === "novig" && !r.books?.novig) return false;
     if (state.view === "ev" && !(r.pct_to_hit >= be)) return false;
     if (state.view === "pp" || state.view === "pick6" || state.view === "ev") {
-      if (tier === "standard" && r.pp_tier && r.pp_tier !== "Standard") return false;
+      if (tier === "standard" && ((r.pp_tier && r.pp_tier !== "Standard") || r.is_alternate)) return false;
       if (tier === "demon" && r.pp_tier !== "Demon") return false;
       if (tier === "goblin" && r.pp_tier !== "Goblin") return false;
+      if (tier === "alternate" && r.pp_tier !== "Alternate" && !r.is_alternate) return false;
     }
     if (game && r.game !== game) return false;
     if (stat && r.stat !== stat) return false;
@@ -283,7 +402,7 @@ function renderHead() {
 
 function tierBadge(tier) {
   if (!tier) return `<span class="muted">—</span>`;
-  const cls = tier === "Demon" ? "tier demon" : tier === "Goblin" ? "tier goblin" : "tier std";
+  const cls = tier === "Demon" ? "tier demon" : tier === "Goblin" ? "tier goblin" : tier === "Alternate" ? "tier alt" : "tier std";
   return `<span class="${cls}">${tier}</span>`;
 }
 
@@ -294,6 +413,20 @@ function bestCell(row) {
   const mark = meta ? bookMark(meta, "sm") : `<span class="muted">${escapeHtml(b.book)}</span>`;
   return `<td class="price">${mark} ${american(b.price)}</td>`;
 }
+
+function spreadCell(row) {
+  if (row.spread == null) return `<td class="muted">—</td>`;
+  const home = abbr(row.home_team);
+  const n = Number(row.spread);
+  const txt = n > 0 ? `${home} +${n}` : `${home} ${n}`;
+  return `<td>${escapeHtml(txt)}</td>`;
+}
+
+function totalCell(row) {
+  if (row.total == null) return `<td class="muted">—</td>`;
+  return `<td>${Number(row.total)}</td>`;
+}
+
 
 function scriptLine(row) {
   const bits = [];
@@ -330,6 +463,7 @@ function bookImplied(price) {
 }
 function gameBestEdge(g, k) {
   const mlHomeImp = bookImplied(g.ml_home);
+  const mlAwayImp = bookImplied(g.ml_away);
   const kHome = kalshiMatch(k.ml, g);
   let best = null;
   if (kHome && kHome.implied != null && mlHomeImp != null) {
@@ -364,7 +498,9 @@ function renderSlip() {
     ).join("");
   }
   const open = $("slipOpen");
-  if (open) open.href = ppSlipLink(state.slip);
+  if (open) {
+    open.href = ppSlipLink(state.slip);
+  }
 }
 function addToSlip(row) {
   if (state.slip.length >= 6) return;
@@ -552,7 +688,7 @@ function render() {
     return `
       <tr>
         <td>
-          <div class="player-row">${headshotTag(r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}</button>${injPill(r.injury)}</div>
+          <div class="player-row">${headshotTag(r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}</button>${flagIcons(r)}</div>
           <div class="game"><span class="sport-tag">${escapeHtml(r.sport || "")}</span> ${escapeHtml(matchup(r))} · ${escapeHtml(fmtWhen(r.commence_time))}</div>
           <div class="script">${scriptLine(r)}${r.broadcasts ? ` · ${escapeHtml(r.broadcasts)}` : ""}</div>
         </td>
@@ -611,6 +747,7 @@ if ($("section")) {
   $(id).addEventListener("change", render);
 });
 
+
 function closePopup() {
   const el = $("popup");
   if (el) el.hidden = true;
@@ -668,27 +805,28 @@ function openPlayerPopup(player, eventId, market, side) {
       <button type="button" class="popup-x" id="popupClose">✕</button>
     </div>
     <div class="popup-grid">
-      <div class="popup-stat"><b>Stat</b>${escapeHtml(focus.stat || "")} ${escapeHtml(focus.side || "")} ${focus.line ?? ""}</div>
+      <div class="popup-stat"><b>Stat</b>${escapeHtml(focus.stat)} ${escapeHtml(focus.side)} ${focus.line ?? ""}</div>
       <div class="popup-stat"><b>Tier</b>${escapeHtml(focus.pp_tier || "—")}</div>
       <div class="popup-stat"><b>% to hit</b>${focus.pct_to_hit != null ? focus.pct_to_hit.toFixed(1) + "%" : "—"}</div>
       <div class="popup-stat"><b>Edge</b>${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</div>
     </div>
     ${focus.injury ? `<div class="popup-stat" style="margin-bottom:12px"><b>Injury</b>${injPill(focus.injury)} ${escapeHtml(focus.injury.injury || "")} · ${focus.injury.season || ""}w${focus.injury.week || ""}</div>` : ""}
     ${logBlock}
+    ${renderSplitChart(focus, recs)}
     ${newsBlock}
     <div class="popup-stat" style="margin-bottom:12px">
       <b>DFS lines</b>
       ${dfs.length ? dfs.map(([k, v]) => {
-        const book = BOOK_BY_KEY[k];
-        return `${book ? bookMark(book, "sm") : k} ${v.line ?? "—"} ${american(v.price)}`;
+        const meta = BOOK_BY_KEY[k];
+        return `${meta ? bookMark(meta, "sm") : k} ${v.line ?? "—"} ${american(v.price)}`;
       }).join("&nbsp;&nbsp;&nbsp;") : "—"}
     </div>
     <table class="popup-table">
       <thead><tr><th>Book</th><th>Line</th><th>Price</th><th>Same line</th></tr></thead>
       <tbody>
         ${books.map(([k, v]) => {
-          const book = BOOK_BY_KEY[k];
-          return `<tr><td>${book ? bookMark(book, "sm") + " " + escapeHtml(book.name) : escapeHtml(k)}</td><td>${v.line ?? "—"}</td><td>${american(v.price)}</td><td>${v.same_line ? "Yes" : "No"}</td></tr>`;
+          const meta = BOOK_BY_KEY[k];
+          return `<tr><td>${meta ? bookMark(meta, "sm") + " " + escapeHtml(meta.name) : escapeHtml(k)}</td><td>${v.line ?? "—"}</td><td>${american(v.price)}</td><td>${v.same_line ? "Yes" : "No"}</td></tr>`;
         }).join("") || `<tr><td colspan="4" class="muted">No sportsbook prices</td></tr>`}
       </tbody>
     </table>
@@ -743,6 +881,32 @@ $("popup")?.addEventListener("click", (e) => {
   if (e.target.id === "popup") closePopup();
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePopup(); });
+
+function hideFlagTip() {
+  const tip = $("flagTip");
+  if (tip) tip.hidden = true;
+}
+document.addEventListener("mouseover", (e) => {
+  const flag = e.target.closest?.(".flag");
+  const tip = $("flagTip");
+  if (!flag || !tip) return;
+  const src = flag.querySelector(".tip-src");
+  if (!src) return;
+  tip.innerHTML = src.innerHTML;
+  tip.hidden = false;
+  const r = flag.getBoundingClientRect();
+  const tw = tip.offsetWidth || 220;
+  const left = Math.min(window.innerWidth - tw - 8, Math.max(8, r.left));
+  const top = r.bottom + 8;
+  tip.style.left = `${left}px`;
+  tip.style.top = `${top}px`;
+});
+document.addEventListener("mouseout", (e) => {
+  if (e.target.closest?.(".flag") && !e.relatedTarget?.closest?.(".flag") && !e.relatedTarget?.closest?.("#flagTip")) {
+    hideFlagTip();
+  }
+});
+document.addEventListener("scroll", hideFlagTip, true);
 
 const LOAD_LINES = [
   "Warming up the slate…",
