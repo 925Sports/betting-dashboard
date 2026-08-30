@@ -20,21 +20,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Build dashboard from published Google Sheet
+      - name: Build dashboard from sheets + Kalshi
         env:
-          SHEET_CSV: "https://docs.google.com/spreadsheets/d/e/2PACX-1vS2Fdvk-56Bf-fiq8ETUftpL1W8cTqtfiOJJSehCXU60lMyo7W4_ldiGJuMrnydlZwM9fBvdrgx6VqQ/pub?gid=0&single=true&output=csv"
-          GAME_CSV: "https://docs.google.com/spreadsheets/d/e/2PACX-1vR4iRyeVVkS5AYbpFqz3LhcHOvosyZE6NUNDrORdvlH-DB2kJaeLqPRIAbqQSEUxydMFvUayxtgTev_/pub?gid=536190425&single=true&output=csv"
           HOURS_AHEAD: "360"
-        run: python scripts/fetch_nfl_props.py
+        run: python scripts/fetch_board.py
 
       - name: Commit updated data
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/nfl-props.json data/meta.json
+          git add data/nfl-props.json data/cfb-props.json data/meta.json
           if git diff --staged --quiet; then
             echo "No data changes"
           else
-            git commit -m "chore: refresh NFL props from sheet $(date -u +%Y-%m-%dT%H:%MZ)"
+            git commit -m "chore: refresh board $(date -u +%Y-%m-%dT%H:%MZ)"
             git push
           fi
