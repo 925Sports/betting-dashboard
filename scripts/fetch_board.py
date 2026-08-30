@@ -200,7 +200,7 @@ def parse_pp_fields(r):
     shot = (r.get("Headshot URL") or "").strip()
     data = (r.get("Data ID") or "").strip()
     leagues = {"nfl", "cfb", "ncaaf", "ncaa", "college football", "mlb", "soccer", "epl", "fifa", "wnba", "nba", "nhl", "cbb", "ncaab"}
-    tiers = {"standard", "demon", "goblin", "power", "mm"}
+    tiers = {"standard", "demon", "goblin", "power", "mm", "alternate", "alt"}
     if odds.lower() in leagues or shot.lower() in tiers:
         league, tier = odds, shot
         headshot = data if data.startswith("http") else ""
@@ -210,10 +210,12 @@ def parse_pp_fields(r):
         headshot = shot if shot.startswith("http") else (data if data.startswith("http") else "")
         pp_id = data if data and not data.startswith("http") else ""
     tier_l = (tier or "standard").lower()
-    if tier_l == "demon":
+    if "demon" in tier_l:
         tier = "Demon"
-    elif tier_l == "goblin":
+    elif "goblin" in tier_l:
         tier = "Goblin"
+    elif "alt" in tier_l or tier_l in {"power", "mm", "promo"}:
+        tier = "Alternate"
     else:
         tier = "Standard"
     return league, tier, headshot, pp_id
@@ -584,6 +586,7 @@ def enrich_props(rows, pp_rows, ud_rows):
             "broadcasts": p.get("broadcasts") or "",
         })
     print(f"Added {extra} extra PP stat rows (combo/fantasy/etc)")
+    mark_alternate_lines(rows)
     fill_player_context(rows)
     fill_headshots(rows, pp_rows, ud_rows)
     for row in rows:
@@ -597,6 +600,47 @@ def enrich_props(rows, pp_rows, ud_rows):
             row["pct_to_hit"] = sane_pct(row.get("pp_sheet_edge"))
         apply_strict_hit(row)
     return rows
+
+
+def mark_alternate_lines(rows):
+    """Keep one Standard line per player/stat/game; extra numbers are Alternate."""
+    groups = defaultdict(list)
+    marked = 0
+    for row in rows:
+        market = str(row.get("market") or "") + " " + str(row.get("stat") or "")
+        if "alternate" in market.lower() or " alt" in f" {market.lower()}":
+            if (row.get("pp_tier") or "Standard") == "Standard":
+                row["pp_tier"] = "Alternate"
+                marked += 1
+            row["is_alternate"] = True
+        if not (row.get("dfs") or {}).get("prizepicks"):
+            continue
+        if (row.get("pp_tier") or "Standard") != "Standard":
+            continue
+        key = (norm_name(row.get("player") or ""), row.get("stat"), row.get("game") or row.get("event_id"))
+        groups[key].append(row)
+    for recs in groups.values():
+        if len(recs) < 2:
+            continue
+        def dist(r):
+            line = None
+            try:
+                line = (r.get("dfs") or {}).get("prizepicks", {}).get("line")
+            except Exception:
+                line = None
+            if line is None:
+                line = r.get("line")
+            ref = r.get("avg_line") if r.get("avg_line") is not None else r.get("book_line")
+            try:
+                return abs(float(line) - float(ref)) if line is not None and ref is not None else 0.0
+            except (TypeError, ValueError):
+                return 0.0
+        recs.sort(key=dist)
+        for r in recs[1:]:
+            r["pp_tier"] = "Alternate"
+            r["is_alternate"] = True
+            marked += 1
+    print(f"Marked {marked} Alternate lines")
 
 
 def fill_player_context(rows):
