@@ -1,8 +1,9 @@
 const DATA_URL = "./data/nfl-props.json";
 
 const BOOKS = [
-  { key: "prizepicks", label: "PP", name: "PrizePicks", color: "#6D28FF", dfs: true, on: true, tile: "#6D28FF", logo: "./logos/prizepicks.png" },
-  { key: "underdog", label: "UD", name: "Underdog", color: "#FFE500", dfs: true, on: true, tile: "#FFE500", logo: "./logos/underdog.png" },
+  { key: "prizepicks", label: "PP", name: "PrizePicks", color: "#6D28FF", dfs: true, on: true, tile: "#6D28FF", logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQBa_IfAC9uxHYxj3nRDqyo09hGsSkT4crW1duodUEJTw&s=10" },
+  { key: "underdog", label: "UD", name: "Underdog", color: "#FFE500", dfs: true, on: true, tile: "#FFE500", logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT72uOdgpjWIynJRaFuKdRKhojBxPd54jbqPeLErnwYRg&s" },
+  { key: "pick6", label: "P6", name: "Pick6", color: "#FF6A00", dfs: true, on: true, tile: "#FF6A00", logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTbqxkzAMYVivcvVOqljmDRMjW0xq78Wu_YksmtYFcaPg&s=10" },
   { key: "draftkings", label: "DK", name: "DraftKings", color: "#53D337", dfs: false, on: true, logo: "https://upload.wikimedia.org/wikipedia/en/thumb/a/a0/DraftKings_logo.svg/1200px-DraftKings_logo.svg.png" },
   { key: "fanduel", label: "FD", name: "FanDuel", color: "#1493FF", dfs: false, on: true, logo: "https://www.nicepng.com/png/full/51-519544_detroit-lions-fanduel-logo-png.png" },
   { key: "williamhill_us", label: "CZR", name: "Caesars", color: "#C4A35A", dfs: false, on: true, logo: "https://www.liblogo.com/img-logo/wi5810wdec-william-hill-logo-william-hill-deposit-bonus-amp-review--com.png" },
