@@ -56,6 +56,74 @@ MLB_GAME_CSV = os.environ.get(
     "MLB_GAME_CSV",
     "https://docs.google.com/spreadsheets/d/e/2PACX-1vSpPDV6j2efSRShoyK64USbXA6s9eVrOMfWRyZ8G5-acETUwCG50BLegb9DNAj8MGFGlgjYRc9KhvEH/pub?gid=0&single=true&output=csv",
 )
+SOCCER_SHEET_CSV = os.environ.get(
+    "SOCCER_SHEET_CSV",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSv3EqqbXNcpHISbfURZau89PstCP4UqnIly3mx73jjkqE_Y3-qrlBVCdS0j38bTOLG26THZgquT3sc/pub?gid=983904871&single=true&output=csv",
+)
+SOCCER_PROPS_CSV = os.environ.get(
+    "SOCCER_PROPS_CSV",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSv3EqqbXNcpHISbfURZau89PstCP4UqnIly3mx73jjkqE_Y3-qrlBVCdS0j38bTOLG26THZgquT3sc/pub?gid=0&single=true&output=csv",
+)
+SOCCER_GAME_CSV = os.environ.get(
+    "SOCCER_GAME_CSV",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSv3EqqbXNcpHISbfURZau89PstCP4UqnIly3mx73jjkqE_Y3-qrlBVCdS0j38bTOLG26THZgquT3sc/pub?gid=1659498004&single=true&output=csv",
+)
+SOCCER_PP_CSV = os.environ.get(
+    "SOCCER_PP_CSV",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vR9cof5aKuKsPbVlQ8rvoVrF2-ROXq096CrSIxIOO9swtl3smSUJ2JOtNcbdpX46RVx1HuqdIGeY57S/pub?gid=0&single=true&output=csv",
+)
+SOCCER_UD_CSV = os.environ.get(
+    "SOCCER_UD_CSV",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSv3EqqbXNcpHISbfURZau89PstCP4UqnIly3mx73jjkqE_Y3-qrlBVCdS0j38bTOLG26THZgquT3sc/pub?gid=585437603&single=true&output=csv",
+)
+WNBA_SHEET_CSV = os.environ.get(
+    "WNBA_SHEET_CSV",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSIrOa85v_E5zrjF-QB898lgw3TR8jE7tLON-aqiWkb1uZMQ1o1XwkBDwGoX01OUV2QIGU5oDl-QmyE/pub?gid=0&single=true&output=csv",
+)
+WNBA_UD_CSV = os.environ.get(
+    "WNBA_UD_CSV",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSIrOa85v_E5zrjF-QB898lgw3TR8jE7tLON-aqiWkb1uZMQ1o1XwkBDwGoX01OUV2QIGU5oDl-QmyE/pub?gid=1524552267&single=true&output=csv",
+)
+WNBA_GAME_CSV = os.environ.get(
+    "WNBA_GAME_CSV",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSIrOa85v_E5zrjF-QB898lgw3TR8jE7tLON-aqiWkb1uZMQ1o1XwkBDwGoX01OUV2QIGU5oDl-QmyE/pub?gid=2048707200&single=true&output=csv",
+)
+WNBA_PP_CSV = os.environ.get(
+    "WNBA_PP_CSV",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vRsopuNNvgPQEQBFP3JGqYf9LXHTO1sGdip73gkFTEjFw_RVVie4_ycGHC7g6RuunLvCk7yJdFp4ZxQ/pub?gid=0&single=true&output=csv",
+)
+CBB_SHEET_CSV = os.environ.get(
+    "CBB_SHEET_CSV",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSlih5zVh4Cc8lD9adZlavkQ3cGIRubL0likj4LYyhuTtdpnnZ-BodsJVBCiQa2HC8kkSNYfGaywd6P/pub?gid=0&single=true&output=csv",
+)
+CBB_PP_CSV = os.environ.get(
+    "CBB_PP_CSV",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vQx_BIRvb4w8yfASiJAmasowTnHHrHZQbKyQ6G-Nc7t1Igzx1IH-SLiOizclSV8zgThZ9qMbu7fKclo/pub?gid=0&single=true&output=csv",
+)
+CBB_UD_CSV = os.environ.get(
+    "CBB_UD_CSV",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSlih5zVh4Cc8lD9adZlavkQ3cGIRubL0likj4LYyhuTtdpnnZ-BodsJVBCiQa2HC8kkSNYfGaywd6P/pub?gid=1254100508&single=true&output=csv",
+)
+NBA_SHEET_CSV = os.environ.get(
+    "NBA_SHEET_CSV",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vRYY3lCP1jiJ3x4cHr87LhcNraa7KGZRKFo1jOa9EoS5VuUEehS2faNZTTM0mhKutJ-t1CDeZF0leXh/pub?gid=0&single=true&output=csv",
+)
+NBA_UD_CSV = os.environ.get(
+    "NBA_UD_CSV",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vRYY3lCP1jiJ3x4cHr87LhcNraa7KGZRKFo1jOa9EoS5VuUEehS2faNZTTM0mhKutJ-t1CDeZF0leXh/pub?gid=1254100508&single=true&output=csv",
+)
+NBA_PP_CSV = os.environ.get(
+    "NBA_PP_CSV",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSptSZasyTv6ao6maRZ2lUPu3My2_T1gi5gm--1nQ2aGWHO2sVKjxHUPDe461SRXtVCt4iWJ3sl6lqX/pub?gid=0&single=true&output=csv",
+)
+NBA_GAME_CSV = os.environ.get(
+    "NBA_GAME_CSV",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vT4xBjgmY-B5sFIFEp8LeNGl2NthvW_WHa-Dbx5CBN0WJI8xv2Cor54mERu_HujGRitJkYAT0BCmNlk/pub?gid=0&single=true&output=csv",
+)
+NHL_SHEET_CSV = os.environ.get(
+    "NHL_SHEET_CSV",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vR0SqKfzPgLvDstNV43cP4g6uTjSmNnc7kf9yMW0mgXTYEeNYJXBdZS0eiDqAuXQi5E9TpeV0RqJ-NK/pub?gid=0&single=true&output=csv",
+)
 KALSHI_BASE = "https://external-api.kalshi.com/trade-api/v2"
 
 STAT_ALIASES = {
@@ -83,6 +151,17 @@ STAT_ALIASES = {
     "1q pass yards": "1Q Pass Yds", "1h pass yards": "1H Pass Yds",
     "1q rush yards": "1Q Rush Yds", "1h rush yards": "1H Rush Yds",
     "rec targets": "Targets", "sacks": "Sacks",
+    "shots": "Shots", "sot": "Shots On Target", "shots on target": "Shots On Target",
+    "goals": "Goals", "assists": "Assists", "g+a": "Goal + Assist",
+    "goal + assist": "Goal + Assist", "anytime goal": "Anytime Goal",
+    "first goal": "First Goal", "goalie saves": "Goalie Saves", "saves": "Goalie Saves",
+    "tackles": "Tackles", "fouls drawn": "Fouls Drawn", "fouls committed": "Fouls",
+    "1h goals": "1H Goals", "points": "Points", "rebounds": "Rebounds",
+    "pts+rebs+asts": "Pts+Rebs+Asts", "pts+rebs": "Pts+Rebs", "pts+asts": "Pts+Asts",
+    "rebs+asts": "Rebs+Asts", "3-pt made": "3-PT Made", "3-pt attempted": "3-PT Attempted",
+    "blocked shots": "Blocks", "blocks": "Blocks", "steals": "Steals",
+    "turnovers": "Turnovers", "double-double": "Double-Double",
+    "points (combo)": "Points (Combo)",
 }
 
 
@@ -120,7 +199,7 @@ def parse_pp_fields(r):
     odds = (r.get("Odds Type") or "").strip()
     shot = (r.get("Headshot URL") or "").strip()
     data = (r.get("Data ID") or "").strip()
-    leagues = {"nfl", "cfb", "ncaaf", "ncaa", "college football", "mlb"}
+    leagues = {"nfl", "cfb", "ncaaf", "ncaa", "college football", "mlb", "soccer", "epl", "fifa", "wnba", "nba", "nhl", "cbb", "ncaab"}
     tiers = {"standard", "demon", "goblin", "power", "mm"}
     if odds.lower() in leagues or shot.lower() in tiers:
         league, tier = odds, shot
@@ -146,7 +225,9 @@ def load_pp(url: str):
         return []
     rows = (
         base.parse_csv_text(text, "Source,Sport,Player ID")
+        or base.parse_csv_text(text, "Player + Prop,Player + Prop + Line")
         or base.parse_csv_text(text, "Date,Start Time,Player Name")
+        or base.parse_csv_text(text, "Sport,Player ID,Player Name")
         or base.parse_csv_text(text)
     )
     out = []
@@ -160,6 +241,10 @@ def load_pp(url: str):
             side = "Over"
         if side.lower() in {"less", "lower"}:
             side = "Under"
+        if side.lower() not in {"over", "under", "yes", "no"}:
+            eo = pct_num(r.get("Edge % Over"))
+            eu = pct_num(r.get("Edge % Under"))
+            side = "Under" if (eu or 0) > (eo or 0) else "Over"
         stat = norm_stat(r.get("Stat Type") or "")
         is_fantasy = "fantasy" in stat.lower()
         edge = pct_num(r.get("% Edge") or r.get("Edge %"))
@@ -194,6 +279,7 @@ def load_pp(url: str):
             "spread": base.to_float(r.get("Spread")),
             "total": base.to_float(r.get("O/U")),
             "player_id": (r.get("Player ID") or "").strip(),
+            "broadcasts": (r.get("Broadcasts") or "").strip(),
         })
     print(f"PP rows={len(out)}")
     return out
@@ -227,6 +313,9 @@ def load_ud(url: str):
             "spread": base.to_float(r.get("Spread")),
             "total": base.to_float(r.get("O/U")),
             "pp_edge": pct_num(r.get("Edge %") or r.get("% Edge")),
+            "broadcasts": (r.get("Broadcasts") or "").strip(),
+            "nv_over": pct_num(r.get("Average No-Vig Over %") or r.get("True Over Odds (No Vig)")),
+            "nv_under": pct_num(r.get("Average No-Vig Under %") or r.get("True Under Odds (No Vig)")),
         })
     print(f"UD rows={len(out)}")
     return out
@@ -327,6 +416,7 @@ def strict_hit_pct(side, pp_line, book_line, raw_pct):
         return sane_pct((p_win / den) * 100)
 
     if side == "Under" and abs(bl - (L + 0.5)) <= 0.2:
+        # raw p = P(X <= L) = win + push. Lose = 1-p.
         lam = lambda_from_cdf(L, p)
         return graded(poisson_cdf(L - 1, lam), 1.0 - p)
     if side == "Over" and abs(bl - (L - 0.5)) <= 0.2:
@@ -384,6 +474,8 @@ def attach_pp(row, p):
     row["proj_vs_line"] = p.get("proj_vs_line")
     row["correlates"] = p.get("correlates")
     row["pp_id"] = p.get("pp_id") or row.get("pp_id")
+    if p.get("broadcasts") and not row.get("broadcasts"):
+        row["broadcasts"] = p["broadcasts"]
     if p.get("pp_tier"):
         row["pp_tier"] = p["pp_tier"]
     row.setdefault("dfs", {})["prizepicks"] = {
@@ -454,6 +546,8 @@ def enrich_props(rows, pp_rows, ud_rows):
                 "price": u.get("over_price") if row.get("side") == "Over" else u.get("under_price"),
                 "multiplier": None,
             })
+            if u.get("broadcasts") and not row.get("broadcasts"):
+                row["broadcasts"] = u["broadcasts"]
             break
 
     extra = 0
@@ -487,6 +581,7 @@ def enrich_props(rows, pp_rows, ud_rows):
             "proj_vs_line": p.get("proj_vs_line"),
             "correlates": p.get("correlates"), "pp_id": p.get("pp_id"),
             "sheet_only": True,
+            "broadcasts": p.get("broadcasts") or "",
         })
     print(f"Added {extra} extra PP stat rows (combo/fantasy/etc)")
     fill_player_context(rows)
@@ -536,6 +631,8 @@ def fill_player_context(rows):
                 r["total_proj"] = donor.get("total_proj")
             if not r.get("headshot"):
                 r["headshot"] = donor.get("headshot") or ""
+            if not r.get("broadcasts"):
+                r["broadcasts"] = donor.get("broadcasts") or ""
             if not r.get("event_id") or str(r.get("event_id") or "").startswith("pp-"):
                 if donor.get("event_id") and not str(donor.get("event_id")).startswith("pp-"):
                     r["event_id"] = donor.get("event_id")
@@ -585,10 +682,16 @@ def load_kalshi(sport: str):
         "CFB": {"ml": "KXNCAAFGAME", "spread": "KXNCAAFSPREAD", "total": "KXNCAAFTOTAL"},
         "MLB": {"ml": "KXMLBGAME", "spread": "KXMLBSPREAD", "total": "KXMLBTOTAL"},
         "NFL": {"ml": "KXNFLGAME", "spread": "KXNFLSPREAD", "total": "KXNFLTOTAL"},
-    }.get(sport, {"ml": "KXNFLGAME", "spread": "KXNFLSPREAD", "total": "KXNFLTOTAL"})
+        "NBA": {"ml": "KXNBAGAME", "spread": "KXNBASPREAD", "total": "KXNBATOTAL"},
+        "WNBA": {"ml": "KXWNBAGAME", "spread": "KXWNBASPREAD", "total": "KXWNBATOTAL"},
+        "NHL": {"ml": "KXNHLGAME", "spread": "KXNHLSPREAD", "total": "KXNHLTOTAL"},
+    }.get(sport)
+    if not series:
+        return {"ml": [], "spread": [], "total": []}
     out = {}
+    pages = 2 if sport in {"NBA", "WNBA", "NHL"} else 6
     for kind, ticker in series.items():
-        out[kind] = [kalshi_price(m) for m in fetch_kalshi_series(ticker)]
+        out[kind] = [kalshi_price(m) for m in fetch_kalshi_series(ticker, pages=pages)]
     return out
 
 
@@ -600,7 +703,7 @@ def load_game_map(url: str):
     except Exception as e:
         print(f"game sheet failed: {e}")
         return {}
-    rows = base.parse_csv_text(text, "commence_time,bookmaker")
+    rows = base.parse_csv_text(text, "commence_time,bookmaker|sport_key,id,commence_time|id,commence_time,bookmaker")
     by_game = {}
     for r in rows:
         home, away = r.get("home_team") or "", r.get("away_team") or ""
@@ -636,9 +739,21 @@ def load_game_map(url: str):
 def build_sport(label, sheet_url, game_url, pp_url, ud_url, out_name):
     print(f"\n===== {label} =====")
     text = safe_download(sheet_url, f"{label} props")
-    sheet_rows = base.parse_csv_text(text, "id,commence_time,bookmaker") if text else []
+    sheet_rows = []
+    if text:
+        sheet_rows = (
+            base.parse_csv_text(text, "id,commence_time,bookmaker")
+            or base.parse_csv_text(text, "commence_time,bookmaker,last_update")
+            or base.parse_csv_text(text, "sport_key,id,commence_time")
+            or base.parse_csv_text(text)
+        )
     games = load_game_map(game_url) if game_url else {}
     raw = base.collect_raw(sheet_rows, base.HOURS_AHEAD) if sheet_rows else []
+    if not raw and label == "SOCCER":
+        text2 = safe_download(SOCCER_PROPS_CSV, "SOCCER player props fallback")
+        extra = base.parse_csv_text(text2, "id,commence_time,bookmaker") if text2 else []
+        raw = base.collect_raw(extra, base.HOURS_AHEAD) if extra else []
+        sheet_rows = extra or sheet_rows
     base.attach_no_vig(raw)
     rows = base.build_dashboard_rows(raw, games) if raw else []
     rows = enrich_props(rows, load_pp(pp_url), load_ud(ud_url))
@@ -677,12 +792,22 @@ def main():
     nfl = build_sport("NFL", base.SHEET_CSV, base.GAME_CSV, NFL_PP_CSV, NFL_UD_CSV, "nfl-props.json")
     cfb = build_sport("CFB", CFB_SHEET_CSV, CFB_GAME_CSV, CFB_PP_CSV, CFB_UD_CSV, "cfb-props.json")
     mlb = build_sport("MLB", MLB_SHEET_CSV, MLB_GAME_CSV, MLB_PP_CSV, MLB_UD_CSV, "mlb-props.json")
+    soccer = build_sport("SOCCER", SOCCER_SHEET_CSV or SOCCER_PROPS_CSV, SOCCER_GAME_CSV, SOCCER_PP_CSV, SOCCER_UD_CSV, "soccer-props.json")
+    wnba = build_sport("WNBA", WNBA_SHEET_CSV, WNBA_GAME_CSV, WNBA_PP_CSV, WNBA_UD_CSV, "wnba-props.json")
+    cbb = build_sport("CBB", CBB_SHEET_CSV, "", CBB_PP_CSV, CBB_UD_CSV, "cbb-props.json")
+    nba = build_sport("NBA", NBA_SHEET_CSV, NBA_GAME_CSV, NBA_PP_CSV, NBA_UD_CSV, "nba-props.json")
+    nhl = build_sport("NHL", NHL_SHEET_CSV, "", "", "", "nhl-props.json")
     (base.DATA_DIR / "meta.json").write_text(json.dumps({
         "updated": nfl["updated"],
         "source": "google_sheet_csv+kalshi",
         "row_count": nfl["row_count"],
         "cfb_rows": cfb["row_count"],
         "mlb_rows": mlb["row_count"],
+        "soccer_rows": soccer["row_count"],
+        "wnba_rows": wnba["row_count"],
+        "cbb_rows": cbb["row_count"],
+        "nba_rows": nba["row_count"],
+        "nhl_rows": nhl["row_count"],
         "sheet_rows": nfl["sheet_rows"],
         "raw_count": nfl["raw_count"],
         "game_count": nfl["game_count"],
