@@ -1,9 +1,10 @@
 {
-  "updated": "2026-08-30T00:19:48Z",
+  "updated": "2026-08-30T00:57:02Z",
   "source": "google_sheet_csv",
-  "row_count": 1248,
-  "sheet_rows": 4114,
-  "raw_count": 3218,
+  "row_count": 1414,
+  "sheet_rows": 4132,
+  "raw_count": 3760,
+  "game_count": 272,
   "books_seen": [
     "ballybet",
     "betonlineag",
