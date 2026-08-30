@@ -26,14 +26,16 @@ INJ_URL = "https://raw.githubusercontent.com/925Sports/NFL-Player-Log/main/data/
 NEWS_URL = "https://raw.githubusercontent.com/925Sports/NFL-Player-Log/main/data/news_all.csv"
 
 SKILL = {"QB", "RB", "WR", "TE", "K", "FB", "HB"}
-LOG_KEEP = 8
+LOG_KEEP = 20
 NAME_SKIP = {"jr", "sr", "ii", "iii", "iv", "v"}
+
 
 def download(url: str, label: str) -> str:
     print(f"Downloading {label}…")
     req = urllib.request.Request(url, headers={"User-Agent": "betting-dashboard/nfl-intel"})
     with urllib.request.urlopen(req, timeout=90) as resp:
         return resp.read().decode("utf-8", errors="replace")
+
 
 def parse_csv(text: str) -> list[dict]:
     if not text.strip():
@@ -46,11 +48,14 @@ def parse_csv(text: str) -> list[dict]:
     rows = list(csv.DictReader(io.StringIO(text), dialect=dialect))
     return [{(k or "").strip(): (v.strip() if isinstance(v, str) else v) for k, v in r.items()} for r in rows]
 
+
 def norm_name(s: str) -> str:
     return " ".join("".join(ch for ch in (s or "").lower() if ch.isalnum() or ch.isspace()).split())
 
+
 def name_tokens(s: str) -> list[str]:
     return [t for t in norm_name(s).split() if t and t not in NAME_SKIP]
+
 
 def last_first_key(s: str) -> str:
     toks = name_tokens(s)
@@ -58,6 +63,7 @@ def last_first_key(s: str) -> str:
         return ""
     first = toks[0][0] if toks[0] else ""
     return f"{toks[-1]}|{first}"
+
 
 def clean_id(v) -> str:
     s = str(v or "").strip()
@@ -71,6 +77,7 @@ def clean_id(v) -> str:
         pass
     return s
 
+
 def to_int(v):
     s = str(v or "").strip()
     if not s:
@@ -79,6 +86,7 @@ def to_int(v):
         return int(float(s))
     except ValueError:
         return None
+
 
 def to_float(v):
     s = str(v or "").strip()
@@ -89,11 +97,13 @@ def to_float(v):
     except ValueError:
         return None
 
+
 def nz(v):
     n = to_float(v)
     if n is None:
         return 0
     return n
+
 
 def load_players(text: str):
     rows = parse_csv(text)
@@ -135,6 +145,7 @@ def load_players(text: str):
     print(f"players={len(rows)} gsis={len(by_gsis)} active={active}")
     return by_gsis, by_name, by_lf
 
+
 def load_injuries(text: str):
     rows = parse_csv(text)
     latest = {}
@@ -167,14 +178,26 @@ def load_injuries(text: str):
     print(f"injuries rows={len(rows)} players={len(latest)} latest={max_season}w{max_week}")
     return latest, max_season, max_week
 
+
+def is_home_game(r: dict) -> bool | None:
+    gid = r.get("game_id") or ""
+    team = r.get("team") or ""
+    parts = str(gid).split("_")
+    if team and len(parts) >= 4:
+        return team == parts[-1]
+    return None
+
+
 def compact_log(r: dict) -> dict:
     fg_made, fg_att = to_int(r.get("fg_made")) or 0, to_int(r.get("fg_att")) or 0
+    home = is_home_game(r)
     return {
         "season": to_int(r.get("season")),
         "week": to_int(r.get("week")),
         "st": r.get("season_type") or "REG",
         "team": r.get("team") or "",
         "opp": r.get("opponent_team") or "",
+        "home": home,
         "cmp": to_int(r.get("completions")) or 0,
         "att": to_int(r.get("attempts")) or 0,
         "pass_yds": to_int(r.get("passing_yards")) or 0,
@@ -194,6 +217,7 @@ def compact_log(r: dict) -> dict:
         "fant": round(nz(r.get("fantasy_points")), 1),
         "ppr": round(nz(r.get("fantasy_points_ppr")), 1),
     }
+
 
 def load_logs(text: str, by_gsis: dict):
     rows = parse_csv(text)
@@ -226,6 +250,7 @@ def load_logs(text: str, by_gsis: dict):
     print(f"logs rows={len(rows)} players={len(logs)} seasons={sorted(seasons)} has_2026={has_2026}")
     return logs, sorted(seasons), dict(max_week_by_season), has_2026
 
+
 def load_news(text: str):
     rows = parse_csv(text)
     out = []
@@ -245,6 +270,7 @@ def load_news(text: str):
     print(f"news={len(out)} pulled={pulled}")
     return out, pulled
 
+
 def tag_news(news, by_name, by_gsis):
     skill = [p for p in by_gsis.values() if (p.get("pos") or "").upper() in SKILL and (p.get("status") or "").lower() == "active"]
     last_counts = defaultdict(int)
@@ -253,6 +279,7 @@ def tag_news(news, by_name, by_gsis):
     for item in news:
         blob = f"{item['headline']} {item['description']}".lower()
         hits = []
+        # "First Last:" RotoWire notes
         head = item["headline"]
         if ":" in head:
             left = head.split(":", 1)[0].strip()
@@ -271,15 +298,18 @@ def tag_news(news, by_name, by_gsis):
     tagged = sum(1 for n in news if n["players"])
     print(f"news tagged with players={tagged}/{len(news)}")
 
+
 def lookup_player(name: str, by_name: dict, by_lf: dict):
     rec = by_name.get(norm_name(name))
     if rec:
         return rec
     return by_lf.get(last_first_key(name))
 
+
 def last_game_for(gsis: str, logs: dict):
     recs = logs.get(gsis) or []
     return recs[-1] if recs else None
+
 
 def enrich_props(by_name, by_lf, injuries, logs):
     path = DATA_DIR / "nfl-props.json"
@@ -316,6 +346,7 @@ def enrich_props(by_name, by_lf, injuries, logs):
     print(f"attached intel to {attached} NFL props (headshots filled={shots})")
     return attached
 
+
 def public_players(by_gsis, logs, inj_ids):
     out = {}
     for gid, p in by_gsis.items():
@@ -335,6 +366,7 @@ def public_players(by_gsis, logs, inj_ids):
         }
     return out
 
+
 def main():
     players_txt = download(PLAYERS_URL, "players")
     logs_txt = download(LOGS_URL, "gamelogs")
@@ -347,6 +379,7 @@ def main():
     news, pulled = load_news(news_txt)
     tag_news(news, by_name, by_gsis)
 
+    # Current-looking injuries: latest week, plus any Out/Doubtful from that file set
     inj_list = []
     for rec in injuries.values():
         hot = rec.get("report_status") in {"Out", "Doubtful", "Questionable", "IR"}
@@ -391,6 +424,7 @@ def main():
     print(f"Wrote {out.name} news={len(news)} injuries={len(inj_list)} players={len(payload['players'])} log_ids={len(logs)}")
     enrich_props(by_name, by_lf, injuries, logs)
     print("Done.")
+
 
 if __name__ == "__main__":
     main()
