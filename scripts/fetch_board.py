@@ -77,6 +77,40 @@ def safe_download(url: str, label: str) -> str:
         return ""
 
 
+def pct_num(v):
+    n = base.to_float(v)
+    if n is None:
+        return None
+    if n <= 1:
+        n *= 100
+    return round(n, 1)
+
+
+def parse_pp_fields(r):
+    """Handle both the official column layout and the shifted export."""
+    odds = (r.get("Odds Type") or "").strip()
+    shot = (r.get("Headshot URL") or "").strip()
+    data = (r.get("Data ID") or "").strip()
+    leagues = {"nfl", "cfb", "ncaaf", "ncaa", "college football"}
+    tiers = {"standard", "demon", "goblin", "power", "mm"}
+    if odds.lower() in leagues or shot.lower() in tiers:
+        league, tier = odds, shot
+        headshot = data if data.startswith("http") else ""
+        pp_id = data if data and not data.startswith("http") else ""
+    else:
+        league, tier = "", odds
+        headshot = shot if shot.startswith("http") else (data if data.startswith("http") else "")
+        pp_id = data if data and not data.startswith("http") else ""
+    tier_l = (tier or "standard").lower()
+    if tier_l == "demon":
+        tier = "Demon"
+    elif tier_l == "goblin":
+        tier = "Goblin"
+    else:
+        tier = "Standard"
+    return league, tier, headshot, pp_id
+
+
 def load_pp(url: str):
     text = safe_download(url, "PrizePicks optimizer")
     if not text:
@@ -87,21 +121,31 @@ def load_pp(url: str):
         player = r.get("Player Name") or ""
         if not player:
             continue
-        tier = (r.get("Odds Type") or "standard").strip().title()
-        if tier.lower() == "standard":
-            tier = "Standard"
+        league, tier, headshot, pp_id = parse_pp_fields(r)
+        side = (r.get("Bet Tag") or "Over").strip().title()
+        if side.lower() in {"more", "higher"}:
+            side = "Over"
+        if side.lower() in {"less", "lower"}:
+            side = "Under"
+        nv = pct_num(r.get("Average No-Vig Over %") if side == "Over" else r.get("Average No-Vig Under %"))
+        if nv is None:
+            nv = pct_num(r.get("No-Vig Over %") if side == "Over" else r.get("No-Vig Under %"))
         out.append({
             "player": player,
             "player_key": norm_name(player),
             "stat": norm_stat(r.get("Stat Type") or ""),
             "line": base.to_float(r.get("Line Score")),
-            "side": r.get("Bet Tag") or "Over",
+            "side": side,
             "pp_tier": tier,
-            "headshot": r.get("Headshot URL") or "",
+            "league": league,
+            "headshot": headshot,
+            "pp_id": pp_id,
             "projection": base.to_float(r.get("Projection")),
-            "pp_edge": base.to_float(r.get("% Edge")),
+            "pp_edge": pct_num(r.get("% Edge")),
             "true_point": base.to_float(r.get("True Point")),
             "avg_line": base.to_float(r.get("Average Line")),
+            "nv_pct": nv,
+            "proj_vs_line": base.to_float(r.get("Projection vs Line")),
             "correlates": r.get("Correlates") or "",
         })
     print(f"PP rows={len(out)}")
@@ -133,6 +177,26 @@ def load_ud(url: str):
     return out
 
 
+def attach_pp(row, p):
+    row["headshot"] = p.get("headshot") or row.get("headshot")
+    row["projection"] = p.get("projection")
+    row["pp_sheet_edge"] = p.get("pp_edge")
+    row["true_point"] = p.get("true_point")
+    row["proj_vs_line"] = p.get("proj_vs_line")
+    row["correlates"] = p.get("correlates")
+    row["pp_id"] = p.get("pp_id") or row.get("pp_id")
+    if p.get("pp_tier"):
+        row["pp_tier"] = p["pp_tier"]
+    row.setdefault("dfs", {})["prizepicks"] = {
+        "line": p.get("line") if p.get("line") is not None else row.get("line"),
+        "price": (row.get("dfs") or {}).get("prizepicks", {}).get("price") or -137,
+        "multiplier": None,
+        "id": p.get("pp_id") or "",
+    }
+    if row.get("pct_to_hit") is None and p.get("nv_pct") is not None:
+        row["pct_to_hit"] = p["nv_pct"]
+
+
 def enrich_props(rows, pp_rows, ud_rows):
     pp_by = defaultdict(list)
     ud_by = defaultdict(list)
@@ -140,25 +204,22 @@ def enrich_props(rows, pp_rows, ud_rows):
         pp_by[r["player_key"]].append(r)
     for r in ud_rows:
         ud_by[r["player_key"]].append(r)
-    seen = set()
+
+    have_stat = set()
     for row in rows:
         key = norm_name(row["player"])
-        seen.add((key, row["stat"], row.get("line"), row.get("side")))
+        have_stat.add((key, row["stat"], row.get("side")))
         best_pp, best_diff = None, 1e9
         for p in pp_by.get(key, []):
             if p["stat"] != row["stat"]:
+                continue
+            if p.get("side") and row.get("side") and p["side"] != row["side"]:
                 continue
             diff = abs((p["line"] or 0) - (row.get("line") or 0))
             if diff < best_diff:
                 best_diff, best_pp = diff, p
         if best_pp:
-            row["headshot"] = best_pp.get("headshot") or row.get("headshot")
-            row["projection"] = best_pp.get("projection")
-            row["pp_sheet_edge"] = best_pp.get("pp_edge")
-            row["true_point"] = best_pp.get("true_point")
-            row["correlates"] = best_pp.get("correlates")
-            if best_pp.get("pp_tier"):
-                row["pp_tier"] = best_pp["pp_tier"]
+            attach_pp(row, best_pp)
         for u in ud_by.get(key, []):
             if u["stat"] != row["stat"]:
                 continue
@@ -169,26 +230,29 @@ def enrich_props(rows, pp_rows, ud_rows):
                 "multiplier": None,
             })
             break
+
     extra = 0
     for p in pp_rows:
-        sig = (p["player_key"], p["stat"], p.get("line"), p.get("side"))
-        if sig in seen:
+        sig = (p["player_key"], p["stat"], p.get("side"))
+        if sig in have_stat:
             continue
-        seen.add(sig)
+        have_stat.add(sig)
         extra += 1
         rows.append({
             "player": p["player"], "stat": p["stat"], "market": p["stat"],
             "side": p.get("side") or "Over", "line": p.get("line"),
             "game": "", "home_team": "", "away_team": "", "commence_time": "",
-            "event_id": f"pp-{p['player_key']}-{p['stat']}-{p.get('line')}",
-            "pct_to_hit": p.get("pp_edge"), "ev": None, "pp_tier": p.get("pp_tier"),
+            "event_id": f"pp-{p['player_key']}-{p['stat']}-{p.get('line')}-{p.get('side')}",
+            "pct_to_hit": p.get("nv_pct"), "ev": None, "pp_tier": p.get("pp_tier"),
             "book_line": p.get("avg_line"), "best": None, "spread": None, "total": None,
-            "dfs": {"prizepicks": {"line": p.get("line"), "price": -137, "multiplier": None}},
+            "dfs": {"prizepicks": {"line": p.get("line"), "price": -137, "multiplier": None, "id": p.get("pp_id") or ""}},
             "books": {}, "headshot": p.get("headshot"), "projection": p.get("projection"),
             "pp_sheet_edge": p.get("pp_edge"), "true_point": p.get("true_point"),
-            "correlates": p.get("correlates"), "sheet_only": True,
+            "proj_vs_line": p.get("proj_vs_line"),
+            "correlates": p.get("correlates"), "pp_id": p.get("pp_id"),
+            "sheet_only": True,
         })
-    print(f"Added {extra} PP-only stat rows")
+    print(f"Added {extra} extra PP stat rows (combo/fantasy/etc)")
     return rows
 
 
