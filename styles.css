@@ -109,6 +109,11 @@ th {
 th .book-mark { margin-right: 4px; vertical-align: middle; }
 tr:hover td { background: rgba(255,255,255,0.025); }
 .player { font-weight: 650; }
+.player-row { display: flex; align-items: center; gap: 8px; }
+.headshot {
+  width: 28px; height: 28px; border-radius: 50%;
+  object-fit: cover; background: #182236; flex: 0 0 28px;
+}
 .player-btn {
   background: none; border: 0; padding: 0; color: inherit;
   font: inherit; font-weight: 650; cursor: pointer; text-align: left;
