@@ -87,8 +87,11 @@ function applyFilters(rows) {
   return rows.filter((r) => {
     if (state.view === "pp" && !r.dfs?.prizepicks) return false;
     if (state.view === "ud" && !r.dfs?.underdog) return false;
+    if (state.view === "pick6" && !r.dfs?.pick6) return false;
+    if (state.view === "prophetx" && !r.books?.prophetx) return false;
+    if (state.view === "novig" && !r.books?.novig) return false;
     if (state.view === "ev" && !(r.pct_to_hit >= be)) return false;
-    if (state.view === "pp" || state.view === "ev") {
+    if (state.view === "pp" || state.view === "pick6" || state.view === "ev") {
       if (tier === "standard" && r.pp_tier && r.pp_tier !== "Standard") return false;
       if (tier === "demon" && r.pp_tier !== "Demon") return false;
       if (tier === "goblin" && r.pp_tier !== "Goblin") return false;
@@ -117,6 +120,9 @@ function sortRows(rows) {
 function displayLine(row) {
   if (state.view === "pp" && row.dfs?.prizepicks?.line != null) return row.dfs.prizepicks.line;
   if (state.view === "ud" && row.dfs?.underdog?.line != null) return row.dfs.underdog.line;
+  if (state.view === "pick6" && row.dfs?.pick6?.line != null) return row.dfs.pick6.line;
+  if (state.view === "prophetx" && row.books?.prophetx?.line != null) return row.books.prophetx.line;
+  if (state.view === "novig" && row.books?.novig?.line != null) return row.books.novig.line;
   return row.line;
 }
 function bookCell(row, key) {
@@ -295,7 +301,7 @@ function render() {
         <div class="script">${scriptLine(r)}</div>
       </td>
       <td>${escapeHtml(r.stat)}</td>
-      <td class="line-stack"><span class="tag ${sideClass}">${escapeHtml(r.side)}</span><div class="line-num">${displayLine(r) ?? "—"}</div></td>
+      <td class="line-cell"><div class="line-stack"><span class="tag ${sideClass}">${escapeHtml(r.side)}</span><div class="line-num">${displayLine(r) ?? "—"}</div></div></td>
       <td>${tierBadge(r.pp_tier)}</td>
       <td><span class="${pctClass(r.pct_to_hit)}">${r.pct_to_hit != null ? r.pct_to_hit.toFixed(1) + "%" : "—"}</span></td>
       <td class="${edge >= 0 ? "" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}${r.dfs?.prizepicks ? `<button type="button" class="slip-add" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">+ slip</button>` : ""}</td>
@@ -393,7 +399,6 @@ function setLoader(msg) { const el = $("loaderText"); if (el && msg) el.textCont
 function hideLoader() { const el = $("loader"); if (!el) return; el.classList.add("out"); setTimeout(() => el.remove(), 500); }
 let lineIdx = 0;
 const lineTimer = setInterval(() => { lineIdx = (lineIdx + 1) % LOAD_LINES.length; setLoader(LOAD_LINES[lineIdx]); }, 700);
-
 function tagSport(data, sport) {
   const props = (data?.props || []).map((r) => ({ ...r, sport: r.sport || sport }));
   const games = (data?.games || []).map((g) => ({ ...g, sport: g.sport || sport }));
@@ -421,8 +426,7 @@ async function loadData() {
       const nfl = results[0].status === "fulfilled" ? tagSport(results[0].value, "NFL") : { props: [], games: [], kalshi: {} };
       const cfb = results[1].status === "fulfilled" ? tagSport(results[1].value, "CFB") : { props: [], games: [], kalshi: {} };
       state.data = {
-        updated: nfl.updated || cfb.updated,
-        sport: "ALL",
+        updated: nfl.updated || cfb.updated, sport: "ALL",
         props: [...(nfl.props || []), ...(cfb.props || [])],
         games: [...(nfl.games || []), ...(cfb.games || [])],
         kalshi: {
