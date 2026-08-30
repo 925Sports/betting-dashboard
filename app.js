@@ -1,4 +1,4 @@
-const DATA_URL = "./data/nfl-props.json";
+const DATA_URLS = { nfl: "./data/nfl-props.json", cfb: "./data/cfb-props.json" };
 
 const BOOKS = [
   { key: "prizepicks", label: "PP", name: "PrizePicks", color: "#6D28FF", dfs: true, on: true, tile: "#6D28FF", logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQBa_IfAC9uxHYxj3nRDqyo09hGsSkT4crW1duodUEJTw&s=10" },
@@ -33,19 +33,11 @@ const TEAM_ABBR = {
   "Tennessee Titans": "TEN", "Washington Commanders": "WAS",
 };
 
-const CORE_STATS = new Set([
-  "Pass Yds", "Rush Yds", "Receptions", "Rec Yds", "Rush+Rec Yds",
-  "Pass TDs", "Anytime TD",
-]);
-
+const CORE_STATS = new Set(["Pass Yds", "Rush Yds", "Receptions", "Rec Yds", "Rush+Rec Yds", "Pass TDs", "Anytime TD"]);
 const DEFAULT_ON = new Set(BOOKS.filter((b) => b.on).map((b) => b.key));
 const BOOK_BY_KEY = Object.fromEntries(BOOKS.map((b) => [b.key, b]));
 
-const state = {
-  data: null, sortKey: "ev", sortDir: "desc", view: "pp",
-  booksOn: new Set(DEFAULT_ON),
-};
-
+const state = { data: null, sortKey: "ev", sortDir: "desc", view: "pp", sport: "nfl", section: "props", booksOn: new Set(DEFAULT_ON) };
 const $ = (id) => document.getElementById(id);
 
 function american(price) {
@@ -56,10 +48,7 @@ function american(price) {
 }
 function pickSize() { return Number($("picks").value || 5); }
 function breakEven() { return PP_BE[pickSize()] || 54.93; }
-function rowEdge(row) {
-  if (row.pct_to_hit == null) return null;
-  return +(row.pct_to_hit - breakEven()).toFixed(1);
-}
+function rowEdge(row) { return row.pct_to_hit == null ? null : +(row.pct_to_hit - breakEven()).toFixed(1); }
 function pctClass(pct) {
   if (pct == null) return "pct";
   if (pct >= breakEven()) return "pct good";
@@ -68,22 +57,17 @@ function pctClass(pct) {
 }
 function fmtWhen(iso) {
   if (!iso) return "";
-  return new Date(iso).toLocaleString(undefined, {
-    weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
-  });
+  return new Date(iso).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 function abbr(team) { return TEAM_ABBR[team] || team || ""; }
 function matchup(row) {
-  const away = abbr(row.away_team);
-  const home = abbr(row.home_team);
+  const away = abbr(row.away_team), home = abbr(row.home_team);
   if (!away && !home) return row.game || "";
   return `${away} @ ${home}`;
 }
 function unique(arr) { return [...new Set(arr.filter(Boolean))]; }
 function escapeHtml(s) {
-  return String(s ?? "")
-    .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+  return String(s ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
 function bookMark(book, size) {
   const cls = size === "sm" ? "book-logo sm" : "book-logo";
@@ -147,8 +131,7 @@ function bookCell(row, key) {
 }
 function fillSelect(sel, values, allLabel) {
   const current = sel.value;
-  sel.innerHTML = `<option value="">${allLabel}</option>` +
-    values.map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
+  sel.innerHTML = `<option value="">${allLabel}</option>` + values.map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
   if ([...sel.options].some((o) => o.value === current)) sel.value = current;
 }
 function visibleBooks() { return BOOKS.filter((b) => state.booksOn.has(b.key)); }
@@ -156,20 +139,12 @@ function renderBookPicks() {
   $("bookPicks").innerHTML = BOOKS.map((b) => {
     const on = state.booksOn.has(b.key) ? "on" : "";
     const ex = b.exchange ? " ex" : "";
-    return `<button type="button" class="book-pick ${on}${ex}" data-book="${b.key}">
-      ${bookMark(b, "sm")}<span>${escapeHtml(b.name)}${b.exchange ? " · EX" : ""}</span>
-    </button>`;
+    return `<button type="button" class="book-pick ${on}${ex}" data-book="${b.key}">${bookMark(b, "sm")}<span>${escapeHtml(b.name)}${b.exchange ? " · EX" : ""}</span></button>`;
   }).join("");
 }
 function renderHead() {
-  $("headrow").innerHTML = `
-    <th data-key="player">Player</th>
-    <th data-key="stat">Stat</th>
-    <th data-key="line">Line</th>
-    <th data-key="pp_tier">Tier</th>
-    <th data-key="pct_to_hit">% to Hit</th>
-    <th data-key="ev">Edge</th>
-    <th>Best</th>` + visibleBooks().map((b) => `<th data-book="${b.key}">${bookMark(b)}</th>`).join("");
+  $("headrow").innerHTML = `<th data-key="player">Player</th><th data-key="stat">Stat</th><th data-key="line">Line</th><th data-key="pp_tier">Tier</th><th data-key="pct_to_hit">% to Hit</th><th data-key="ev">Edge</th><th>Best</th>` +
+    visibleBooks().map((b) => `<th data-book="${b.key}">${bookMark(b)}</th>`).join("");
   $("headrow").querySelectorAll("th[data-key]").forEach((th) => {
     th.addEventListener("click", () => {
       const key = th.dataset.key;
@@ -194,15 +169,51 @@ function bestCell(row) {
 function scriptLine(row) {
   const bits = [];
   if (row.spread != null) {
-    const home = abbr(row.home_team);
-    const n = Number(row.spread);
+    const home = abbr(row.home_team), n = Number(row.spread);
     bits.push(n > 0 ? `${home} +${n}` : `${home} ${n}`);
   }
   if (row.total != null) bits.push(`O/U ${Number(row.total)}`);
   return bits.join(" · ") || "—";
 }
+function kalshiCell(list, hint) {
+  const hit = (list || []).find((m) => (m.title || "").toLowerCase().includes((hint || "").toLowerCase())) || (list || [])[0];
+  if (!hit) return "—";
+  const px = hit.implied != null ? hit.implied + "¢" : "—";
+  const vol = hit.volume != null ? ` · ${Math.round(hit.volume)}` : "";
+  return `${px}${vol}`;
+}
+function renderGames() {
+  const wrap = $("gamesWrap");
+  const propsWrap = document.querySelector(".table-wrap:not(#gamesWrap)");
+  if (!wrap) return;
+  const showGames = state.section === "games";
+  wrap.style.display = showGames ? "block" : "none";
+  if (propsWrap) propsWrap.style.display = showGames ? "none" : "block";
+  const filt = document.querySelector(".filters");
+  const books = document.querySelector(".books-bar");
+  if (filt) [...filt.querySelectorAll("select, label, input")].forEach((el) => {
+    if (el.id === "sport" || el.id === "section") return;
+    el.style.display = showGames ? "none" : "";
+  });
+  if (books) books.style.display = showGames ? "none" : "flex";
+  if (!showGames) return;
+  const games = state.data.games || [];
+  const k = state.data.kalshi || {};
+  $("gamesBody").innerHTML = games.map((g) => `<tr>
+    <td><div class="player">${escapeHtml(g.game)}</div><div class="game">${escapeHtml(fmtWhen(g.commence_time))}</div></td>
+    <td>${g.spread ?? "—"}</td><td>${g.total ?? "—"}</td>
+    <td>${american(g.ml_away)}</td><td>${american(g.ml_home)}</td>
+    <td>${kalshiCell(k.ml, g.home_team || "")}</td>
+    <td>${(k.spread || []).length} mkts</td>
+    <td>${(k.total || []).length} mkts</td>
+  </tr>`).join("");
+  $("gamesEmpty").style.display = games.length ? "none" : "block";
+  $("count").textContent = `${games.length} games · Kalshi ML ${(k.ml || []).length}`;
+}
 function render() {
   if (!state.data) return;
+  renderGames();
+  if (state.section === "games") return;
   const all = state.data.props || [];
   $("updated").textContent = `Updated ${fmtWhen(state.data.updated)} · BE ${breakEven()}%`;
   fillSelect($("game"), unique(all.map((r) => r.game)).sort(), "All games");
@@ -217,16 +228,15 @@ function render() {
   const cols = visibleBooks();
   $("tbody").innerHTML = rows.map((r) => {
     const sideClass = r.side === "Over" || r.side === "Yes" ? "over" : (r.side === "Under" || r.side === "No" ? "under" : "");
-    const lineTxt = displayLine(r);
     const edge = rowEdge(r);
     return `<tr>
       <td>
-        <button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}</button>
+        <div class="player-row">${r.headshot ? `<img class="headshot" src="${escapeHtml(r.headshot)}" alt="" referrerpolicy="no-referrer" />` : ""}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}</button></div>
         <div class="game">${escapeHtml(matchup(r))} · ${escapeHtml(fmtWhen(r.commence_time))}</div>
         <div class="script">${scriptLine(r)}</div>
       </td>
       <td>${escapeHtml(r.stat)}</td>
-      <td class="line-stack"><span class="tag ${sideClass}">${escapeHtml(r.side)}</span><div class="line-num">${lineTxt ?? "—"}</div></td>
+      <td class="line-stack"><span class="tag ${sideClass}">${escapeHtml(r.side)}</span><div class="line-num">${displayLine(r) ?? "—"}</div></td>
       <td>${tierBadge(r.pp_tier)}</td>
       <td><span class="${pctClass(r.pct_to_hit)}">${r.pct_to_hit != null ? r.pct_to_hit.toFixed(1) + "%" : "—"}</span></td>
       <td class="${edge >= 0 ? "" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</td>
@@ -253,6 +263,8 @@ $("bookPicks").addEventListener("click", (e) => {
   render();
 });
 $("booksReset").addEventListener("click", () => { state.booksOn = new Set(DEFAULT_ON); render(); });
+if ($("sport")) $("sport").addEventListener("change", () => { state.sport = $("sport").value; loadData(); });
+if ($("section")) $("section").addEventListener("change", () => { state.section = $("section").value; render(); });
 ["game", "stat", "side", "tier", "picks", "q", "minPct"].forEach((id) => {
   $(id).addEventListener("input", render);
   $(id).addEventListener("change", render);
@@ -267,46 +279,26 @@ function openPlayerPopup(player, eventId, market, side) {
   const edge = rowEdge(focus);
   const books = Object.entries(focus.books || {}).sort((a, b) => (a[0] > b[0] ? 1 : -1));
   const dfs = Object.entries(focus.dfs || {});
-  const others = mine.filter((r) => !(r.event_id === focus.event_id && r.market === focus.market && r.side === focus.side))
-    .sort((a, b) => String(a.stat).localeCompare(String(b.stat)));
+  const others = mine.filter((r) => !(r.event_id === focus.event_id && r.market === focus.market && r.side === focus.side)).sort((a, b) => String(a.stat).localeCompare(String(b.stat)));
   $("popupCard").innerHTML = `
-    <div class="popup-top">
-      <div>
-        <div class="popup-name">${escapeHtml(focus.player)}</div>
-        <div class="popup-sub">${escapeHtml(matchup(focus))} · ${escapeHtml(fmtWhen(focus.commence_time))}<br>${escapeHtml(scriptLine(focus))}</div>
-      </div>
-      <button type="button" class="popup-x" id="popupClose">✕</button>
-    </div>
+    <div class="popup-top"><div>
+      <div class="popup-name">${escapeHtml(focus.player)}</div>
+      <div class="popup-sub">${escapeHtml(matchup(focus))} · ${escapeHtml(fmtWhen(focus.commence_time))}<br>${escapeHtml(scriptLine(focus))}</div>
+    </div><button type="button" class="popup-x" id="popupClose">✕</button></div>
     <div class="popup-grid">
       <div class="popup-stat"><b>Stat</b>${escapeHtml(focus.stat)} ${escapeHtml(focus.side)} ${focus.line ?? ""}</div>
       <div class="popup-stat"><b>Tier</b>${escapeHtml(focus.pp_tier || "—")}</div>
       <div class="popup-stat"><b>% to hit</b>${focus.pct_to_hit != null ? focus.pct_to_hit.toFixed(1) + "%" : "—"}</div>
       <div class="popup-stat"><b>Edge</b>${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</div>
     </div>
-    <div class="popup-stat" style="margin-bottom:12px">
-      <b>DFS lines</b>
-      ${dfs.length ? dfs.map(([k, v]) => {
-        const meta = BOOK_BY_KEY[k];
-        return `${meta ? bookMark(meta, "sm") : k} ${v.line ?? "—"} ${american(v.price)}`;
-      }).join("&nbsp;&nbsp;&nbsp;") : "—"}
+    <div class="popup-stat" style="margin-bottom:12px"><b>DFS lines</b>
+      ${dfs.length ? dfs.map(([k, v]) => { const meta = BOOK_BY_KEY[k]; return `${meta ? bookMark(meta, "sm") : k} ${v.line ?? "—"} ${american(v.price)}`; }).join("&nbsp;&nbsp;&nbsp;") : "—"}
     </div>
-    <table class="popup-table">
-      <thead><tr><th>Book</th><th>Line</th><th>Price</th><th>Same line</th></tr></thead>
-      <tbody>
-        ${books.map(([k, v]) => {
-          const meta = BOOK_BY_KEY[k];
-          return `<tr><td>${meta ? bookMark(meta, "sm") + " " + escapeHtml(meta.name) : escapeHtml(k)}</td><td>${v.line ?? "—"}</td><td>${american(v.price)}</td><td>${v.same_line ? "Yes" : "No"}</td></tr>`;
-        }).join("") || `<tr><td colspan="4" class="muted">No sportsbook prices</td></tr>`}
-      </tbody>
-    </table>
+    <table class="popup-table"><thead><tr><th>Book</th><th>Line</th><th>Price</th><th>Same line</th></tr></thead>
+    <tbody>${books.map(([k, v]) => { const meta = BOOK_BY_KEY[k]; return `<tr><td>${meta ? bookMark(meta, "sm") + " " + escapeHtml(meta.name) : escapeHtml(k)}</td><td>${v.line ?? "—"}</td><td>${american(v.price)}</td><td>${v.same_line ? "Yes" : "No"}</td></tr>`; }).join("") || `<tr><td colspan="4" class="muted">No sportsbook prices</td></tr>`}</tbody></table>
     ${others.length ? `<h4 style="margin:16px 0 8px">Other ${escapeHtml(player)} props</h4>
-    <table class="popup-table">
-      <thead><tr><th>Stat</th><th>Side</th><th>Line</th><th>% to hit</th></tr></thead>
-      <tbody>${others.slice(0, 24).map((r) => `<tr>
-        <td>${escapeHtml(r.stat)}</td><td>${escapeHtml(r.side)}</td>
-        <td>${r.line ?? "—"}</td><td>${r.pct_to_hit != null ? r.pct_to_hit.toFixed(1) + "%" : "—"}</td>
-      </tr>`).join("")}</tbody>
-    </table>` : ""}`;
+    <table class="popup-table"><thead><tr><th>Stat</th><th>Side</th><th>Line</th><th>% to hit</th></tr></thead>
+    <tbody>${others.slice(0, 24).map((r) => `<tr><td>${escapeHtml(r.stat)}</td><td>${escapeHtml(r.side)}</td><td>${r.line ?? "—"}</td><td>${r.pct_to_hit != null ? r.pct_to_hit.toFixed(1) + "%" : "—"}</td></tr>`).join("")}</tbody></table>` : ""}`;
   $("popup").hidden = false;
   $("popupClose").onclick = closePopup;
 }
@@ -320,17 +312,10 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePopup
 
 const LOAD_LINES = ["Warming up the slate…", "Checking the books…", "Hiking the props…", "Sharpening the edges…", "Two-minute drill…"];
 function setLoader(msg) { const el = $("loaderText"); if (el && msg) el.textContent = msg; }
-function hideLoader() {
-  const el = $("loader");
-  if (!el) return;
-  el.classList.add("out");
-  setTimeout(() => el.remove(), 500);
-}
+function hideLoader() { const el = $("loader"); if (!el) return; el.classList.add("out"); setTimeout(() => el.remove(), 500); }
 let lineIdx = 0;
-const lineTimer = setInterval(() => {
-  lineIdx = (lineIdx + 1) % LOAD_LINES.length;
-  setLoader(LOAD_LINES[lineIdx]);
-}, 700);
+const lineTimer = setInterval(() => { lineIdx = (lineIdx + 1) % LOAD_LINES.length; setLoader(LOAD_LINES[lineIdx]); }, 700);
+
 async function loadData() {
   try {
     setLoader("Checking the books…");
@@ -340,13 +325,14 @@ async function loadData() {
       version = meta?.updated || "";
     } catch (_) {}
     setLoader("Hiking the props…");
-    const url = version ? `${DATA_URL}?v=${encodeURIComponent(version)}` : DATA_URL;
+    const dataUrl = DATA_URLS[state.sport] || DATA_URLS.nfl;
+    const url = version ? `${dataUrl}?v=${encodeURIComponent(version)}` : dataUrl;
     const res = await fetch(url);
     if (!res.ok) throw new Error(res.statusText);
     state.data = await res.json();
     render();
   } catch (err) {
-    $("updated").textContent = "Could not load data/nfl-props.json";
+    $("updated").textContent = "Could not load props JSON";
     $("empty").style.display = "block";
     $("empty").textContent = "No data yet. Run the GitHub Action.";
     console.error(err);
