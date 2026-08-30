@@ -1,8 +1,8 @@
 {
-  "updated": "2026-08-30T03:19:31Z",
+  "updated": "2026-08-30T03:52:14Z",
   "source": "google_sheet_csv+kalshi",
-  "row_count": 2860,
-  "cfb_rows": 891,
+  "row_count": 1825,
+  "cfb_rows": 749,
   "sheet_rows": 4835,
   "raw_count": 4424,
   "game_count": 272,
