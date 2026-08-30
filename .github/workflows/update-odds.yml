@@ -20,13 +20,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Fetch and normalize props
+      - name: Build dashboard from published Google Sheet
         env:
-          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
-          SPORT_KEY: "americanfootball_nfl_preseason"
-          HOURS_AHEAD: "72"
-          REGIONS: "us,us_dfs"
-          MARKETS: "player_pass_yds,player_rush_yds,player_receptions,player_reception_yds,player_rush_reception_yds,player_pass_tds,player_anytime_td"
+          SHEET_CSV: "https://docs.google.com/spreadsheets/d/e/2PACX-1vS2Fdvk-56Bf-fiq8ETUftpL1W8cTqtfiOJJSehCXU60lMyo7W4_ldiGJuMrnydlZwM9fBvdrgx6VqQ/pub?gid=0&single=true&output=csv"
+          HOURS_AHEAD: "360"
         run: python scripts/fetch_nfl_props.py
 
       - name: Commit updated data
@@ -37,6 +34,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "No data changes"
           else
-            git commit -m "chore: refresh NFL props $(date -u +%Y-%m-%dT%H:%MZ)"
+            git commit -m "chore: refresh NFL props from sheet $(date -u +%Y-%m-%dT%H:%MZ)"
             git push
           fi
