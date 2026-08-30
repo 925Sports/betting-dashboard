@@ -1,19 +1,22 @@
 const DATA_URL = "./data/nfl-props.json";
 
 const BOOKS = [
-  { key: "prizepicks", label: "PP", name: "PrizePicks", color: "#7C5CFF", dfs: true, on: true },
-  { key: "underdog", label: "UD", name: "Underdog", color: "#FF7A1A", dfs: true, on: true },
-  { key: "draftkings", label: "DK", name: "DraftKings", color: "#53D337", dfs: false, on: true },
-  { key: "fanduel", label: "FD", name: "FanDuel", color: "#1493FF", dfs: false, on: true },
-  { key: "williamhill_us", label: "CZR", name: "Caesars", color: "#C4A35A", dfs: false, on: true },
-  { key: "novig", label: "NOV", name: "Novig", color: "#9B7DFF", dfs: false, on: false },
-  { key: "betrivers", label: "RIV", name: "BetRivers", color: "#E23B3B", dfs: false, on: false },
-  { key: "espnbet", label: "ESPN", name: "ESPN BET", color: "#D00", dfs: false, on: false },
-  { key: "betparx", label: "PARX", name: "BetParx", color: "#2BB0A6", dfs: false, on: false },
-  { key: "ballybet", label: "BAL", name: "Bally Bet", color: "#E6C200", dfs: false, on: false },
-  { key: "betonlineag", label: "BOL", name: "BetOnline", color: "#3D7BFF", dfs: false, on: false },
-  { key: "prophetx", label: "PX", name: "ProphetX", color: "#4CC9F0", dfs: false, on: false },
+  { key: "prizepicks", label: "PP", name: "PrizePicks", color: "#7C5CFF", dfs: true, on: true, logo: "https://cdn.prod.website-files.com/64b5f8bfc12b3ec8aef889d7/64da618df8953f532e5edf65_default_OG.png" },
+  { key: "underdog", label: "UD", name: "Underdog", color: "#FF7A1A", dfs: true, on: true, logo: "https://mma.prnewswire.com/media/2203256/underdog_logo_dark.jpg?p=facebook" },
+  { key: "draftkings", label: "DK", name: "DraftKings", color: "#53D337", dfs: false, on: true, logo: "https://upload.wikimedia.org/wikipedia/en/thumb/a/a0/DraftKings_logo.svg/1200px-DraftKings_logo.svg.png" },
+  { key: "fanduel", label: "FD", name: "FanDuel", color: "#1493FF", dfs: false, on: true, logo: "https://www.nicepng.com/png/full/51-519544_detroit-lions-fanduel-logo-png.png" },
+  { key: "williamhill_us", label: "CZR", name: "Caesars", color: "#C4A35A", dfs: false, on: true, logo: "https://www.liblogo.com/img-logo/wi5810wdec-william-hill-logo-william-hill-deposit-bonus-amp-review--com.png" },
+  { key: "novig", label: "NOV", name: "Novig", color: "#9B7DFF", dfs: false, on: false, logo: "https://mma.prnewswire.com/media/2189555/Novig_WhiteBackground_BlackWordmark_Logo.jpg?p=facebook" },
+  { key: "betrivers", label: "RIV", name: "BetRivers", color: "#E23B3B", dfs: false, on: false, logo: "" },
+  { key: "espnbet", label: "ESPN", name: "ESPN BET", color: "#D00", dfs: false, on: false, logo: "https://espnpressroom.com/us/files/2023/10/ESPN-BET-Logo-Primary-1352x1080.jpg" },
+  { key: "betparx", label: "PARX", name: "BetParx", color: "#2BB0A6", dfs: false, on: false, logo: "https://mma.prnewswire.com/media/1952755/betPARX_logo.jpg?p=facebook" },
+  { key: "ballybet", label: "BAL", name: "Bally Bet", color: "#E6C200", dfs: false, on: false, logo: "https://assets.actionnetwork.com/261589_BallyBet.png" },
+  { key: "betonlineag", label: "BOL", name: "BetOnline", color: "#3D7BFF", dfs: false, on: false, logo: "https://mma.prnewswire.com/media/2323695/betonline_logo.jpg?p=facebook" },
+  { key: "prophetx", label: "PX", name: "ProphetX", color: "#4CC9F0", dfs: false, on: false, logo: "https://sportsbooksonline-com.imgix.net/assets/local/Company/logos/prophetx-logo-transparent.png" },
+  { key: "betmgm", label: "MGM", name: "BetMGM", color: "#C4A35A", dfs: false, on: false, logo: "https://logos-world.net/wp-content/uploads/2024/10/BetMGM-Logo.jpg" },
 ];
+
+const PP_BE = { 2: 57.74, 3: 58.48, 4: 56.23, 5: 54.93, 6: 54.09 };
 
 const TEAM_ABBR = {
   "Arizona Cardinals": "ARI", "Atlanta Falcons": "ATL", "Baltimore Ravens": "BAL",
@@ -35,10 +38,11 @@ const CORE_STATS = new Set([
 ]);
 
 const DEFAULT_ON = new Set(BOOKS.filter((b) => b.on).map((b) => b.key));
+const BOOK_BY_KEY = Object.fromEntries(BOOKS.map((b) => [b.key, b]));
 
 const state = {
   data: null,
-  sortKey: "pct_to_hit",
+  sortKey: "ev",
   sortDir: "desc",
   view: "pp",
   booksOn: new Set(DEFAULT_ON),
@@ -53,10 +57,18 @@ function american(price) {
   return n > 0 ? `+${Math.round(n)}` : String(Math.round(n));
 }
 
+function pickSize() { return Number($("picks").value || 5); }
+function breakEven() { return PP_BE[pickSize()] || 54.93; }
+
+function rowEdge(row) {
+  if (row.pct_to_hit == null) return null;
+  return +(row.pct_to_hit - breakEven()).toFixed(1);
+}
+
 function pctClass(pct) {
   if (pct == null) return "pct";
-  if (pct >= 54) return "pct good";
-  if (pct >= 52) return "pct ok";
+  if (pct >= breakEven()) return "pct good";
+  if (pct >= breakEven() - 2) return "pct ok";
   return "pct bad";
 }
 
@@ -87,12 +99,15 @@ function escapeHtml(s) {
 }
 
 function bookMark(book, size) {
-  const cls = size === "sm" ? "book-mark sm" : "book-mark";
-  return `<span class="${cls}" style="--c:${book.color}" title="${escapeHtml(book.name)}">${escapeHtml(book.label)}</span>`;
+  const cls = size === "sm" ? "book-logo sm" : "book-logo";
+  if (book.logo) {
+    return `<img class="${cls}" src="${book.logo}" alt="${escapeHtml(book.label)}" title="${escapeHtml(book.name)}" onerror="this.classList.add('hide');this.nextElementSibling?.classList.remove('hide');" /><span class="book-mark ${size === "sm" ? "sm" : ""} hide" style="--c:${book.color}">${escapeHtml(book.label)}</span>`;
+  }
+  return `<span class="book-mark ${size === "sm" ? "sm" : ""}" style="--c:${book.color}" title="${escapeHtml(book.name)}">${escapeHtml(book.label)}</span>`;
 }
 
 function bookOffer(row, key) {
-  const meta = BOOKS.find((b) => b.key === key);
+  const meta = BOOK_BY_KEY[key];
   if (meta?.dfs) return row.dfs?.[key] || null;
   return row.books?.[key] || null;
 }
@@ -101,13 +116,20 @@ function applyFilters(rows) {
   const game = $("game").value;
   const stat = $("stat").value;
   const side = $("side").value;
+  const tier = $("tier").value;
   const minPct = Number($("minPct").value || 0);
   const q = $("q").value.trim().toLowerCase();
+  const be = breakEven();
 
   return rows.filter((r) => {
     if (state.view === "pp" && !r.dfs?.prizepicks) return false;
     if (state.view === "ud" && !r.dfs?.underdog) return false;
-    if (state.view === "ev" && !(r.pct_to_hit >= 54)) return false;
+    if (state.view === "ev" && !(r.pct_to_hit >= be)) return false;
+    if (state.view === "pp" || state.view === "ev") {
+      if (tier === "standard" && r.pp_tier && r.pp_tier !== "Standard") return false;
+      if (tier === "demon" && r.pp_tier !== "Demon") return false;
+      if (tier === "goblin" && r.pp_tier !== "Goblin") return false;
+    }
     if (game && r.game !== game) return false;
     if (stat && r.stat !== stat) return false;
     if (side === "ou" && r.side !== "Over" && r.side !== "Under") return false;
@@ -121,8 +143,9 @@ function applyFilters(rows) {
 function sortRows(rows) {
   const dir = state.sortDir === "asc" ? 1 : -1;
   return [...rows].sort((a, b) => {
-    const va = a[state.sortKey];
-    const vb = b[state.sortKey];
+    let va = a[state.sortKey];
+    let vb = b[state.sortKey];
+    if (state.sortKey === "ev") { va = rowEdge(a); vb = rowEdge(b); }
     if (va == null && vb == null) return 0;
     if (va == null) return 1;
     if (vb == null) return -1;
@@ -171,10 +194,14 @@ function renderHead() {
     <th data-key="player">Player</th>
     <th data-key="stat">Stat</th>
     <th data-key="line">Line</th>
+    <th data-key="pp_tier">Tier</th>
     <th data-key="pct_to_hit">% to Hit</th>
-    <th data-key="ev">Edge</th>`;
+    <th data-key="ev">Edge</th>
+    <th>Best</th>
+    <th data-key="spread">Spread</th>
+    <th data-key="total">Total</th>`;
   const books = visibleBooks().map((b) =>
-    `<th data-book="${b.key}">${bookMark(b)} ${escapeHtml(b.label)}</th>`
+    `<th data-book="${b.key}">${bookMark(b)}</th>`
   ).join("");
   $("headrow").innerHTML = fixed + books;
   $("headrow").querySelectorAll("th[data-key]").forEach((th) => {
@@ -190,10 +217,37 @@ function renderHead() {
   });
 }
 
+function tierBadge(tier) {
+  if (!tier) return `<span class="muted">—</span>`;
+  const cls = tier === "Demon" ? "tier demon" : tier === "Goblin" ? "tier goblin" : "tier std";
+  return `<span class="${cls}">${tier}</span>`;
+}
+
+function bestCell(row) {
+  const b = row.best;
+  if (!b) return `<td class="muted">—</td>`;
+  const meta = BOOK_BY_KEY[b.book];
+  const mark = meta ? bookMark(meta, "sm") : `<span class="muted">${escapeHtml(b.book)}</span>`;
+  return `<td class="price">${mark} ${american(b.price)}</td>`;
+}
+
+function spreadCell(row) {
+  if (row.spread == null) return `<td class="muted">—</td>`;
+  const home = abbr(row.home_team);
+  const n = Number(row.spread);
+  const txt = n > 0 ? `${home} +${n}` : `${home} ${n}`;
+  return `<td>${escapeHtml(txt)}</td>`;
+}
+
+function totalCell(row) {
+  if (row.total == null) return `<td class="muted">—</td>`;
+  return `<td>${Number(row.total)}</td>`;
+}
+
 function render() {
   if (!state.data) return;
   const all = state.data.props || [];
-  $("updated").textContent = `Updated ${fmtWhen(state.data.updated)}`;
+  $("updated").textContent = `Updated ${fmtWhen(state.data.updated)} · BE ${breakEven()}%`;
   fillSelect($("game"), unique(all.map((r) => r.game)).sort(), "All games");
   const stats = unique(all.map((r) => r.stat));
   const coreFirst = [...stats.filter((s) => CORE_STATS.has(s)).sort(), ...stats.filter((s) => !CORE_STATS.has(s)).sort()];
@@ -215,6 +269,7 @@ function render() {
   $("tbody").innerHTML = rows.map((r) => {
     const sideClass = r.side === "Over" || r.side === "Yes" ? "over" : (r.side === "Under" || r.side === "No" ? "under" : "");
     const lineTxt = displayLine(r);
+    const edge = rowEdge(r);
     return `
       <tr>
         <td>
@@ -223,8 +278,12 @@ function render() {
         </td>
         <td>${escapeHtml(r.stat)}</td>
         <td><span class="tag ${sideClass}">${escapeHtml(r.side)}</span>${lineTxt ?? ""}</td>
+        <td>${tierBadge(r.pp_tier)}</td>
         <td><span class="${pctClass(r.pct_to_hit)}">${r.pct_to_hit != null ? r.pct_to_hit.toFixed(1) + "%" : "—"}</span></td>
-        <td class="${r.ev >= 0 ? "" : "muted"}">${r.ev == null ? "—" : (r.ev > 0 ? "+" : "") + r.ev.toFixed(1)}</td>
+        <td class="${edge >= 0 ? "" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</td>
+        ${bestCell(r)}
+        ${spreadCell(r)}
+        ${totalCell(r)}
         ${cols.map((b) => bookCell(r, b.key)).join("")}
       </tr>`;
   }).join("");
@@ -257,17 +316,60 @@ $("booksReset").addEventListener("click", () => {
   render();
 });
 
-["game", "stat", "side", "q", "minPct"].forEach((id) => {
+["game", "stat", "side", "tier", "picks", "q", "minPct"].forEach((id) => {
   $(id).addEventListener("input", render);
   $(id).addEventListener("change", render);
 });
 
-fetch(`${DATA_URL}?t=${Date.now()}`)
-  .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
-  .then((data) => { state.data = data; render(); })
-  .catch((err) => {
+const LOAD_LINES = [
+  "Warming up the slate…",
+  "Checking the books…",
+  "Hiking the props…",
+  "Sharpening the edges…",
+  "Two-minute drill…",
+];
+
+function setLoader(msg) {
+  const el = $("loaderText");
+  if (el && msg) el.textContent = msg;
+}
+function hideLoader() {
+  const el = $("loader");
+  if (!el) return;
+  el.classList.add("out");
+  setTimeout(() => el.remove(), 500);
+}
+
+let lineIdx = 0;
+const lineTimer = setInterval(() => {
+  lineIdx = (lineIdx + 1) % LOAD_LINES.length;
+  setLoader(LOAD_LINES[lineIdx]);
+}, 700);
+
+async function loadData() {
+  try {
+    setLoader("Checking the books…");
+    let version = "";
+    try {
+      const meta = await fetch("./data/meta.json", { cache: "no-cache" }).then((r) => r.ok ? r.json() : null);
+      version = meta?.updated || "";
+    } catch (_) {}
+    setLoader("Hiking the props…");
+    const url = version ? `${DATA_URL}?v=${encodeURIComponent(version)}` : DATA_URL;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+    state.data = data;
+    render();
+  } catch (err) {
     $("updated").textContent = "Could not load data/nfl-props.json";
     $("empty").style.display = "block";
     $("empty").textContent = "No data yet. Run the GitHub Action.";
     console.error(err);
-  });
+  } finally {
+    clearInterval(lineTimer);
+    hideLoader();
+  }
+}
+
+loadData();
