@@ -1,30 +1,23 @@
 #!/usr/bin/env python3
-"""Fetch NFL player props from The Odds API and write data/nfl-props.json."""
+"""Build dashboard JSON from the published Google Sheet CSV (Odds API already loaded there)."""
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import os
 import sys
-import time
-import urllib.error
-import urllib.parse
 import urllib.request
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-BASE = "https://api.the-odds-api.com/v4"
-SPORT = os.environ.get("SPORT_KEY", "americanfootball_nfl")
-REGIONS = os.environ.get("REGIONS", "us,us_dfs")
-MARKETS = os.environ.get(
-    "MARKETS",
-    "player_pass_yds,player_rush_yds,player_receptions,player_reception_yds,"
-    "player_rush_reception_yds,player_pass_tds,player_anytime_td",
+SHEET_CSV = os.environ.get(
+    "SHEET_CSV",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vS2Fdvk-56Bf-fiq8ETUftpL1W8cTqtfiOJJSehCXU60lMyo7W4_ldiGJuMrnydlZwM9fBvdrgx6VqQ/pub?gid=0&single=true&output=csv",
 )
-HOURS_AHEAD = int(os.environ.get("HOURS_AHEAD", "72"))
-API_KEY = os.environ.get("ODDS_API_KEY", "").strip()
-
+HOURS_AHEAD = int(os.environ.get("HOURS_AHEAD", "360"))
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 
@@ -38,34 +31,28 @@ STAT_LABELS = {
     "player_rush_reception_yds": "Rush+Rec Yds",
     "player_pass_tds": "Pass TDs",
     "player_anytime_td": "Anytime TD",
+    "player_1st_td": "1st TD",
     "player_reception_tds": "Rec TDs",
     "player_rush_tds": "Rush TDs",
     "player_pass_completions": "Completions",
     "player_pass_attempts": "Pass Att",
     "player_rush_attempts": "Rush Att",
     "player_tackles_assists": "Tackles+Ast",
+    "player_reception_longest": "Longest Rec",
+    "player_pass_longest_completion": "Longest Pass",
+    "player_sacks": "Sacks",
+    "player_kicking_points": "Kicking Pts",
+    "player_field_goals": "Field Goals",
+    "player_pass_interceptions": "INTs",
+    "player_pats": "PATs",
+    "player_rush_reception_tds": "Rush+Rec TDs",
+    "player_pass_rush_reception_tds": "Pass+Rush+Rec TDs",
 }
 
 
 def die(msg: str, code: int = 1) -> None:
     print(msg, file=sys.stderr)
     sys.exit(code)
-
-
-def get(path: str, params: dict):
-    q = urllib.parse.urlencode(params)
-    url = f"{BASE}{path}?{q}"
-    req = urllib.request.Request(url, headers={"User-Agent": "betting-dashboard/1.0"})
-    try:
-        with urllib.request.urlopen(req, timeout=45) as resp:
-            headers = {k.lower(): v for k, v in resp.headers.items()}
-            body = json.loads(resp.read().decode("utf-8"))
-            return body, headers
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", errors="replace")
-        die(f"HTTP {e.code} {path}: {detail[:500]}")
-    except urllib.error.URLError as e:
-        die(f"Network error {path}: {e}")
 
 
 def american_to_implied(price):
@@ -91,119 +78,119 @@ def no_vig_two_way(over_price, under_price):
     return io / total, iu / total
 
 
-def parse_iso(ts: str) -> datetime:
-    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
-
-
-def print_quota(headers: dict, label: str) -> None:
-    used = headers.get("x-requests-used") or headers.get("x-requests-last")
-    left = headers.get("x-requests-remaining")
-    print(f"Quota after {label}: used={used} remaining={left}")
-
-
-def fetch_events():
-    data, headers = get(f"/sports/{SPORT}/events", {"apiKey": API_KEY})
-    print_quota(headers, "events")
-    now = datetime.now(timezone.utc)
-    cutoff = now + timedelta(hours=HOURS_AHEAD)
-    upcoming = []
-    for ev in data:
-        try:
-            start = parse_iso(ev["commence_time"])
-        except Exception:
-            continue
-        if now - timedelta(hours=3) <= start <= cutoff:
-            upcoming.append(ev)
-    upcoming.sort(key=lambda e: e.get("commence_time", ""))
-    print(f"Events in window: {len(upcoming)}")
-    return upcoming
-
-
-def fetch_event_odds(event_id: str):
-    data, headers = get(
-        f"/sports/{SPORT}/events/{event_id}/odds",
-        {
-            "apiKey": API_KEY,
-            "regions": REGIONS,
-            "markets": MARKETS,
-            "oddsFormat": "american",
-            "includeMultipliers": "true",
-        },
-    )
-    return data, headers
+def parse_iso(ts: str):
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except Exception:
+        return None
 
 
 def lines_close(a, b, tol: float = 0.01) -> bool:
     if a is None or b is None:
-        return False
+        return a is None and b is None
     try:
         return abs(float(a) - float(b)) <= tol
     except (TypeError, ValueError):
         return False
 
 
-def collect_raw(event: dict, payload: dict):
+def download_csv(url: str) -> str:
+    req = urllib.request.Request(url, headers={"User-Agent": "betting-dashboard/sheet-1.0"})
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        return resp.read().decode("utf-8", errors="replace")
+
+
+def parse_sheet(text: str):
+    lines = text.splitlines()
+    header_idx = 0
+    for i, line in enumerate(lines):
+        if line.lower().startswith("id,commence_time,bookmaker"):
+            header_idx = i
+            break
+    reader = csv.DictReader(io.StringIO("\n".join(lines[header_idx:])))
     rows = []
-    home = payload.get("home_team") or event.get("home_team")
-    away = payload.get("away_team") or event.get("away_team")
-    game = f"{away} @ {home}"
-    commence = payload.get("commence_time") or event.get("commence_time")
-
-    for book in payload.get("bookmakers") or []:
-        book_key = book.get("key") or ""
-        book_title = book.get("title") or book_key
-        for market in book.get("markets") or []:
-            mkey = market.get("key") or ""
-            by_player_point = defaultdict(dict)
-            for outcome in market.get("outcomes") or []:
-                side = (outcome.get("name") or "").strip()
-                player = (outcome.get("description") or "").strip()
-                if not player and side not in ("Over", "Under", "Yes", "No"):
-                    player = side
-                point = outcome.get("point")
-                rec = {
-                    "player": player,
-                    "side": side,
-                    "point": point,
-                    "price": outcome.get("price"),
-                    "multiplier": outcome.get("multiplier"),
-                }
-                if side in ("Over", "Under", "Yes", "No") and player:
-                    by_player_point[(player, point)][side] = rec
-
-            for (player, point), sides in by_player_point.items():
-                over = sides.get("Over") or sides.get("Yes")
-                under = sides.get("Under") or sides.get("No")
-                nv_over, nv_under = (None, None)
-                if over and under:
-                    nv_over, nv_under = no_vig_two_way(over.get("price"), under.get("price"))
-                for side_name, rec in sides.items():
-                    implied = american_to_implied(rec.get("price"))
-                    nv = nv_over if side_name in ("Over", "Yes") else nv_under
-                    rows.append(
-                        {
-                            "event_id": payload.get("id") or event.get("id"),
-                            "commence_time": commence,
-                            "home_team": home,
-                            "away_team": away,
-                            "game": game,
-                            "book": book_key,
-                            "book_title": book_title,
-                            "is_dfs": book_key in DFS_BOOKS,
-                            "market": mkey,
-                            "stat": STAT_LABELS.get(
-                                mkey, mkey.replace("player_", "").replace("_", " ").title()
-                            ),
-                            "player": player,
-                            "side": side_name,
-                            "line": point,
-                            "price": rec.get("price"),
-                            "multiplier": rec.get("multiplier"),
-                            "implied": implied,
-                            "no_vig": nv,
-                        }
-                    )
+    for r in reader:
+        if not r.get("id") or not r.get("bookmaker"):
+            continue
+        rows.append({k: (v.strip() if isinstance(v, str) else v) for k, v in r.items()})
     return rows
+
+
+def to_float(v):
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def collect_raw(sheet_rows, hours_ahead: int):
+    now = datetime.now(timezone.utc)
+    cutoff = now + timedelta(hours=hours_ahead)
+    raw = []
+    skipped_old = 0
+    for r in sheet_rows:
+        start = parse_iso(r.get("commence_time") or "")
+        if start and not (now - timedelta(hours=6) <= start <= cutoff):
+            skipped_old += 1
+            continue
+        player = r.get("description") or ""
+        side = r.get("label") or ""
+        if not player or not side:
+            continue
+        book = (r.get("bookmaker") or "").lower()
+        market = r.get("market") or ""
+        price = to_float(r.get("price"))
+        point = to_float(r.get("point"))
+        home = r.get("home_team") or ""
+        away = r.get("away_team") or ""
+        raw.append(
+            {
+                "event_id": r.get("id"),
+                "commence_time": r.get("commence_time"),
+                "home_team": home,
+                "away_team": away,
+                "game": f"{away} @ {home}",
+                "book": book,
+                "is_dfs": book in DFS_BOOKS,
+                "market": market,
+                "stat": STAT_LABELS.get(market, market.replace("player_", "").replace("_", " ").title()),
+                "player": player,
+                "side": side,
+                "line": point,
+                "price": price,
+                "implied": american_to_implied(price),
+                "no_vig": None,
+            }
+        )
+    print(f"Sheet rows={len(sheet_rows)} in_window={len(raw)} skipped_outside_window={skipped_old}")
+    return raw
+
+
+def attach_no_vig(raw):
+    grouped = defaultdict(dict)
+    for r in raw:
+        key = (r["event_id"], r["player"], r["market"], r["book"], r["line"])
+        grouped[key][r["side"]] = r
+    for sides in grouped.values():
+        over = sides.get("Over") or sides.get("Yes")
+        under = sides.get("Under") or sides.get("No")
+        if over and under:
+            nv_o, nv_u = no_vig_two_way(over.get("price"), under.get("price"))
+            if over:
+                over["no_vig"] = nv_o
+            if under:
+                under["no_vig"] = nv_u
+
+
+def most_common_line(items):
+    lines = [i.get("line") for i in items if i.get("line") is not None]
+    if not lines:
+        return None
+    return Counter(lines).most_common(1)[0][0]
 
 
 def build_dashboard_rows(raw):
@@ -216,12 +203,19 @@ def build_dashboard_rows(raw):
         _, player, market, side = key
         dfs = [i for i in items if i["is_dfs"]]
         books = [i for i in items if not i["is_dfs"]]
-        if not dfs:
+        if not items:
             continue
-
         pref = {i["book"]: i for i in dfs}
-        primary = pref.get("prizepicks") or pref.get("underdog") or pref.get("pick6") or dfs[0]
+        primary = (
+            pref.get("prizepicks")
+            or pref.get("underdog")
+            or pref.get("pick6")
+            or (dfs[0] if dfs else None)
+            or books[0]
+        )
         line = primary.get("line")
+        if line is None:
+            line = most_common_line(items)
 
         book_map = {}
         matching_nv = []
@@ -234,7 +228,7 @@ def build_dashboard_rows(raw):
                 "no_vig": b.get("no_vig"),
                 "same_line": lines_close(b.get("line"), line),
             }
-            if lines_close(b.get("line"), line):
+            if lines_close(b.get("line"), line) or (b.get("line") is None and line is None):
                 if b.get("no_vig") is not None:
                     matching_nv.append(b["no_vig"])
                 elif b.get("implied") is not None:
@@ -245,7 +239,7 @@ def build_dashboard_rows(raw):
         elif matching_implied:
             pct = sum(matching_implied) / len(matching_implied)
         else:
-            pct = None
+            pct = primary.get("no_vig") or primary.get("implied")
 
         ev = None
         if pct is not None:
@@ -256,7 +250,7 @@ def build_dashboard_rows(raw):
             dfs_lines[d["book"]] = {
                 "line": d.get("line"),
                 "price": d.get("price"),
-                "multiplier": d.get("multiplier"),
+                "multiplier": None,
             }
 
         out.append(
@@ -277,51 +271,49 @@ def build_dashboard_rows(raw):
                 "books": book_map,
             }
         )
-
     out.sort(key=lambda r: (-(r["pct_to_hit"] or 0), r["player"], r["stat"]))
     return out
 
 
 def main() -> None:
-    if not API_KEY:
-        die("ODDS_API_KEY is missing. Add it as a GitHub Actions secret.")
-
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    events = fetch_events()
-    raw = []
-    last_headers = {}
-    for i, ev in enumerate(events, 1):
-        print(f"[{i}/{len(events)}] {ev.get('away_team')} @ {ev.get('home_team')} ({ev.get('id')})")
-        payload, headers = fetch_event_odds(ev["id"])
-        last_headers = headers
-        print_quota(headers, ev.get("id", "")[:8])
-        if not payload:
-            continue
-        raw.extend(collect_raw(ev, payload))
-        time.sleep(0.35)
-
+    print("Downloading sheet CSV…")
+    text = download_csv(SHEET_CSV)
+    sheet_rows = parse_sheet(text)
+    if not sheet_rows:
+        die("Published sheet parsed 0 data rows. Check the CSV link is still public.")
+    raw = collect_raw(sheet_rows, HOURS_AHEAD)
+    attach_no_vig(raw)
     rows = build_dashboard_rows(raw)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     payload = {
         "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "source": "google_sheet_csv",
         "sport": "NFL",
-        "sport_key": SPORT,
-        "regions": REGIONS,
-        "markets": [m.strip() for m in MARKETS.split(",") if m.strip()],
         "hours_ahead": HOURS_AHEAD,
-        "event_count": len(events),
+        "sheet_rows": len(sheet_rows),
+        "raw_count": len(raw),
         "row_count": len(rows),
+        "books_seen": sorted({r["book"] for r in raw}),
+        "markets_seen": sorted({r["market"] for r in raw}),
         "props": rows,
     }
     (DATA_DIR / "nfl-props.json").write_text(json.dumps(payload, indent=2))
-    meta = {
-        "updated": payload["updated"],
-        "row_count": payload["row_count"],
-        "event_count": payload["event_count"],
-        "requests_remaining": last_headers.get("x-requests-remaining"),
-        "requests_used": last_headers.get("x-requests-used"),
-    }
-    (DATA_DIR / "meta.json").write_text(json.dumps(meta, indent=2))
-    print(f"Wrote data/nfl-props.json ({len(rows)} rows from {len(events)} events)")
+    (DATA_DIR / "meta.json").write_text(
+        json.dumps(
+            {
+                "updated": payload["updated"],
+                "source": "google_sheet_csv",
+                "row_count": payload["row_count"],
+                "sheet_rows": payload["sheet_rows"],
+                "raw_count": payload["raw_count"],
+                "books_seen": payload["books_seen"],
+                "markets_seen": payload["markets_seen"],
+            },
+            indent=2,
+        )
+    )
+    print(f"Wrote {len(rows)} dashboard rows from {len(sheet_rows)} sheet rows")
+    print(f"books_seen={payload['books_seen']}")
 
 
 if __name__ == "__main__":
