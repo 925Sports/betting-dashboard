@@ -37,6 +37,19 @@
         <option value="No">No</option>
         <option value="all">All sides</option>
       </select>
+      <select id="tier">
+        <option value="standard">PP Standard</option>
+        <option value="all">All PP lines</option>
+        <option value="demon">Demons</option>
+        <option value="goblin">Goblins</option>
+      </select>
+      <select id="picks">
+        <option value="2">PP 2-Pick (BE 57.7%)</option>
+        <option value="3">PP 3-Pick (BE 58.5%)</option>
+        <option value="4">PP 4-Pick (BE 56.2%)</option>
+        <option value="5" selected>PP 5-Pick (BE 54.9%)</option>
+        <option value="6">PP 6-Pick (BE 54.1%)</option>
+      </select>
       <label class="chk">Min % <input type="number" id="minPct" value="50" min="0" max="100" step="0.5" /></label>
       <input type="search" id="q" placeholder="Search players…" />
       <div class="count" id="count"></div>
