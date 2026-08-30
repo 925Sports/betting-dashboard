@@ -1,4 +1,14 @@
-const DATA_URLS = { nfl: "./data/nfl-props.json", cfb: "./data/cfb-props.json", mlb: "./data/mlb-props.json" };
+const DATA_URLS = {
+  nfl: "./data/nfl-props.json",
+  cfb: "./data/cfb-props.json",
+  mlb: "./data/mlb-props.json",
+  soccer: "./data/soccer-props.json",
+  wnba: "./data/wnba-props.json",
+  nba: "./data/nba-props.json",
+  cbb: "./data/cbb-props.json",
+  nhl: "./data/nhl-props.json",
+};
+const SPORT_LABEL = { nfl: "NFL", cfb: "CFB", mlb: "MLB", soccer: "SOCCER", wnba: "WNBA", nba: "NBA", cbb: "CBB", nhl: "NHL" };
 
 const BOOKS = [
   { key: "prizepicks", label: "PP", name: "PrizePicks", color: "#6D28FF", dfs: true, on: true, tile: "#6D28FF", logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQBa_IfAC9uxHYxj3nRDqyo09hGsSkT4crW1duodUEJTw&s=10" },
@@ -36,6 +46,8 @@ const TEAM_ABBR = {
 const CORE_STATS = new Set([
   "Pass Yds", "Rush Yds", "Receptions", "Rec Yds", "Rush+Rec Yds",
   "Pass TDs", "Anytime TD", "Fantasy Score", "Pass+Rush Yds",
+  "Shots", "Shots On Target", "Goals", "Assists", "Goal + Assist", "Anytime Goal", "Goalie Saves",
+  "Points", "Rebounds", "Pts+Rebs+Asts", "Pts+Rebs", "Pts+Asts", "3-PT Made",
 ]);
 const FALLBACK_HEAD = "https://www.freeiconspng.com/uploads/--tie-user-users-work-worker-working-icon--icon-search-engine-6.png";
 
@@ -409,7 +421,7 @@ function render() {
         <td>
           <div class="player-row">${headshotTag(r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}</button></div>
           <div class="game"><span class="sport-tag">${escapeHtml(r.sport || "")}</span> ${escapeHtml(matchup(r))} · ${escapeHtml(fmtWhen(r.commence_time))}</div>
-          <div class="script">${scriptLine(r)}</div>
+          <div class="script">${scriptLine(r)}${r.broadcasts ? ` · ${escapeHtml(r.broadcasts)}` : ""}</div>
         </td>
         <td>${escapeHtml(r.stat)}</td>
         <td class="line-cell"><div class="line-stack"><span class="tag ${sideClass}">${escapeHtml(r.side)}</span><div class="line-num">${lineTxt ?? "—"}</div></div></td>
@@ -609,27 +621,24 @@ async function loadData() {
     const sport = $("sport")?.value || state.sport || "all";
     state.sport = sport;
     if (sport === "all") {
-      const results = await Promise.allSettled([
-        fetchBoard(DATA_URLS.nfl, version),
-        fetchBoard(DATA_URLS.cfb, version),
-        fetchBoard(DATA_URLS.mlb, version),
-      ]);
-      const nfl = results[0].status === "fulfilled" ? tagSport(results[0].value, "NFL") : { props: [], games: [], kalshi: {} };
-      const cfb = results[1].status === "fulfilled" ? tagSport(results[1].value, "CFB") : { props: [], games: [], kalshi: {} };
-      const mlb = results[2].status === "fulfilled" ? tagSport(results[2].value, "MLB") : { props: [], games: [], kalshi: {} };
+      const keys = Object.keys(DATA_URLS);
+      const results = await Promise.allSettled(keys.map((k) => fetchBoard(DATA_URLS[k], version)));
+      const boards = results.map((res, i) => res.status === "fulfilled"
+        ? tagSport(res.value, SPORT_LABEL[keys[i]])
+        : { props: [], games: [], kalshi: {} });
       state.data = {
-        updated: nfl.updated || cfb.updated || mlb.updated,
+        updated: boards.find((b) => b.updated)?.updated,
         sport: "ALL",
-        props: [...(nfl.props || []), ...(cfb.props || []), ...(mlb.props || [])],
-        games: [...(nfl.games || []), ...(cfb.games || []), ...(mlb.games || [])],
+        props: boards.flatMap((b) => b.props || []),
+        games: boards.flatMap((b) => b.games || []),
         kalshi: {
-          ml: [...(nfl.kalshi?.ml || []), ...(cfb.kalshi?.ml || []), ...(mlb.kalshi?.ml || [])],
-          spread: [...(nfl.kalshi?.spread || []), ...(cfb.kalshi?.spread || []), ...(mlb.kalshi?.spread || [])],
-          total: [...(nfl.kalshi?.total || []), ...(cfb.kalshi?.total || []), ...(mlb.kalshi?.total || [])],
+          ml: boards.flatMap((b) => b.kalshi?.ml || []),
+          spread: boards.flatMap((b) => b.kalshi?.spread || []),
+          total: boards.flatMap((b) => b.kalshi?.total || []),
         },
       };
     } else {
-      const label = sport === "cfb" ? "CFB" : sport === "mlb" ? "MLB" : "NFL";
+      const label = SPORT_LABEL[sport] || sport.toUpperCase();
       const data = await fetchBoard(DATA_URLS[sport] || DATA_URLS.nfl, version);
       state.data = tagSport(data, label);
     }
