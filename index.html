@@ -16,9 +16,10 @@
       </div>
     </div>
     <nav class="tabs">
-      <button class="tab on" data-view="all" type="button">All Props</button>
+      <button class="tab on" data-view="pp" type="button">PrizePicks</button>
+      <button class="tab" data-view="ud" type="button">Underdog</button>
       <button class="tab" data-view="ev" type="button">+EV Only</button>
-      <button class="tab" data-view="dfs" type="button">PP / UD Only</button>
+      <button class="tab" data-view="all" type="button">All Props</button>
     </nav>
     <div class="meta" id="updated">Loading…</div>
   </header>
@@ -41,22 +42,16 @@
       <div class="count" id="count"></div>
     </div>
 
+    <div class="books-bar">
+      <div class="books-label">Books</div>
+      <div class="books-picks" id="bookPicks"></div>
+      <button type="button" class="tab" id="booksReset">Default books</button>
+    </div>
+
     <div class="table-wrap">
       <table>
         <thead>
-          <tr>
-            <th data-key="player">Player</th>
-            <th data-key="stat">Stat</th>
-            <th data-key="line">Line</th>
-            <th data-key="pct_to_hit">% to Hit</th>
-            <th data-key="ev">Edge</th>
-            <th>PP</th>
-            <th>UD</th>
-            <th>DK</th>
-            <th>FD</th>
-            <th>CZR</th>
-            <th>NOV</th>
-          </tr>
+          <tr id="headrow"></tr>
         </thead>
         <tbody id="tbody"></tbody>
       </table>
