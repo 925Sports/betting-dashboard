@@ -56,6 +56,9 @@
       <select id="section">
         <option value="props">Player props</option>
         <option value="games">Game lines</option>
+        <option value="news">NFL news</option>
+        <option value="injuries">NFL injuries</option>
+        <option value="logs">NFL player logs</option>
       </select>
       <select id="game"></select>
       <select id="stat"></select>
@@ -85,6 +88,11 @@
       <div class="count" id="count"></div>
     </div>
 
+    <div class="ticker" id="newsTicker" hidden>
+      <div class="ticker-label">NFL</div>
+      <div class="ticker-track" id="tickerTrack"></div>
+    </div>
+
     <div class="books-bar">
       <div class="books-label">Books</div>
       <div class="books-picks" id="bookPicks"></div>
@@ -106,6 +114,60 @@
       <div class="slip-picks" id="slipPicks"></div>
       <a class="tab on" id="slipOpen" href="https://app.prizepicks.com/" target="_blank" rel="noopener">Open in PrizePicks</a>
       <button type="button" class="tab" id="slipClear">Clear</button>
+    </div>
+
+    <div class="table-wrap intel-wrap" id="newsWrap" style="display:none">
+      <table>
+        <thead>
+          <tr>
+            <th>Source</th>
+            <th>Headline</th>
+            <th>Published</th>
+            <th>Players</th>
+          </tr>
+        </thead>
+        <tbody id="newsBody"></tbody>
+      </table>
+      <div class="empty" id="newsEmpty" style="display:none">No NFL news yet. Run the Action.</div>
+    </div>
+
+    <div class="table-wrap intel-wrap" id="injWrap" style="display:none">
+      <table>
+        <thead>
+          <tr>
+            <th>Player</th>
+            <th>Team</th>
+            <th>Pos</th>
+            <th>Report</th>
+            <th>Injury</th>
+            <th>Practice</th>
+            <th>Week</th>
+          </tr>
+        </thead>
+        <tbody id="injBody"></tbody>
+      </table>
+      <div class="empty" id="injEmpty" style="display:none">No injury rows yet.</div>
+    </div>
+
+    <div class="table-wrap intel-wrap" id="logsWrap" style="display:none">
+      <table>
+        <thead>
+          <tr>
+            <th>Player</th>
+            <th>Pos</th>
+            <th>Team</th>
+            <th>Last</th>
+            <th>L5 Rec / Tgt</th>
+            <th>L5 Rec Yds</th>
+            <th>L5 Rush</th>
+            <th>L5 Pass</th>
+            <th>L5 PPR</th>
+            <th>Note</th>
+          </tr>
+        </thead>
+        <tbody id="logsBody"></tbody>
+      </table>
+      <div class="empty" id="logsEmpty" style="display:none">No player logs yet.</div>
     </div>
 
     <div class="table-wrap" id="gamesWrap" style="display:none">
