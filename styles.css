@@ -71,6 +71,7 @@ label.chk { display: flex; align-items: center; gap: 6px; font-size: 13px; color
   padding: 5px 10px; font-size: 12px; cursor: pointer;
 }
 .book-pick.on { color: #fff; border-color: #3d6fd6; background: #173056; }
+.book-pick.ex { border-style: dashed; }
 .book-mark {
   --c: #4c8dff;
   display: inline-grid; place-items: center;
@@ -108,7 +109,13 @@ th {
 th .book-mark { margin-right: 4px; vertical-align: middle; }
 tr:hover td { background: rgba(255,255,255,0.025); }
 .player { font-weight: 650; }
+.player-btn {
+  background: none; border: 0; padding: 0; color: inherit;
+  font: inherit; font-weight: 650; cursor: pointer; text-align: left;
+}
+.player-btn:hover { color: #9ec0ff; text-decoration: underline; }
 .game { color: var(--muted); font-size: 11px; margin-top: 2px; }
+.script { color: #9ec0ff; font-size: 11px; margin-top: 2px; font-weight: 600; }
 .pct {
   font-weight: 700; border-radius: 8px; padding: 6px 8px;
   display: inline-block; min-width: 62px; text-align: center;
@@ -133,11 +140,11 @@ tr:hover td { background: rgba(255,255,255,0.025); }
 }
 
 .book-logo {
-  height: 22px; width: 22px; object-fit: contain;
-  background: #fff; border-radius: 5px; padding: 2px;
+  height: 22px; width: 22px; object-fit: cover;
+  background: #111827; border-radius: 5px; padding: 0;
   vertical-align: middle;
 }
-.book-logo.sm { height: 16px; width: 16px; padding: 1px; }
+.book-logo.sm { height: 16px; width: 16px; padding: 0; }
 .book-logo.hide, .book-mark.hide { display: none; }
 .tier {
   display: inline-block; border-radius: 6px; padding: 2px 6px;
@@ -146,6 +153,19 @@ tr:hover td { background: rgba(255,255,255,0.025); }
 .tier.std { background: #173056; color: #cfe0ff; }
 .tier.demon { background: rgba(224,93,111,0.18); color: #e05d6f; }
 .tier.goblin { background: rgba(25,195,125,0.16); color: #19c37d; }
+
+.line-stack {
+  text-align: center;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px; line-height: 1.1;
+}
+.line-stack .tag { margin-right: 0; }
+.line-num {
+  text-align: center;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+th[data-key="line"] { text-align: center; }
 
 .loader {
   position: fixed; inset: 0; z-index: 80;
@@ -216,7 +236,37 @@ tr:hover td { background: rgba(255,255,255,0.025); }
   100% { transform: translateX(280%); }
 }
 
-.script { color: #9ec0ff; font-size: 11px; margin-top: 2px; font-weight: 600; }
-.line-stack { line-height: 1.15; }
-.line-num { font-weight: 800; font-variant-numeric: tabular-nums; margin-top: 3px; }
-.book-pick.ex { border-style: dashed; }
+.popup {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(4,8,16,0.72);
+  display: grid; place-items: center; padding: 20px;
+}
+.popup[hidden] { display: none; }
+.popup-card {
+  width: min(760px, 100%);
+  max-height: min(84vh, 820px);
+  overflow: auto;
+  background: #101827;
+  border: 1px solid #1c2a3f;
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+}
+.popup-top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.popup-name { font-size: 22px; font-weight: 800; }
+.popup-sub { color: #8b9bb4; margin-top: 4px; }
+.popup-x {
+  background: #182236; color: #e8eef8; border: 1px solid #1c2a3f;
+  border-radius: 999px; width: 32px; height: 32px; cursor: pointer;
+}
+.popup-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px; margin: 14px 0;
+}
+.popup-stat {
+  background: #0b1220; border: 1px solid #1c2a3f; border-radius: 10px; padding: 10px;
+}
+.popup-stat b { display: block; color: #8b9bb4; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 4px; }
+.popup-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.popup-table th, .popup-table td { padding: 7px 8px; border-bottom: 1px solid #1c2a3f; text-align: left; }
+.popup-table th { color: #8b9bb4; font-size: 11px; text-transform: uppercase; }
