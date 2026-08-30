@@ -350,15 +350,11 @@ def build_dashboard_rows(raw, games):
                 if better_american(b.get("price"), None if not best else best.get("price")):
                     best = {"book": b["book"], "price": b.get("price"), "line": b.get("line")}
 
-        # Never use DFS two-way juice as % to hit (that is always ~50%).
+        # Only same-line sportsbook no-vig. A 3.5 Under % is not valid on a 3 line.
         if matching_nv:
             pct = sum(matching_nv) / len(matching_nv)
         elif matching_implied:
             pct = sum(matching_implied) / len(matching_implied)
-        elif any_nv:
-            pct = sum(any_nv) / len(any_nv)
-        elif any_implied:
-            pct = sum(any_implied) / len(any_implied)
         else:
             pct = None
 
