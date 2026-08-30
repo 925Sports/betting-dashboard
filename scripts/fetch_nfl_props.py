@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build dashboard JSON from the published Google Sheet CSV (Odds API already loaded there)."""
+"""Build dashboard JSON from published Google Sheet CSVs (props + game odds)."""
 
 from __future__ import annotations
 
@@ -16,6 +16,10 @@ from pathlib import Path
 SHEET_CSV = os.environ.get(
     "SHEET_CSV",
     "https://docs.google.com/spreadsheets/d/e/2PACX-1vS2Fdvk-56Bf-fiq8ETUftpL1W8cTqtfiOJJSehCXU60lMyo7W4_ldiGJuMrnydlZwM9fBvdrgx6VqQ/pub?gid=0&single=true&output=csv",
+)
+GAME_CSV = os.environ.get(
+    "GAME_CSV",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vR4iRyeVVkS5AYbpFqz3LhcHOvosyZE6NUNDrORdvlH-DB2kJaeLqPRIAbqQSEUxydMFvUayxtgTev_/pub?gid=536190425&single=true&output=csv",
 )
 HOURS_AHEAD = int(os.environ.get("HOURS_AHEAD", "360"))
 ROOT = Path(__file__).resolve().parents[1]
@@ -96,25 +100,32 @@ def lines_close(a, b, tol: float = 0.01) -> bool:
         return False
 
 
+def better_american(a, b):
+    if a is None:
+        return False
+    if b is None:
+        return True
+    return float(a) > float(b)
+
+
 def download_csv(url: str) -> str:
-    req = urllib.request.Request(url, headers={"User-Agent": "betting-dashboard/sheet-1.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": "betting-dashboard/sheet-2.0"})
     with urllib.request.urlopen(req, timeout=60) as resp:
         return resp.read().decode("utf-8", errors="replace")
 
 
-def parse_sheet(text: str):
+def parse_csv_text(text: str, header_prefix: str | None = None):
     lines = text.splitlines()
     header_idx = 0
-    for i, line in enumerate(lines):
-        if line.lower().startswith("id,commence_time,bookmaker"):
-            header_idx = i
-            break
+    if header_prefix:
+        for i, line in enumerate(lines):
+            if line.lower().startswith(header_prefix.lower()):
+                header_idx = i
+                break
     reader = csv.DictReader(io.StringIO("\n".join(lines[header_idx:])))
     rows = []
     for r in reader:
-        if not r.get("id") or not r.get("bookmaker"):
-            continue
-        rows.append({k: (v.strip() if isinstance(v, str) else v) for k, v in r.items()})
+        rows.append({k: (v.strip() if isinstance(v, str) else v) for k, v in r.items() if k})
     return rows
 
 
@@ -125,6 +136,50 @@ def to_float(v):
         return float(v)
     except (TypeError, ValueError):
         return None
+
+
+def game_key(away, home):
+    return f"{away}|{home}"
+
+
+def load_game_odds():
+    print("Downloading game odds CSV…")
+    try:
+        text = download_csv(GAME_CSV)
+    except Exception as e:
+        print(f"Game odds download failed: {e}")
+        return {}
+    rows = parse_csv_text(text, "commence_time,bookmaker")
+    by_game = {}
+    for r in rows:
+        home = r.get("home_team") or ""
+        away = r.get("away_team") or ""
+        if not home or not away:
+            continue
+        key = game_key(away, home)
+        rec = by_game.setdefault(
+            key,
+            {
+                "home_team": home,
+                "away_team": away,
+                "commence_time": r.get("commence_time"),
+                "spread": None,
+                "total": None,
+                "spread_proj": None,
+                "total_proj": None,
+            },
+        )
+        market = (r.get("market") or "").lower()
+        avg = to_float(r.get("Average Line"))
+        proj = to_float(r.get("Projection"))
+        if market == "spreads" and rec["spread"] is None and avg is not None:
+            rec["spread"] = avg
+            rec["spread_proj"] = proj
+        if market == "totals" and rec["total"] is None and avg is not None:
+            rec["total"] = avg
+            rec["total_proj"] = proj
+    print(f"Game odds matchups={len(by_game)}")
+    return by_game
 
 
 def collect_raw(sheet_rows, hours_ahead: int):
@@ -154,6 +209,7 @@ def collect_raw(sheet_rows, hours_ahead: int):
                 "home_team": home,
                 "away_team": away,
                 "game": f"{away} @ {home}",
+                "game_key": game_key(away, home),
                 "book": book,
                 "is_dfs": book in DFS_BOOKS,
                 "market": market,
@@ -193,7 +249,38 @@ def most_common_line(items):
     return Counter(lines).most_common(1)[0][0]
 
 
-def build_dashboard_rows(raw):
+def consensus_book_line(books):
+    lines = [b.get("line") for b in books if b.get("line") is not None]
+    if not lines:
+        return None
+    return Counter(lines).most_common(1)[0][0]
+
+
+def pp_tier(pp, book_line, side):
+    if not pp:
+        return None
+    price = pp.get("price")
+    line = pp.get("line")
+    if price is not None and 90 <= float(price) <= 115:
+        return "Demon"
+    if price is not None and float(price) <= -180:
+        return "Goblin"
+    if book_line is not None and line is not None:
+        diff = float(line) - float(book_line)
+        if side == "Over":
+            if diff >= 0.5:
+                return "Demon"
+            if diff <= -0.5:
+                return "Goblin"
+        if side == "Under":
+            if diff <= -0.5:
+                return "Demon"
+            if diff >= 0.5:
+                return "Goblin"
+    return "Standard"
+
+
+def build_dashboard_rows(raw, games):
     grouped = defaultdict(list)
     for r in raw:
         grouped[(r["event_id"], r["player"], r["market"], r["side"])].append(r)
@@ -216,23 +303,28 @@ def build_dashboard_rows(raw):
         line = primary.get("line")
         if line is None:
             line = most_common_line(items)
+        book_cons = consensus_book_line(books)
 
         book_map = {}
         matching_nv = []
         matching_implied = []
+        best = None
         for b in books:
-            book_map[b["book"]] = {
+            rec = {
                 "price": b.get("price"),
                 "line": b.get("line"),
                 "implied": b.get("implied"),
                 "no_vig": b.get("no_vig"),
                 "same_line": lines_close(b.get("line"), line),
             }
-            if lines_close(b.get("line"), line) or (b.get("line") is None and line is None):
+            book_map[b["book"]] = rec
+            if rec["same_line"] or (b.get("line") is None and line is None):
                 if b.get("no_vig") is not None:
                     matching_nv.append(b["no_vig"])
                 elif b.get("implied") is not None:
                     matching_implied.append(b["implied"])
+                if better_american(b.get("price"), None if not best else best.get("price")):
+                    best = {"book": b["book"], "price": b.get("price"), "line": b.get("line")}
 
         if matching_nv:
             pct = sum(matching_nv) / len(matching_nv)
@@ -253,6 +345,10 @@ def build_dashboard_rows(raw):
                 "multiplier": None,
             }
 
+        g = games.get(primary.get("game_key") or game_key(primary.get("away_team"), primary.get("home_team")), {})
+        pp = dfs_lines.get("prizepicks")
+        tier = pp_tier(pp, book_cons, side)
+
         out.append(
             {
                 "player": player,
@@ -267,6 +363,13 @@ def build_dashboard_rows(raw):
                 "event_id": primary["event_id"],
                 "pct_to_hit": None if pct is None else round(pct * 100, 1),
                 "ev": ev,
+                "pp_tier": tier,
+                "book_line": book_cons,
+                "best": best,
+                "spread": g.get("spread"),
+                "total": g.get("total"),
+                "spread_proj": g.get("spread_proj"),
+                "total_proj": g.get("total_proj"),
                 "dfs": dfs_lines,
                 "books": book_map,
             }
@@ -276,14 +379,15 @@ def build_dashboard_rows(raw):
 
 
 def main() -> None:
-    print("Downloading sheet CSV…")
+    print("Downloading props CSV…")
     text = download_csv(SHEET_CSV)
-    sheet_rows = parse_sheet(text)
+    sheet_rows = parse_csv_text(text, "id,commence_time,bookmaker")
     if not sheet_rows:
-        die("Published sheet parsed 0 data rows. Check the CSV link is still public.")
+        die("Published props sheet parsed 0 data rows.")
+    games = load_game_odds()
     raw = collect_raw(sheet_rows, HOURS_AHEAD)
     attach_no_vig(raw)
-    rows = build_dashboard_rows(raw)
+    rows = build_dashboard_rows(raw, games)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     payload = {
         "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -293,6 +397,7 @@ def main() -> None:
         "sheet_rows": len(sheet_rows),
         "raw_count": len(raw),
         "row_count": len(rows),
+        "game_count": len(games),
         "books_seen": sorted({r["book"] for r in raw}),
         "markets_seen": sorted({r["market"] for r in raw}),
         "props": rows,
@@ -306,14 +411,14 @@ def main() -> None:
                 "row_count": payload["row_count"],
                 "sheet_rows": payload["sheet_rows"],
                 "raw_count": payload["raw_count"],
+                "game_count": payload["game_count"],
                 "books_seen": payload["books_seen"],
                 "markets_seen": payload["markets_seen"],
             },
             indent=2,
         )
     )
-    print(f"Wrote {len(rows)} dashboard rows from {len(sheet_rows)} sheet rows")
-    print(f"books_seen={payload['books_seen']}")
+    print(f"Wrote {len(rows)} dashboard rows / {len(games)} games")
 
 
 if __name__ == "__main__":
