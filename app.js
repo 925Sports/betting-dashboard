@@ -96,6 +96,13 @@ function fmtWhen(iso) {
   });
 }
 
+function hasStarted(iso) {
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return false;
+  return t <= Date.now();
+}
+
 function abbr(team) { return TEAM_ABBR[team] || team || ""; }
 
 function matchup(row) {
@@ -311,6 +318,7 @@ function applyFilters(rows) {
       if (tier === "goblin" && r.pp_tier !== "Goblin") return false;
       if (tier === "alternate" && r.pp_tier !== "Alternate" && !r.is_alternate) return false;
     }
+    if (hasStarted(r.commence_time)) return false;
     if (game && r.game !== game) return false;
     if (stat && r.stat !== stat) return false;
     if (side === "ou" && r.side !== "Over" && r.side !== "Under") return false;
@@ -516,7 +524,7 @@ function renderGames() {
   const showGames = state.section === "games";
   wrap.style.display = showGames ? "block" : "none";
   if (!showGames) return;
-  const games = state.data.games || [];
+  const games = (state.data.games || []).filter((g) => !hasStarted(g.commence_time));
   const k = state.data.kalshi || {};
   const ranked = games.map((g) => {
     const edge = gameBestEdge(g, k);
