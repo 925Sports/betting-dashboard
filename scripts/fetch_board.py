@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 import time
 import urllib.request
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -243,6 +244,133 @@ def sane_pct(v):
     return round(n, 1)
 
 
+NAME_SKIP = {"jr", "sr", "ii", "iii", "iv", "v"}
+
+
+def name_tokens(s: str):
+    return [t for t in norm_name(s).split() if t and t not in NAME_SKIP]
+
+
+def last_first_key(s: str) -> str:
+    toks = name_tokens(s)
+    if not toks:
+        return ""
+    first = toks[0][0] if toks[0] else ""
+    return f"{toks[-1]}|{first}"
+
+
+def is_whole_line(n) -> bool:
+    n = base.to_float(n)
+    if n is None:
+        return False
+    return abs(n - round(n)) < 1e-9
+
+
+def poisson_pmf(k: int, lam: float) -> float:
+    if k < 0 or lam <= 0:
+        return 0.0
+    return math.exp(-lam) * (lam ** k) / math.factorial(k)
+
+
+def poisson_cdf(k: int, lam: float) -> float:
+    return sum(poisson_pmf(i, lam) for i in range(max(0, int(k) + 1)))
+
+
+def lambda_from_cdf(k: int, p: float) -> float:
+    """Find λ such that P(X <= k) ≈ p. Higher λ lowers the CDF."""
+    p = min(0.97, max(0.03, float(p)))
+    lo, hi = 0.01, 80.0
+    for _ in range(50):
+        mid = (lo + hi) / 2.0
+        if poisson_cdf(k, mid) > p:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2.0
+
+
+def consensus_half_line(row) -> float | None:
+    """Most common sportsbook line, preferring a .5 next to the PP line."""
+    cands = []
+    if row.get("book_line") is not None:
+        cands.append(row["book_line"])
+    for b in (row.get("books") or {}).values():
+        if b.get("line") is not None:
+            cands.append(b["line"])
+    if row.get("avg_line") is not None:
+        cands.append(row["avg_line"])
+    nums = [base.to_float(x) for x in cands]
+    nums = [n for n in nums if n is not None]
+    if not nums:
+        return None
+    return Counter(nums).most_common(1)[0][0]
+
+
+def strict_hit_pct(side, pp_line, book_line, raw_pct):
+    """
+    PrizePicks voids an exact whole-number result (push).
+    Book Under 3.5 = P(X <= 3) includes the push at 3.
+    True PP Under 3 hit = P(X <= 2).
+    """
+    raw = sane_pct(raw_pct)
+    if raw is None or not is_whole_line(pp_line):
+        return raw
+    bl = base.to_float(book_line)
+    if bl is None:
+        return raw
+    L = int(round(float(pp_line)))
+    p = raw / 100.0
+    side = (side or "").title()
+    if side == "Under" and abs(bl - (L + 0.5)) <= 0.2:
+        lam = lambda_from_cdf(L, p)
+        return sane_pct(poisson_cdf(L - 1, lam) * 100)
+    if side == "Over" and abs(bl - (L - 0.5)) <= 0.2:
+        p_le = max(0.03, min(0.97, 1.0 - p))
+        lam = lambda_from_cdf(L - 1, p_le)
+        return sane_pct((1.0 - poisson_cdf(L, lam)) * 100)
+    return raw
+
+
+def apply_strict_hit(row):
+    if "fantasy" in str(row.get("stat") or "").lower():
+        return
+    if not is_whole_line(row.get("line")):
+        return
+    book_line = consensus_half_line(row)
+    adj = strict_hit_pct(row.get("side"), row.get("line"), book_line, row.get("pct_to_hit"))
+    if adj is not None:
+        row["pct_to_hit"] = adj
+        row["hit_model"] = "strict_no_push"
+
+
+def fill_headshots(rows, *sources):
+    shots = {}
+
+    def add(name, url):
+        url = (url or "").strip()
+        if not name or not url or not url.startswith("http"):
+            return
+        shots[norm_name(name)] = url
+        key = last_first_key(name)
+        if key:
+            shots.setdefault(key, url)
+
+    for group in sources:
+        for r in group or []:
+            add(r.get("player"), r.get("headshot"))
+    for r in rows:
+        add(r.get("player"), r.get("headshot"))
+    filled = 0
+    for r in rows:
+        if r.get("headshot"):
+            continue
+        hit = shots.get(norm_name(r.get("player") or "")) or shots.get(last_first_key(r.get("player") or ""))
+        if hit:
+            r["headshot"] = hit
+            filled += 1
+    print(f"Loose headshot fills={filled}")
+
+
 def attach_pp(row, p):
     row["headshot"] = p.get("headshot") or row.get("headshot")
     row["projection"] = p.get("projection")
@@ -283,6 +411,10 @@ def attach_pp(row, p):
     cur = row.get("pct_to_hit")
     if cur is not None and (cur > 99 or cur < 1):
         row["pct_to_hit"] = edge if is_fantasy else None
+    if not is_fantasy:
+        if row.get("book_line") is None:
+            row["book_line"] = avg if avg is not None else p.get("avg_line")
+        apply_strict_hit(row)
 
 
 def enrich_props(rows, pp_rows, ud_rows):
@@ -353,6 +485,7 @@ def enrich_props(rows, pp_rows, ud_rows):
         })
     print(f"Added {extra} extra PP stat rows (combo/fantasy/etc)")
     fill_player_context(rows)
+    fill_headshots(rows, pp_rows, ud_rows)
     for row in rows:
         stat = str(row.get("stat") or "")
         if "fantasy" in stat.lower():
@@ -362,6 +495,7 @@ def enrich_props(rows, pp_rows, ud_rows):
         hit = row.get("pct_to_hit")
         if hit is not None and (hit > 99 or hit < 1):
             row["pct_to_hit"] = sane_pct(row.get("pp_sheet_edge"))
+        apply_strict_hit(row)
     return rows
 
 
