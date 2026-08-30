@@ -71,7 +71,6 @@ label.chk { display: flex; align-items: center; gap: 6px; font-size: 13px; color
   padding: 5px 10px; font-size: 12px; cursor: pointer;
 }
 .book-pick.on { color: #fff; border-color: #3d6fd6; background: #173056; }
-.book-pick.ex { border-style: dashed; }
 .book-mark {
   --c: #4c8dff;
   display: inline-grid; place-items: center;
@@ -135,10 +134,10 @@ tr:hover td { background: rgba(255,255,255,0.025); }
 
 .book-logo {
   height: 22px; width: 22px; object-fit: cover;
-  background: #111827; border-radius: 5px; padding: 0;
+  background: #111827; border-radius: 5px; padding: 2px;
   vertical-align: middle;
 }
-.book-logo.sm { height: 16px; width: 16px; }
+.book-logo.sm { height: 16px; width: 16px; padding: 1px; }
 .book-logo.hide, .book-mark.hide { display: none; }
 .tier {
   display: inline-block; border-radius: 6px; padding: 2px 6px;
@@ -218,6 +217,7 @@ tr:hover td { background: rgba(255,255,255,0.025); }
 }
 
 .script { color: #9ec0ff; font-size: 11px; margin-top: 2px; font-weight: 600; }
+.book-pick.ex { border-style: dashed; }
 .player-btn {
   background: none; border: 0; padding: 0; color: inherit;
   font: inherit; font-weight: 650; cursor: pointer; text-align: left;
@@ -225,6 +225,11 @@ tr:hover td { background: rgba(255,255,255,0.025); }
 .player-btn:hover { color: #9ec0ff; text-decoration: underline; }
 .player-row { display: flex; align-items: center; gap: 8px; }
 .headshot { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; background: #182236; flex: 0 0 28px; }
+th[data-key="line"], td.line-stack {
+  text-align: center;
+  min-width: 76px;
+  vertical-align: middle;
+}
 .line-stack {
   text-align: center !important;
   display: flex;
@@ -233,13 +238,9 @@ tr:hover td { background: rgba(255,255,255,0.025); }
   justify-content: center;
   gap: 3px;
   line-height: 1.05;
-  min-width: 76px;
-  vertical-align: middle;
 }
 .line-stack .tag { margin: 0; }
 .line-num { text-align: center; font-weight: 800; font-variant-numeric: tabular-nums; }
-th[data-key="line"], td.line-stack { text-align: center; min-width: 76px; vertical-align: middle; }
-
 .popup {
   position: fixed; inset: 0; z-index: 60;
   background: rgba(4,8,16,0.72);
@@ -274,7 +275,6 @@ th[data-key="line"], td.line-stack { text-align: center; min-width: 76px; vertic
 .popup-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .popup-table th, .popup-table td { padding: 7px 8px; border-bottom: 1px solid #1c2a3f; text-align: left; }
 .popup-table th { color: #8b9bb4; font-size: 11px; text-transform: uppercase; }
-
 .slip-bar {
   display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
   background: var(--panel); border: 1px solid var(--line);
@@ -287,4 +287,16 @@ th[data-key="line"], td.line-stack { text-align: center; min-width: 76px; vertic
   display: block; margin-top: 4px;
   background: #173056; color: #cfe0ff; border: 1px solid #2b4b80;
   border-radius: 999px; padding: 2px 7px; font-size: 10px; cursor: pointer;
+}
+.sport-tag {
+  display: inline-block;
+  background: #173056;
+  color: #cfe0ff;
+  border: 1px solid #2b4b80;
+  border-radius: 4px;
+  padding: 0 5px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  margin-right: 4px;
 }
