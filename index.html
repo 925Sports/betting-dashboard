@@ -7,28 +7,38 @@
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <div class="wrap">
-    <div class="top">
+  <header class="bar">
+    <div class="brand">
+      <span class="logo">925</span>
       <div>
-        <h1>+EV BETTING DASHBOARD</h1>
-        <div class="sub" id="updated">Loading…</div>
+        <div class="brand-title">+EV Optimizer</div>
+        <div class="brand-sub">NFL player props</div>
       </div>
-      <div class="sub" id="count"></div>
     </div>
+    <nav class="tabs">
+      <button class="tab on" data-view="all" type="button">All Props</button>
+      <button class="tab" data-view="ev" type="button">+EV Only</button>
+      <button class="tab" data-view="dfs" type="button">PP / UD Only</button>
+    </nav>
+    <div class="meta" id="updated">Loading…</div>
+  </header>
 
+  <div class="wrap">
     <div class="filters">
+      <div class="chip">NFL</div>
       <select id="game"></select>
       <select id="stat"></select>
       <select id="side">
-        <option value="">Over / Under</option>
+        <option value="ou">Over / Under</option>
         <option value="Over">Over</option>
         <option value="Under">Under</option>
         <option value="Yes">Yes</option>
         <option value="No">No</option>
+        <option value="all">All sides</option>
       </select>
-      <label class="chk"><input type="checkbox" id="evOnly" /> +EV only (≥54%)</label>
-      <label class="chk">Min % <input type="number" id="minPct" value="0" min="0" max="100" step="0.5" style="width:72px" /></label>
+      <label class="chk">Min % <input type="number" id="minPct" value="50" min="0" max="100" step="0.5" /></label>
       <input type="search" id="q" placeholder="Search players…" />
+      <div class="count" id="count"></div>
     </div>
 
     <div class="table-wrap">
@@ -44,8 +54,8 @@
             <th>UD</th>
             <th>DK</th>
             <th>FD</th>
-            <th>MGM</th>
             <th>CZR</th>
+            <th>NOV</th>
           </tr>
         </thead>
         <tbody id="tbody"></tbody>
