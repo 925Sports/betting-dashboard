@@ -267,7 +267,7 @@ def collect_combo(sheet_rows, hours_ahead: int):
     skipped_old = 0
     for r in sheet_rows:
         start = parse_iso(r.get("commence_time") or r.get("Scheduled At") or "")
-        if start and not (now - timedelta(hours=6) <= start <= cutoff):
+        if start and not (now <= start <= cutoff):
             skipped_old += 1
             continue
         player = r.get("description") or r.get("Player Name") or ""
@@ -324,7 +324,7 @@ def collect_raw(sheet_rows, hours_ahead: int):
     skipped_old = 0
     for r in sheet_rows:
         start = parse_iso(r.get("commence_time") or "")
-        if start and not (now - timedelta(hours=6) <= start <= cutoff):
+        if start and not (now <= start <= cutoff):
             skipped_old += 1
             continue
         player = r.get("description") or ""
