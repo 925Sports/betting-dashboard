@@ -67,6 +67,35 @@ STAT_LABELS = {
     "pitcher_outs": "Outs",
     "pitcher_hits_allowed": "Hits Allowed",
     "pitcher_earned_runs": "ER",
+    "player_goal_scorer_anytime": "Anytime Goal",
+    "player_first_goal_scorer": "First Goal",
+    "player_shots_on_target": "Shots On Target",
+    "player_shots": "Shots",
+    "player_assists": "Assists",
+    "player_goals": "Goals",
+    "player_goal_assists": "Goal + Assist",
+    "player_tackles": "Tackles",
+    "player_saves": "Goalie Saves",
+    "player_passes": "Passes",
+    "player_fouls": "Fouls",
+    "player_points": "Points",
+    "player_rebounds": "Rebounds",
+    "player_assists": "Assists",
+    "player_threes": "3-PT Made",
+    "player_blocks": "Blocks",
+    "player_steals": "Steals",
+    "player_turnovers": "Turnovers",
+    "player_points_rebounds_assists": "Pts+Rebs+Asts",
+    "player_points_rebounds": "Pts+Rebs",
+    "player_points_assists": "Pts+Asts",
+    "player_rebounds_assists": "Rebs+Asts",
+    "player_blocks_steals": "Stocks",
+    "player_double_double": "Double-Double",
+    "player_triple_double": "Triple-Double",
+    "player_goals_scored": "Goals",
+    "player_goalie_saves": "Goalie Saves",
+    "player_shots_on_goal": "Shots On Goal",
+    "player_blocked_shots": "Blocked Shots",
 }
 
 
@@ -134,11 +163,21 @@ def download_csv(url: str) -> str:
 def parse_csv_text(text: str, header_prefix: str | None = None):
     lines = text.splitlines()
     header_idx = 0
+    prefixes = []
     if header_prefix:
+        prefixes = [p.strip() for p in header_prefix.split("|") if p.strip()]
+    if prefixes:
         for i, line in enumerate(lines):
-            if line.lower().startswith(header_prefix.lower()):
+            low = line.lower()
+            if any(low.startswith(p.lower()) for p in prefixes):
                 header_idx = i
                 break
+        else:
+            for i, line in enumerate(lines):
+                low = line.lower()
+                if "commence_time" in low and ("bookmaker" in low or "home_team" in low or "player" in low):
+                    header_idx = i
+                    break
     reader = csv.DictReader(io.StringIO("\n".join(lines[header_idx:])))
     rows = []
     for r in reader:
@@ -209,7 +248,76 @@ def load_game_odds():
     return by_game
 
 
+def _pct_frac(v):
+    n = to_float(v)
+    if n is None:
+        return None
+    if n > 1:
+        n = n / 100.0
+    if n <= 0 or n >= 1:
+        return None
+    return n
+
+
+def collect_combo(sheet_rows, hours_ahead: int):
+    """Soccer-style combo sheet: one row has Over Price + Under Price + precomputed no-vig."""
+    now = datetime.now(timezone.utc)
+    cutoff = now + timedelta(hours=hours_ahead)
+    raw = []
+    skipped_old = 0
+    for r in sheet_rows:
+        start = parse_iso(r.get("commence_time") or r.get("Scheduled At") or "")
+        if start and not (now - timedelta(hours=6) <= start <= cutoff):
+            skipped_old += 1
+            continue
+        player = r.get("description") or r.get("Player Name") or ""
+        if not player:
+            continue
+        book = (r.get("bookmaker") or "").lower()
+        market = r.get("market") or r.get("Stat Type") or ""
+        point = to_float(r.get("point") or r.get("Line Score") or r.get("Average Line"))
+        home = r.get("home_team") or ""
+        away = r.get("away_team") or ""
+        game_title = r.get("Game Short Title") or r.get("Match Title") or ""
+        if not home and " vs " in game_title:
+            away, home = [x.strip() for x in game_title.split(" vs ", 1)]
+        broadcasts = (r.get("Broadcasts") or "").strip()
+        event_id = r.get("id") or f"{away}|{home}|{player}|{market}|{point}"
+        stat = STAT_LABELS.get(market, market.replace("player_", "").replace("_", " ").title())
+        sides = [
+            ("Over", to_float(r.get("Over Price")), _pct_frac(r.get("Average No-Vig Over %") or r.get("No-Vig Over %"))),
+            ("Under", to_float(r.get("Under Price")), _pct_frac(r.get("Average No-Vig Under %") or r.get("No-Vig Under %"))),
+        ]
+        for side, price, nv in sides:
+            if price is None and nv is None:
+                continue
+            raw.append({
+                "event_id": event_id,
+                "commence_time": r.get("commence_time") or r.get("Scheduled At") or r.get("Game Start Time") or "",
+                "home_team": home,
+                "away_team": away,
+                "game": game_title or f"{away} @ {home}",
+                "game_key": game_key(away, home),
+                "book": book,
+                "is_dfs": book in DFS_BOOKS,
+                "market": market,
+                "stat": stat,
+                "player": player,
+                "side": side,
+                "line": point,
+                "price": price,
+                "implied": american_to_implied(price),
+                "no_vig": nv,
+                "broadcasts": broadcasts,
+            })
+    print(f"Combo rows={len(sheet_rows)} expanded={len(raw)} skipped_outside_window={skipped_old}")
+    return raw
+
+
 def collect_raw(sheet_rows, hours_ahead: int):
+    if sheet_rows and any(k in sheet_rows[0] for k in ("Over Price", "No-Vig Over %", "Average No-Vig Over %")):
+        if "label" not in sheet_rows[0] or not sheet_rows[0].get("label"):
+            return collect_combo(sheet_rows, hours_ahead)
     now = datetime.now(timezone.utc)
     cutoff = now + timedelta(hours=hours_ahead)
     raw = []
@@ -247,6 +355,7 @@ def collect_raw(sheet_rows, hours_ahead: int):
                 "price": price,
                 "implied": american_to_implied(price),
                 "no_vig": None,
+                "broadcasts": (r.get("Broadcasts") or "").strip(),
             }
         )
     print(f"Sheet rows={len(sheet_rows)} in_window={len(raw)} skipped_outside_window={skipped_old}")
@@ -266,9 +375,9 @@ def attach_no_vig(raw):
         under = sides.get("Under") or sides.get("No")
         if over and under:
             nv_o, nv_u = no_vig_two_way(over.get("price"), under.get("price"))
-            if over:
+            if over and over.get("no_vig") is None:
                 over["no_vig"] = nv_o
-            if under:
+            if under and under.get("no_vig") is None:
                 under["no_vig"] = nv_u
 
 
@@ -413,6 +522,7 @@ def build_dashboard_rows(raw, games):
                 "total_proj": g.get("total_proj"),
                 "dfs": dfs_lines,
                 "books": book_map,
+                "broadcasts": next((i.get("broadcasts") for i in items if i.get("broadcasts")), ""),
             }
         )
     out.sort(key=lambda r: (-(r["pct_to_hit"] or 0), r["player"], r["stat"]))
