@@ -308,9 +308,8 @@ def consensus_half_line(row) -> float | None:
 
 def strict_hit_pct(side, pp_line, book_line, raw_pct):
     """
-    PrizePicks voids an exact whole-number result (push).
-    Book Under 3.5 = P(X <= 3) includes the push at 3.
-    True PP Under 3 hit = P(X <= 2).
+    Book Under 3.5 = P(X <= 3) = PP Under 3 win + push.
+    % to Hit is P(win | graded) = P(X <= 2) / (P(X <= 2) + P(X >= 4)).
     """
     raw = sane_pct(raw_pct)
     if raw is None or not is_whole_line(pp_line):
@@ -321,13 +320,19 @@ def strict_hit_pct(side, pp_line, book_line, raw_pct):
     L = int(round(float(pp_line)))
     p = raw / 100.0
     side = (side or "").title()
+    def graded(p_win, p_lose):
+        den = p_win + p_lose
+        if den <= 0:
+            return raw
+        return sane_pct((p_win / den) * 100)
+
     if side == "Under" and abs(bl - (L + 0.5)) <= 0.2:
         lam = lambda_from_cdf(L, p)
-        return sane_pct(poisson_cdf(L - 1, lam) * 100)
+        return graded(poisson_cdf(L - 1, lam), 1.0 - p)
     if side == "Over" and abs(bl - (L - 0.5)) <= 0.2:
         p_le = max(0.03, min(0.97, 1.0 - p))
         lam = lambda_from_cdf(L - 1, p_le)
-        return sane_pct((1.0 - poisson_cdf(L, lam)) * 100)
+        return graded(1.0 - poisson_cdf(L, lam), p_le)
     return raw
 
 
@@ -340,7 +345,7 @@ def apply_strict_hit(row):
     adj = strict_hit_pct(row.get("side"), row.get("line"), book_line, row.get("pct_to_hit"))
     if adj is not None:
         row["pct_to_hit"] = adj
-        row["hit_model"] = "strict_no_push"
+        row["hit_model"] = "graded_no_push"
 
 
 def fill_headshots(rows, *sources):
