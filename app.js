@@ -240,6 +240,20 @@ function bestCell(row) {
   return `<td class="price">${mark} ${american(b.price)}</td>`;
 }
 
+function spreadCell(row) {
+  if (row.spread == null) return `<td class="muted">—</td>`;
+  const home = abbr(row.home_team);
+  const n = Number(row.spread);
+  const txt = n > 0 ? `${home} +${n}` : `${home} ${n}`;
+  return `<td>${escapeHtml(txt)}</td>`;
+}
+
+function totalCell(row) {
+  if (row.total == null) return `<td class="muted">—</td>`;
+  return `<td>${Number(row.total)}</td>`;
+}
+
+
 function scriptLine(row) {
   const bits = [];
   if (row.spread != null) {
@@ -275,6 +289,7 @@ function bookImplied(price) {
 }
 function gameBestEdge(g, k) {
   const mlHomeImp = bookImplied(g.ml_home);
+  const mlAwayImp = bookImplied(g.ml_away);
   const kHome = kalshiMatch(k.ml, g);
   let best = null;
   if (kHome && kHome.implied != null && mlHomeImp != null) {
@@ -401,565 +416,233 @@ function render() {
         <td>${tierBadge(r.pp_tier)}</td>
         <td><span class="${pctClass(r.pct_to_hit)}">${r.pct_to_hit != null ? r.pct_to_hit.toFixed(1) + "%" : "—"}</span></td>
         <td class="${edge >= 0 ? "" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}${r.dfs?.prizepicks ? `<button type="button" class="slip-add" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">+ slip</button>` : ""}</td>
-        ${bestCell(Starting with `scripts/fetch_board.py`. Reply with the next filename when you want it (`app.js`, `index.html`, `scripts/fetch_nfl_props.py`, or `styles.css`).**File 1 of 4 — `scripts/fetch_board.py`**
-
-Replace the whole file with this:
-
-```python
-#!/usr/bin/env python3
-"""Build NFL + CFB dashboard JSON from sheets + Kalshi."""
-
-from __future__ import annotations
-
-import json
-import os
-import sys
-import time
-import urllib.request
-from collections import defaultdict
-from datetime import datetime, timezone
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import fetch_nfl_props as base
-
-NFL_PP_CSV = os.environ.get(
-    "NFL_PP_CSV",
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vR5CGYxMTghCulNtsHaMDKjkkbbYKaEWt0tJ2ie7iu-Mx2YpBClXzIZaZeYRdkg7LJlt8r_6nrxdqYa/pub?gid=2102978132&single=true&output=csv",
-)
-NFL_UD_CSV = os.environ.get(
-    "NFL_UD_CSV",
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vR5CGYxMTghCulNtsHaMDKjkkbbYKaEWt0tJ2ie7iu-Mx2YpBClXzIZaZeYRdkg7LJlt8r_6nrxdqYa/pub?gid=1254100508&single=true&output=csv",
-)
-CFB_SHEET_CSV = os.environ.get(
-    "CFB_SHEET_CSV",
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ6uGq2C3QDX0V5QXJqdOwwPZB22sEAiJ_B2tciWZjqRrsaJO3kFu4X4jwcJQcbZKsHvchNmDLMH0_m/pub?gid=0&single=true&output=csv",
-)
-CFB_PP_CSV = os.environ.get(
-    "CFB_PP_CSV",
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSV0x8a_qRCwt9t2MRmRph7MwHioKNrZTN00niOF2spzpMzxrlaz3cKr5oE_soDhjkeH8NbU4UxsIqe/pub?gid=2102978132&single=true&output=csv",
-)
-CFB_UD_CSV = os.environ.get(
-    "CFB_UD_CSV",
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSV0x8a_qRCwt9t2MRmRph7MwHioKNrZTN00niOF2spzpMzxrlaz3cKr5oE_soDhjkeH8NbU4UxsIqe/pub?gid=1254100508&single=true&output=csv",
-)
-CFB_GAME_CSV = os.environ.get(
-    "CFB_GAME_CSV",
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vS8KYFAnWpyXL6XY9_fYAhF1C0YRTewdTvj9Wy0s5vxhTSkFOPCf16BMbJYdyRW9mHTCoEX6RUF60zg/pub?gid=0&single=true&output=csv",
-)
-MLB_SHEET_CSV = os.environ.get(
-    "MLB_SHEET_CSV",
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vRUJK8Rk88pZm27OK_t8gyU4oQ846-Kp_mXsk0_iNI74lZTObf8JT9avnTA0LtFGA3Vx3xw_JpE5qV7/pub?gid=0&single=true&output=csv",
-)
-MLB_PP_CSV = os.environ.get(
-    "MLB_PP_CSV",
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSLw3UZqoWqheDXCENlKhAGk8adRqvYH8LFik2LFAhKV4785KLw3a4e6jACDYPoKzqfquYDn5Tg1pB0/pub?gid=0&single=true&output=csv",
-)
-MLB_UD_CSV = os.environ.get(
-    "MLB_UD_CSV",
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSLw3UZqoWqheDXCENlKhAGk8adRqvYH8LFik2LFAhKV4785KLw3a4e6jACDYPoKzqfquYDn5Tg1pB0/pub?gid=1678510326&single=true&output=csv",
-)
-MLB_GAME_CSV = os.environ.get(
-    "MLB_GAME_CSV",
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSpPDV6j2efSRShoyK64USbXA6s9eVrOMfWRyZ8G5-acETUwCG50BLegb9DNAj8MGFGlgjYRc9KhvEH/pub?gid=0&single=true&output=csv",
-)
-KALSHI_BASE = "https://external-api.kalshi.com/trade-api/v2"
-
-STAT_ALIASES = {
-    "pass yards": "Pass Yds", "passing yards": "Pass Yds", "pass yds": "Pass Yds",
-    "rush yards": "Rush Yds", "rushing yards": "Rush Yds", "rush yds": "Rush Yds",
-    "receiving yards": "Rec Yds", "rec yards": "Rec Yds", "rec yds": "Rec Yds",
-    "receptions": "Receptions",
-    "rush+rec yds": "Rush+Rec Yds", "rush + rec yards": "Rush+Rec Yds", "rush + rec yds": "Rush+Rec Yds",
-    "pass+rush yds": "Pass+Rush Yds", "pass + rush yards": "Pass+Rush Yds", "pass + rush yds": "Pass+Rush Yds",
-    "pass tds": "Pass TDs", "passing tds": "Pass TDs",
-    "anytime td": "Anytime TD", "anytime touchdown": "Anytime TD",
-    "fantasy score": "Fantasy Score", "fantasy pts": "Fantasy Score",
-    "hitter fantasy score": "Hitter Fantasy Score", "pitcher fantasy score": "Pitcher Fantasy Score",
-    "hits + runs + rbis": "Hits+Runs+RBIs", "hits+runs+rbis": "Hits+Runs+RBIs",
-    "hitter strikeouts": "Hitter Ks", "batter strikeouts": "Hitter Ks",
-    "pitcher strikeouts": "Pitcher Ks", "pitches seen": "Pitches Seen",
-    "total bases": "Total Bases", "stolen bases": "Stolen Bases",
-    "home runs": "Home Runs", "hits": "Hits", "runs": "Runs", "rbis": "RBIs",
-    "singles": "Singles", "doubles": "Doubles", "walks": "Walks", "batter walks": "Walks",
-    "pitcher outs": "Outs", "earned runs": "ER", "hits allowed": "Hits Allowed",
-    "ints thrown": "INTs", "int": "INTs", "interceptions": "INTs",
-    "pass attempts": "Pass Att", "completions": "Completions", "rush attempts": "Rush Att",
-    "longest reception": "Longest Rec", "longest completion": "Longest Pass",
-    "1q rec yards": "1Q Rec Yds", "1h rec yards": "1H Rec Yds",
-    "1q pass yards": "1Q Pass Yds", "1h pass yards": "1H Pass Yds",
-    "1q rush yards": "1Q Rush Yds", "1h rush yards": "1H Rush Yds",
-    "rec targets": "Targets", "sacks": "Sacks",
+        ${bestCell(r)}
+        ${cols.map((b) => bookCell(r, b.key)).join("")}
+      </tr>`;
+  }).join("");
 }
 
+document.querySelectorAll(".tab[data-view]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab[data-view]").forEach((b) => b.classList.remove("on"));
+    btn.classList.add("on");
+    state.view = btn.dataset.view;
+    render();
+  });
+});
 
-def norm_name(s: str) -> str:
-    return " ".join("".join(ch for ch in (s or "").lower() if ch.isalnum() or ch.isspace()).split())
+$("bookPicks").addEventListener("click", (e) => {
+  const btn = e.target.closest(".book-pick");
+  if (!btn) return;
+  const key = btn.dataset.book;
+  if (state.booksOn.has(key)) {
+    if (state.booksOn.size === 1) return;
+    state.booksOn.delete(key);
+  } else {
+    state.booksOn.add(key);
+  }
+  render();
+});
 
+$("booksReset").addEventListener("click", () => {
+  state.booksOn = new Set(DEFAULT_ON);
+  render();
+});
 
-def norm_stat(s: str) -> str:
-    raw = " ".join((s or "").replace("_", " ").strip().lower().split())
-    if raw.startswith("player "):
-        raw = raw[7:]
-    return STAT_ALIASES.get(raw, (s or "").strip())
-
-
-def safe_download(url: str, label: str) -> str:
-    print(f"Downloading {label}…")
-    try:
-        return base.download_csv(url)
-    except Exception as e:
-        print(f"{label} failed: {e}")
-        return ""
-
-
-def pct_num(v):
-    n = base.to_float(v)
-    if n is None:
-        return None
-    if n <= 1:
-        n *= 100
-    return round(n, 1)
-
-
-def parse_pp_fields(r):
-    """Handle both the official column layout and the shifted export."""
-    odds = (r.get("Odds Type") or "").strip()
-    shot = (r.get("Headshot URL") or "").strip()
-    data = (r.get("Data ID") or "").strip()
-    leagues = {"nfl", "cfb", "ncaaf", "ncaa", "college football"}
-    tiers = {"standard", "demon", "goblin", "power", "mm"}
-    if odds.lower() in leagues or shot.lower() in tiers:
-        league, tier = odds, shot
-        headshot = data if data.startswith("http") else ""
-        pp_id = data if data and not data.startswith("http") else ""
-    else:
-        league, tier = "", odds
-        headshot = shot if shot.startswith("http") else (data if data.startswith("http") else "")
-        pp_id = data if data and not data.startswith("http") else ""
-    tier_l = (tier or "standard").lower()
-    if tier_l == "demon":
-        tier = "Demon"
-    elif tier_l == "goblin":
-        tier = "Goblin"
-    else:
-        tier = "Standard"
-    return league, tier, headshot, pp_id
+if ($("sport")) {
+  $("sport").addEventListener("change", () => {
+    state.sport = $("sport").value;
+    loadData();
+  });
+}
+if ($("section")) {
+  $("section").addEventListener("change", () => {
+    state.section = $("section").value;
+    render();
+  });
+}
+["game", "stat", "side", "tier", "picks", "q", "minPct"].forEach((id) => {
+  $(id).addEventListener("input", render);
+  $(id).addEventListener("change", render);
+});
 
 
-def load_pp(url: str):
-    text = safe_download(url, "PrizePicks optimizer")
-    if not text:
-        return []
-    rows = (
-        base.parse_csv_text(text, "Source,Sport,Player ID")
-        or base.parse_csv_text(text, "Date,Start Time,Player Name")
-        or base.parse_csv_text(text)
-    )
-    out = []
-    for r in rows:
-        player = r.get("Player Name") or ""
-        if not player:
-            continue
-        league, tier, headshot, pp_id = parse_pp_fields(r)
-        side = (r.get("Bet Tag") or "Over").strip().title()
-        if side.lower() in {"more", "higher"}:
-            side = "Over"
-        if side.lower() in {"less", "lower"}:
-            side = "Under"
-        stat = norm_stat(r.get("Stat Type") or "")
-        is_fantasy = "fantasy" in stat.lower()
-        edge = pct_num(r.get("% Edge") or r.get("Edge %"))
-        if edge is None:
-            edge = pct_num(r.get("Edge % Over") if side == "Over" else r.get("Edge % Under"))
-        nv = None
-        if not is_fantasy:
-            nv = pct_num(r.get("Average No-Vig Over %") if side == "Over" else r.get("Average No-Vig Under %"))
-            if nv is None or nv > 99 or nv < 1:
-                nv = pct_num(r.get("No-Vig Over %") if side == "Over" else r.get("No-Vig Under %"))
-            if nv is not None and (nv > 99 or nv < 1):
-                nv = None
-        out.append({
-            "player": player,
-            "player_key": norm_name(player),
-            "stat": stat,
-            "line": base.to_float(r.get("Line Score")),
-            "side": side,
-            "pp_tier": tier,
-            "league": league,
-            "headshot": headshot,
-            "pp_id": pp_id,
-            "projection": base.to_float(r.get("Projection")),
-            "pp_edge": edge,
-            "true_point": base.to_float(r.get("True Point")),
-            "avg_line": base.to_float(r.get("Average Line")),
-            "nv_pct": nv,
-            "proj_vs_line": base.to_float(r.get("Projection vs Line")),
-            "correlates": r.get("Correlates") or "",
-            "game": r.get("Game Short Title") or r.get("Match Title") or "",
-            "commence_time": r.get("Game Start Time") or r.get("Scheduled At") or r.get("Start Time") or "",
-            "spread": base.to_float(r.get("Spread")),
-            "total": base.to_float(r.get("O/U")),
-            "player_id": (r.get("Player ID") or "").strip(),
-        })
-    print(f"PP rows={len(out)}")
-    return out
+function closePopup() {
+  const el = $("popup");
+  if (el) el.hidden = true;
+}
 
+function openPlayerPopup(player, eventId, market, side) {
+  const all = state.data?.props || [];
+  const mine = all.filter((r) => r.player === player);
+  const focus = mine.find((r) => r.event_id === eventId && r.market === market && r.side === side) || mine[0];
+  if (!focus) return;
+  const edge = rowEdge(focus);
+  const books = Object.entries(focus.books || {}).sort((a, b) => (a[0] > b[0] ? 1 : -1));
+  const dfs = Object.entries(focus.dfs || {});
+  const others = mine
+    .filter((r) => !(r.event_id === focus.event_id && r.market === focus.market && r.side === focus.side))
+    .sort((a, b) => String(a.stat).localeCompare(String(b.stat)));
 
-def load_ud(url: str):
-    text = safe_download(url, "Underdog filter")
-    if not text:
-        return []
-    rows = (
-        base.parse_csv_text(text, "Source,Sport,Player ID")
-        or base.parse_csv_text(text, "ID,Player Name")
-        or base.parse_csv_text(text)
-    )
-    out = []
-    for r in rows:
-        player = r.get("Player Name") or ""
-        if not player:
-            continue
-        stat = norm_stat(r.get("Stat Type") or r.get("Stat Description") or "")
-        out.append({
-            "player": player,
-            "player_key": norm_name(player),
-            "stat": stat,
-            "line": base.to_float(r.get("Line Score") or r.get("Stat Value")),
-            "over_price": base.to_float(r.get("Higher Price")),
-            "under_price": base.to_float(r.get("Lower Price")),
-            "headshot": r.get("Headshot URL") or r.get("Player Image URL") or "",
-            "game": r.get("Game Short Title") or r.get("Match Title") or "",
-            "commence_time": r.get("Game Start Time") or r.get("Scheduled At") or "",
-            "spread": base.to_float(r.get("Spread")),
-            "total": base.to_float(r.get("O/U")),
-            "pp_edge": pct_num(r.get("Edge %") or r.get("% Edge")),
-        })
-    print(f"UD rows={len(out)}")
-    return out
+  $("popupCard").innerHTML = `
+    <div class="popup-top">
+      <div>
+        <div class="popup-name">${headshotTag(focus.headshot)} ${escapeHtml(focus.player)}</div>
+        <div class="popup-sub">${escapeHtml(matchup(focus))} · ${escapeHtml(fmtWhen(focus.commence_time))}<br>${escapeHtml(scriptLine(focus))}</div>
+      </div>
+      <button type="button" class="popup-x" id="popupClose">✕</button>
+    </div>
+    <div class="popup-grid">
+      <div class="popup-stat"><b>Stat</b>${escapeHtml(focus.stat)} ${escapeHtml(focus.side)} ${focus.line ?? ""}</div>
+      <div class="popup-stat"><b>Tier</b>${escapeHtml(focus.pp_tier || "—")}</div>
+      <div class="popup-stat"><b>% to hit</b>${focus.pct_to_hit != null ? focus.pct_to_hit.toFixed(1) + "%" : "—"}</div>
+      <div class="popup-stat"><b>Edge</b>${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</div>
+    </div>
+    <div class="popup-stat" style="margin-bottom:12px">
+      <b>DFS lines</b>
+      ${dfs.length ? dfs.map(([k, v]) => {
+        const meta = BOOK_BY_KEY[k];
+        return `${meta ? bookMark(meta, "sm") : k} ${v.line ?? "—"} ${american(v.price)}`;
+      }).join("&nbsp;&nbsp;&nbsp;") : "—"}
+    </div>
+    <table class="popup-table">
+      <thead><tr><th>Book</th><th>Line</th><th>Price</th><th>Same line</th></tr></thead>
+      <tbody>
+        ${books.map(([k, v]) => {
+          const meta = BOOK_BY_KEY[k];
+          return `<tr><td>${meta ? bookMark(meta, "sm") + " " + escapeHtml(meta.name) : escapeHtml(k)}</td><td>${v.line ?? "—"}</td><td>${american(v.price)}</td><td>${v.same_line ? "Yes" : "No"}</td></tr>`;
+        }).join("") || `<tr><td colspan="4" class="muted">No sportsbook prices</td></tr>`}
+      </tbody>
+    </table>
+    <div style="margin:12px 0 8px;display:flex;gap:8px;flex-wrap:wrap">
+      <button type="button" class="tab on" id="popupSlip">Add to PP slip</button>
+      <a class="tab" href="${ppSlipLink(focus)}" target="_blank" rel="noopener">Open this pick in PrizePicks</a>
+    </div>
+    ${others.length ? `<h4 style="margin:16px 0 8px">Other ${escapeHtml(player)} props</h4>
+    <table class="popup-table">
+      <thead><tr><th>Stat</th><th>Side</th><th>Line</th><th>% to hit</th></tr></thead>
+      <tbody>
+        ${others.slice(0, 24).map((r) => `<tr>
+          <td>${escapeHtml(r.stat)}</td><td>${escapeHtml(r.side)}</td>
+          <td>${r.line ?? "—"}</td><td>${r.pct_to_hit != null ? r.pct_to_hit.toFixed(1) + "%" : "—"}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>` : ""}
+  `;
+  $("popup").hidden = false;
+  $("popupClose").onclick = closePopup;
+  const slipBtn = $("popupSlip");
+  if (slipBtn) slipBtn.onclick = () => addToSlip(focus);
+}
 
+$("tbody").addEventListener("click", (e) => {
+  const add = e.target.closest(".slip-add");
+  if (add) {
+    const all = state.data?.props || [];
+    const row = all.find((r) => r.player === add.dataset.player && r.event_id === add.dataset.eid && r.market === add.dataset.market && r.side === add.dataset.side);
+    if (row) addToSlip(row);
+    return;
+  }
+  const btn = e.target.closest(".player-btn");
+  if (!btn) return;
+  openPlayerPopup(btn.dataset.player, btn.dataset.eid, btn.dataset.market, btn.dataset.side);
+});
+$("slipPicks")?.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-slip]");
+  if (!btn) return;
+  state.slip.splice(Number(btn.dataset.slip), 1);
+  renderSlip();
+});
+$("slipClear")?.addEventListener("click", () => { state.slip = []; renderSlip(); });
+$("popup")?.addEventListener("click", (e) => {
+  if (e.target.id === "popup") closePopup();
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePopup(); });
 
-def sane_pct(v):
-    """Hit rates only. Drop sheet formula blowups like 254%."""
-    n = base.to_float(v)
-    if n is None:
-        return None
-    if n <= 1:
-        n *= 100
-    if n < 1 or n > 99:
-        return None
-    return round(n, 1)
+const LOAD_LINES = [
+  "Warming up the slate…",
+  "Checking the books…",
+  "Hiking the props…",
+  "Sharpening the edges…",
+  "Two-minute drill…",
+];
 
+function setLoader(msg) {
+  const el = $("loaderText");
+  if (el && msg) el.textContent = msg;
+}
+function hideLoader() {
+  const el = $("loader");
+  if (!el) return;
+  el.classList.add("out");
+  setTimeout(() => el.remove(), 500);
+}
 
-def attach_pp(row, p):
-    row["headshot"] = p.get("headshot") or row.get("headshot")
-    row["projection"] = p.get("projection")
-    row["pp_sheet_edge"] = p.get("pp_edge")
-    row["true_point"] = p.get("true_point")
-    row["proj_vs_line"] = p.get("proj_vs_line")
-    row["correlates"] = p.get("correlates")
-    row["pp_id"] = p.get("pp_id") or row.get("pp_id")
-    if p.get("pp_tier"):
-        row["pp_tier"] = p["pp_tier"]
-    row.setdefault("dfs", {})["prizepicks"] = {
-        "line": p.get("line") if p.get("line") is not None else row.get("line"),
-        "price": (row.get("dfs") or {}).get("prizepicks", {}).get("price") or -137,
-        "multiplier": None,
-        "id": p.get("pp_id") or "",
+let lineIdx = 0;
+const lineTimer = setInterval(() => {
+  lineIdx = (lineIdx + 1) % LOAD_LINES.length;
+  setLoader(LOAD_LINES[lineIdx]);
+}, 700);
+
+function tagSport(data, sport) {
+  const props = (data?.props || []).map((r) => ({ ...r, sport: r.sport || sport }));
+  const games = (data?.games || []).map((g) => ({ ...g, sport: g.sport || sport }));
+  return { ...data, props, games };
+}
+
+async function fetchBoard(url, version) {
+  const full = version ? `${url}?v=${encodeURIComponent(version)}` : url;
+  const res = await fetch(full, { cache: "no-cache" });
+  if (!res.ok) throw new Error(`${url} ${res.status}`);
+  return res.json();
+}
+
+async function loadData() {
+  try {
+    setLoader("Checking the books…");
+    let version = "";
+    try {
+      const meta = await fetch("./data/meta.json", { cache: "no-cache" }).then((r) => r.ok ? r.json() : null);
+      version = meta?.updated || "";
+    } catch (_) {}
+    setLoader("Hiking the props…");
+    const sport = $("sport")?.value || state.sport || "all";
+    state.sport = sport;
+    if (sport === "all") {
+      const results = await Promise.allSettled([
+        fetchBoard(DATA_URLS.nfl, version),
+        fetchBoard(DATA_URLS.cfb, version),
+        fetchBoard(DATA_URLS.mlb, version),
+      ]);
+      const nfl = results[0].status === "fulfilled" ? tagSport(results[0].value, "NFL") : { props: [], games: [], kalshi: {} };
+      const cfb = results[1].status === "fulfilled" ? tagSport(results[1].value, "CFB") : { props: [], games: [], kalshi: {} };
+      const mlb = results[2].status === "fulfilled" ? tagSport(results[2].value, "MLB") : { props: [], games: [], kalshi: {} };
+      state.data = {
+        updated: nfl.updated || cfb.updated || mlb.updated,
+        sport: "ALL",
+        props: [...(nfl.props || []), ...(cfb.props || []), ...(mlb.props || [])],
+        games: [...(nfl.games || []), ...(cfb.games || []), ...(mlb.games || [])],
+        kalshi: {
+          ml: [...(nfl.kalshi?.ml || []), ...(cfb.kalshi?.ml || []), ...(mlb.kalshi?.ml || [])],
+          spread: [...(nfl.kalshi?.spread || []), ...(cfb.kalshi?.spread || []), ...(mlb.kalshi?.spread || [])],
+          total: [...(nfl.kalshi?.total || []), ...(cfb.kalshi?.total || []), ...(mlb.kalshi?.total || [])],
+        },
+      };
+    } else {
+      const label = sport === "cfb" ? "CFB" : sport === "mlb" ? "MLB" : "NFL";
+      const data = await fetchBoard(DATA_URLS[sport] || DATA_URLS.nfl, version);
+      state.data = tagSport(data, label);
     }
-    stat = str(p.get("stat") or row.get("stat") or "")
-    is_fantasy = "fantasy" in stat.lower()
-    edge = sane_pct(p.get("pp_edge"))
-    nv = sane_pct(p.get("nv_pct"))
-    line = p.get("line") if p.get("line") is not None else row.get("line")
-    avg = p.get("avg_line")
-    diff = None
-    if line is not None and avg is not None:
-        try:
-            diff = abs(float(line) - float(avg))
-        except (TypeError, ValueError):
-            diff = None
+    render();
+  } catch (err) {
+    $("updated").textContent = "Could not load props JSON";
+    $("empty").style.display = "block";
+    $("empty").textContent = "No data yet. Run the GitHub Action.";
+    console.error(err);
+  } finally {
+    clearInterval(lineTimer);
+    hideLoader();
+  }
+}
 
-    if is_fantasy:
-        row["pct_to_hit"] = edge
-    elif nv is not None and (diff is None or diff <= 0.25):
-        row["pct_to_hit"] = nv
-    elif edge is not None:
-        row["pct_to_hit"] = edge
-    elif nv is not None:
-        row["pct_to_hit"] = nv
-    cur = row.get("pct_to_hit")
-    if cur is not None and (cur > 99 or cur < 1):
-        row["pct_to_hit"] = edge if is_fantasy else None
-
-
-def enrich_props(rows, pp_rows, ud_rows):
-    pp_by = defaultdict(list)
-    ud_by = defaultdict(list)
-    for r in pp_rows:
-        pp_by[r["player_key"]].append(r)
-    for r in ud_rows:
-        ud_by[r["player_key"]].append(r)
-
-    have_stat = set()
-    for row in rows:
-        key = norm_name(row["player"])
-        have_stat.add((key, row["stat"], row.get("side")))
-        best_pp, best_diff = None, 1e9
-        for p in pp_by.get(key, []):
-            if p["stat"] != row["stat"]:
-                continue
-            if p.get("side") and row.get("side") and p["side"] != row["side"]:
-                continue
-            diff = abs((p["line"] or 0) - (row.get("line") or 0))
-            if diff < best_diff:
-                best_diff, best_pp = diff, p
-        if best_pp:
-            attach_pp(row, best_pp)
-        for u in ud_by.get(key, []):
-            if u["stat"] != row["stat"]:
-                continue
-            row["headshot"] = row.get("headshot") or u.get("headshot")
-            row.setdefault("dfs", {}).setdefault("underdog", {
-                "line": u.get("line"),
-                "price": u.get("over_price") if row.get("side") == "Over" else u.get("under_price"),
-                "multiplier": None,
-            })
-            break
-
-    extra = 0
-    for p in pp_rows:
-        sig = (p["player_key"], p["stat"], p.get("side"))
-        if sig in have_stat:
-            continue
-        have_stat.add(sig)
-        extra += 1
-        game_title = p.get("game") or ""
-        away, home = "", ""
-        if " @ " in game_title:
-            away, home = [x.strip() for x in game_title.split(" @ ", 1)]
-        rows.append({
-            "player": p["player"], "stat": p["stat"], "market": p["stat"],
-            "side": p.get("side") or "Over", "line": p.get("line"),
-            "game": game_title, "home_team": home, "away_team": away,
-            "commence_time": p.get("commence_time") or "",
-            "event_id": p.get("pp_id") or f"pp-{p['player_key']}-{p['stat']}-{p.get('line')}-{p.get('side')}",
-            "pct_to_hit": (
-                sane_pct(p.get("pp_edge"))
-                if "fantasy" in str(p.get("stat") or "").lower()
-                else (sane_pct(p.get("nv_pct")) or sane_pct(p.get("pp_edge")))
-            ),
-            "ev": None, "pp_tier": p.get("pp_tier"),
-            "book_line": p.get("avg_line"), "best": None,
-            "spread": p.get("spread"), "total": p.get("total"),
-            "dfs": {"prizepicks": {"line": p.get("line"), "price": -137, "multiplier": None, "id": p.get("pp_id") or ""}},
-            "books": {}, "headshot": p.get("headshot"), "projection": p.get("projection"),
-            "pp_sheet_edge": p.get("pp_edge"), "true_point": p.get("true_point"),
-            "proj_vs_line": p.get("proj_vs_line"),
-            "correlates": p.get("correlates"), "pp_id": p.get("pp_id"),
-            "sheet_only": True,
-        })
-    print(f"Added {extra} extra PP stat rows (combo/fantasy/etc)")
-    fill_player_context(rows)
-    for row in rows:
-        stat = str(row.get("stat") or "")
-        if "fantasy" in stat.lower():
-            edge = sane_pct(row.get("pp_sheet_edge"))
-            if edge is not None:
-                row["pct_to_hit"] = edge
-        hit = row.get("pct_to_hit")
-        if hit is not None and (hit > 99 or hit < 1):
-            row["pct_to_hit"] = sane_pct(row.get("pp_sheet_edge"))
-    return rows
-
-
-def fill_player_context(rows):
-    """Copy game / spread / total / time / headshot onto sheet-only rows like Fantasy Score."""
-    by_player = defaultdict(list)
-    for row in rows:
-        by_player[norm_name(row.get("player") or "")].append(row)
-    for recs in by_player.values():
-        donor = None
-        for r in recs:
-            if r.get("home_team") or r.get("away_team") or r.get("game") or r.get("spread") is not None:
-                donor = r
-                break
-        if not donor:
-            continue
-        for r in recs:
-            if not r.get("home_team"):
-                r["home_team"] = donor.get("home_team") or ""
-            if not r.get("away_team"):
-                r["away_team"] = donor.get("away_team") or ""
-            if not r.get("game"):
-                r["game"] = donor.get("game") or ""
-            if not r.get("commence_time"):
-                r["commence_time"] = donor.get("commence_time") or ""
-            if r.get("spread") is None:
-                r["spread"] = donor.get("spread")
-            if r.get("total") is None:
-                r["total"] = donor.get("total")
-            if r.get("spread_proj") is None:
-                r["spread_proj"] = donor.get("spread_proj")
-            if r.get("total_proj") is None:
-                r["total_proj"] = donor.get("total_proj")
-            if not r.get("headshot"):
-                r["headshot"] = donor.get("headshot") or ""
-            if not r.get("event_id") or str(r.get("event_id") or "").startswith("pp-"):
-                if donor.get("event_id") and not str(donor.get("event_id")).startswith("pp-"):
-                    r["event_id"] = donor.get("event_id")
-
-
-def fetch_kalshi_series(series_ticker: str, pages: int = 6):
-    markets, cursor = [], None
-    for _ in range(pages):
-        url = f"{KALSHI_BASE}/markets?series_ticker={series_ticker}&status=open&limit=200"
-        if cursor:
-            url += f"&cursor={cursor}"
-        req = urllib.request.Request(url, headers={"User-Agent": "betting-dashboard/kalshi"})
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                data = json.loads(resp.read().decode())
-        except Exception as e:
-            print(f"Kalshi {series_ticker}: {e}")
-            break
-        batch = data.get("markets") or []
-        markets.extend(batch)
-        cursor = data.get("cursor")
-        if not cursor or not batch:
-            break
-        time.sleep(0.3)
-    print(f"Kalshi {series_ticker}={len(markets)}")
-    return markets
-
-
-def kalshi_price(m):
-    last = base.to_float(m.get("last_price_dollars"))
-    bid = base.to_float(m.get("yes_bid_dollars"))
-    ask = base.to_float(m.get("yes_ask_dollars"))
-    mid = round((bid + ask) / 2, 4) if bid is not None and ask is not None else last
-    return {
-        "ticker": m.get("ticker"),
-        "title": m.get("title"),
-        "event": m.get("event_ticker"),
-        "yes_bid": bid, "yes_ask": ask, "last": last, "mid": mid,
-        "volume": base.to_float(m.get("volume_fp")) or base.to_float(m.get("volume")),
-        "implied": None if mid is None else round(mid * 100, 1),
-        "expires": m.get("expiration_time"),
-    }
-
-
-def load_kalshi(sport: str):
-    series = {
-        "CFB": {"ml": "KXNCAAFGAME", "spread": "KXNCAAFSPREAD", "total": "KXNCAAFTOTAL"},
-        "MLB": {"ml": "KXMLBGAME", "spread": "KXMLBSPREAD", "total": "KXMLBTOTAL"},
-        "NFL": {"ml": "KXNFLGAME", "spread": "KXNFLSPREAD", "total": "KXNFLTOTAL"},
-    }.get(sport, {"ml": "KXNFLGAME", "spread": "KXNFLSPREAD", "total": "KXNFLTOTAL"})
-    out = {}
-    for kind, ticker in series.items():
-        out[kind] = [kalshi_price(m) for m in fetch_kalshi_series(ticker)]
-    return out
-
-
-def load_game_map(url: str):
-    if not url:
-        return {}
-    try:
-        text = base.download_csv(url)
-    except Exception as e:
-        print(f"game sheet failed: {e}")
-        return {}
-    rows = base.parse_csv_text(text, "commence_time,bookmaker")
-    by_game = {}
-    for r in rows:
-        home, away = r.get("home_team") or "", r.get("away_team") or ""
-        if not home or not away:
-            continue
-        rec = by_game.setdefault(base.game_key(away, home), {
-            "home_team": home, "away_team": away, "commence_time": r.get("commence_time"),
-            "spread": None, "total": None, "spread_proj": None, "total_proj": None,
-            "ml_home": None, "ml_away": None,
-        })
-        market = (r.get("market") or "").lower()
-        avg = base.to_float(r.get("Average Line"))
-        proj = base.to_float(r.get("Projection"))
-        point = base.to_float(r.get("point"))
-        price = base.to_float(r.get("price"))
-        label = (r.get("label") or "")
-        line = avg if avg is not None else point
-        if market == "spreads" and rec["spread"] is None and line is not None and home.lower() in label.lower():
-            rec["spread"], rec["spread_proj"] = line, proj
-        if market == "spreads" and rec["spread"] is None and line is not None and not label:
-            rec["spread"], rec["spread_proj"] = line, proj
-        if market == "totals" and rec["total"] is None and line is not None:
-            rec["total"], rec["total_proj"] = line, proj
-        if market in {"h2h", "moneyline"} and price is not None:
-            if home.lower() in label.lower():
-                rec["ml_home"] = rec["ml_home"] or price
-            else:
-                rec["ml_away"] = rec["ml_away"] or price
-    print(f"game matchups={len(by_game)}")
-    return by_game
-
-
-def build_sport(label, sheet_url, game_url, pp_url, ud_url, out_name):
-    print(f"\n===== {label} =====")
-    text = safe_download(sheet_url, f"{label} props")
-    sheet_rows = base.parse_csv_text(text, "id,commence_time,bookmaker") if text else []
-    games = load_game_map(game_url) if game_url else {}
-    raw = base.collect_raw(sheet_rows, base.HOURS_AHEAD) if sheet_rows else []
-    base.attach_no_vig(raw)
-    rows = base.build_dashboard_rows(raw, games) if raw else []
-    rows = enrich_props(rows, load_pp(pp_url), load_ud(ud_url))
-    for row in rows:
-        row["sport"] = label
-    kalshi = load_kalshi(label)
-    payload = {
-        "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "source": "google_sheet_csv+kalshi",
-        "sport": label,
-        "hours_ahead": base.HOURS_AHEAD,
-        "sheet_rows": len(sheet_rows),
-        "raw_count": len(raw),
-        "row_count": len(rows),
-        "game_count": len(games),
-        "books_seen": sorted({r.get("book") for r in raw if r.get("book")}),
-        "markets_seen": sorted({r.get("market") for r in raw if r.get("market")}),
-        "props": rows,
-        "games": [{
-            "away_team": g.get("away_team"), "home_team": g.get("home_team"),
-            "game": f"{g.get('away_team')} @ {g.get('home_team')}",
-            "commence_time": g.get("commence_time"),
-            "spread": g.get("spread"), "total": g.get("total"),
-            "spread_proj": g.get("spread_proj"), "total_proj": g.get("total_proj"),
-            "ml_home": g.get("ml_home"), "ml_away": g.get("ml_away"),
-        } for g in games.values()],
-        "kalshi": kalshi,
-    }
-    base.DATA_DIR.mkdir(parents=True, exist_ok=True)
-    (base.DATA_DIR / out_name).write_text(json.dumps(payload))
-    print(f"Wrote {out_name} props={len(rows)} games={len(payload['games'])}")
-    return payload
-
-
-def main():
-    nfl = build_sport("NFL", base.SHEET_CSV, base.GAME_CSV, NFL_PP_CSV, NFL_UD_CSV, "nfl-props.json")
-    cfb = build_sport("CFB", CFB_SHEET_CSV, CFB_GAME_CSV, CFB_PP_CSV, CFB_UD_CSV, "cfb-props.json")
-    mlb = build_sport("MLB", MLB_SHEET_CSV, MLB_GAME_CSV, MLB_PP_CSV, MLB_UD_CSV, "mlb-props.json")
-    (base.DATA_DIR / "meta.json").write_text(json.dumps({
-        "updated": nfl["updated"],
-        "source": "google_sheet_csv+kalshi",
-        "row_count": nfl["row_count"],
-        "cfb_rows": cfb["row_count"],
-        "mlb_rows": mlb["row_count"],
-        "sheet_rows": nfl["sheet_rows"],
-        "raw_count": nfl["raw_count"],
-        "game_count": nfl["game_count"],
-        "books_seen": nfl["books_seen"],
-        "markets_seen": nfl["markets_seen"],
-    }, indent=2))
-    print("Done.")
-
-
-if __name__ == "__main__":
-    main()
+loadData();
