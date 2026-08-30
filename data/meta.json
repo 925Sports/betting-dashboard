@@ -1,10 +1,10 @@
 {
-  "updated": "2026-08-30T03:52:14Z",
+  "updated": "2026-08-30T07:20:20Z",
   "source": "google_sheet_csv+kalshi",
-  "row_count": 1825,
-  "cfb_rows": 749,
-  "sheet_rows": 4835,
-  "raw_count": 4424,
+  "row_count": 1862,
+  "cfb_rows": 706,
+  "sheet_rows": 4913,
+  "raw_count": 4501,
   "game_count": 272,
   "books_seen": [
     "ballybet",
