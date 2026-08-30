@@ -283,7 +283,7 @@ def collect_combo(sheet_rows, hours_ahead: int):
             away, home = [x.strip() for x in game_title.split(" vs ", 1)]
         broadcasts = (r.get("Broadcasts") or "").strip()
         event_id = r.get("id") or f"{away}|{home}|{player}|{market}|{point}"
-        stat = STAT_LABELS.get(market, market.replace("player_", "").replace("_", " ").title())
+        stat = stat_label(market)
         sides = [
             ("Over", to_float(r.get("Over Price")), _pct_frac(r.get("Average No-Vig Over %") or r.get("No-Vig Over %"))),
             ("Under", to_float(r.get("Under Price")), _pct_frac(r.get("Average No-Vig Under %") or r.get("No-Vig Under %"))),
@@ -348,7 +348,8 @@ def collect_raw(sheet_rows, hours_ahead: int):
                 "book": book,
                 "is_dfs": book in DFS_BOOKS,
                 "market": market,
-                "stat": STAT_LABELS.get(market, market.replace("player_", "").replace("_", " ").title()),
+                "stat": stat_label(market),
+                "is_alternate": is_alt_market(market),
                 "player": player,
                 "side": side,
                 "line": point,
@@ -395,11 +396,27 @@ def consensus_book_line(books):
     return Counter(lines).most_common(1)[0][0]
 
 
-def pp_tier(pp, book_line, side):
+def is_alt_market(market: str) -> bool:
+    m = (market or "").lower()
+    return "alternate" in m or m.endswith("_alt") or "_alt_" in m
+
+
+def stat_label(market: str) -> str:
+    raw = STAT_LABELS.get(market, (market or "").replace("player_", "").replace("_", " ").title())
+    return raw.replace(" Alternate", "").replace("Alternate ", "").strip()
+
+
+def pp_tier(pp, book_line, side, market=""):
     if not pp:
         return None
+    if is_alt_market(market):
+        return "Alternate"
     price = pp.get("price")
     line = pp.get("line")
+    if book_line is not None and line is not None:
+        adiff = abs(float(line) - float(book_line))
+        if adiff >= 1.0:
+            return "Alternate"
     if price is not None and 90 <= float(price) <= 115:
         return "Demon"
     if price is not None and float(price) <= -180:
@@ -497,7 +514,7 @@ def build_dashboard_rows(raw, games):
 
         g = games.get(primary.get("game_key") or game_key(primary.get("away_team"), primary.get("home_team")), {})
         pp = dfs_lines.get("prizepicks")
-        tier = pp_tier(pp, book_cons, side)
+        tier = pp_tier(pp, book_cons, side, market)
 
         out.append(
             {
@@ -514,6 +531,7 @@ def build_dashboard_rows(raw, games):
                 "pct_to_hit": None if pct is None else round(pct * 100, 1),
                 "ev": ev,
                 "pp_tier": tier,
+                "is_alternate": is_alt_market(market) or tier == "Alternate",
                 "book_line": book_cons,
                 "best": best,
                 "spread": g.get("spread"),
