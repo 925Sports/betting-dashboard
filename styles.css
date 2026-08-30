@@ -133,11 +133,11 @@ tr:hover td { background: rgba(255,255,255,0.025); }
 }
 
 .book-logo {
-  height: 18px; width: 18px; object-fit: contain;
-  background: #fff; border-radius: 3px; padding: 1px;
+  height: 22px; width: 22px; object-fit: contain;
+  background: #fff; border-radius: 5px; padding: 2px;
   vertical-align: middle;
 }
-.book-logo.sm { height: 14px; width: 14px; }
+.book-logo.sm { height: 16px; width: 16px; padding: 1px; }
 .book-logo.hide, .book-mark.hide { display: none; }
 .tier {
   display: inline-block; border-radius: 6px; padding: 2px 6px;
@@ -215,3 +215,8 @@ tr:hover td { background: rgba(255,255,255,0.025); }
   0% { transform: translateX(-100%); }
   100% { transform: translateX(280%); }
 }
+
+.script { color: #9ec0ff; font-size: 11px; margin-top: 2px; font-weight: 600; }
+.line-stack { line-height: 1.15; }
+.line-num { font-weight: 800; font-variant-numeric: tabular-nums; margin-top: 3px; }
+.book-pick.ex { border-style: dashed; }
