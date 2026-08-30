@@ -101,6 +101,7 @@ def lines_close(a, b, tol: float = 0.01) -> bool:
 
 
 def better_american(a, b):
+    """Return True if American price a is better for the bettor than b."""
     if a is None:
         return False
     if b is None:
@@ -143,6 +144,7 @@ def game_key(away, home):
 
 
 def load_game_odds():
+    """One consensus record per matchup using Average Line from the game-odds sheet."""
     print("Downloading game odds CSV…")
     try:
         text = download_csv(GAME_CSV)
@@ -167,17 +169,26 @@ def load_game_odds():
                 "total": None,
                 "spread_proj": None,
                 "total_proj": None,
+                "ml_home": None,
+                "ml_away": None,
             },
         )
         market = (r.get("market") or "").lower()
         avg = to_float(r.get("Average Line"))
         proj = to_float(r.get("Projection"))
+        price = to_float(r.get("price"))
+        label = (r.get("label") or "")
         if market == "spreads" and rec["spread"] is None and avg is not None:
             rec["spread"] = avg
             rec["spread_proj"] = proj
         if market == "totals" and rec["total"] is None and avg is not None:
             rec["total"] = avg
             rec["total_proj"] = proj
+        if market in {"h2h", "moneyline"} and price is not None:
+            if home.lower() in label.lower():
+                rec["ml_home"] = rec["ml_home"] or price
+            else:
+                rec["ml_away"] = rec["ml_away"] or price
     print(f"Game odds matchups={len(by_game)}")
     return by_game
 
@@ -227,8 +238,11 @@ def collect_raw(sheet_rows, hours_ahead: int):
 
 
 def attach_no_vig(raw):
+    """No-vig from sportsbooks only. DFS Over/Under is always juiced the same way (~50/50)."""
     grouped = defaultdict(dict)
     for r in raw:
+        if r.get("is_dfs"):
+            continue
         key = (r["event_id"], r["player"], r["market"], r["book"], r["line"])
         grouped[key][r["side"]] = r
     for sides in grouped.values():
@@ -308,6 +322,8 @@ def build_dashboard_rows(raw, games):
         book_map = {}
         matching_nv = []
         matching_implied = []
+        any_nv = []
+        any_implied = []
         best = None
         for b in books:
             rec = {
@@ -318,6 +334,10 @@ def build_dashboard_rows(raw, games):
                 "same_line": lines_close(b.get("line"), line),
             }
             book_map[b["book"]] = rec
+            if b.get("no_vig") is not None:
+                any_nv.append(b["no_vig"])
+            elif b.get("implied") is not None:
+                any_implied.append(b["implied"])
             if rec["same_line"] or (b.get("line") is None and line is None):
                 if b.get("no_vig") is not None:
                     matching_nv.append(b["no_vig"])
@@ -325,13 +345,22 @@ def build_dashboard_rows(raw, games):
                     matching_implied.append(b["implied"])
                 if better_american(b.get("price"), None if not best else best.get("price")):
                     best = {"book": b["book"], "price": b.get("price"), "line": b.get("line")}
+        if best is None:
+            for b in books:
+                if better_american(b.get("price"), None if not best else best.get("price")):
+                    best = {"book": b["book"], "price": b.get("price"), "line": b.get("line")}
 
+        # Never use DFS two-way juice as % to hit (that is always ~50%).
         if matching_nv:
             pct = sum(matching_nv) / len(matching_nv)
         elif matching_implied:
             pct = sum(matching_implied) / len(matching_implied)
+        elif any_nv:
+            pct = sum(any_nv) / len(any_nv)
+        elif any_implied:
+            pct = sum(any_implied) / len(any_implied)
         else:
-            pct = primary.get("no_vig") or primary.get("implied")
+            pct = None
 
         ev = None
         if pct is not None:
@@ -378,7 +407,7 @@ def build_dashboard_rows(raw, games):
     return out
 
 
-def main() -> None:
+def main_legacy() -> None:
     print("Downloading props CSV…")
     text = download_csv(SHEET_CSV)
     sheet_rows = parse_csv_text(text, "id,commence_time,bookmaker")
@@ -422,4 +451,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main_legacy()
