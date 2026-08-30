@@ -35,7 +35,7 @@ const CORE_STATS = new Set(["Pass Yds", "Rush Yds", "Receptions", "Rec Yds", "Ru
 const FALLBACK_HEAD = "https://www.freeiconspng.com/uploads/--tie-user-users-work-worker-working-icon--icon-search-engine-6.png";
 const DEFAULT_ON = new Set(BOOKS.filter((b) => b.on).map((b) => b.key));
 const BOOK_BY_KEY = Object.fromEntries(BOOKS.map((b) => [b.key, b]));
-const state = { data: null, sortKey: "ev", sortDir: "desc", view: "pp", sport: "nfl", section: "props", booksOn: new Set(DEFAULT_ON), slip: [] };
+const state = { data: null, sortKey: "ev", sortDir: "desc", view: "pp", sport: "all", section: "props", booksOn: new Set(DEFAULT_ON), slip: [] };
 const $ = (id) => document.getElementById(id);
 
 function american(price) {
@@ -255,7 +255,7 @@ function renderGames() {
   const k = state.data.kalshi || {};
   const ranked = games.map((g) => ({ ...g, edge: gameBestEdge(g, k) })).sort((a, b) => (b.edge ?? -999) - (a.edge ?? -999));
   $("gamesBody").innerHTML = ranked.map((g) => `<tr>
-    <td><div class="player">${escapeHtml(g.game)}</div><div class="game">${escapeHtml(fmtWhen(g.commence_time))}</div></td>
+    <td><div class="player">${escapeHtml(g.game)}</div><div class="game"><span class="sport-tag">${escapeHtml(g.sport || "")}</span> ${escapeHtml(fmtWhen(g.commence_time))}</div></td>
     <td class="line-stack"><div class="line-num">${g.spread ?? "—"}</div>${g.spread_proj != null ? `<div class="line-note">proj ${g.spread_proj}</div>` : ""}</td>
     <td class="line-stack"><div class="line-num">${g.total ?? "—"}</div>${g.total_proj != null ? `<div class="line-note">proj ${g.total_proj}</div>` : ""}</td>
     <td class="price">${american(g.ml_away)}<div class="line-note">${bookImplied(g.ml_away) != null ? bookImplied(g.ml_away).toFixed(1) + "%" : ""}</div></td>
@@ -291,7 +291,7 @@ function render() {
     return `<tr>
       <td>
         <div class="player-row">${headshotTag(r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}</button></div>
-        <div class="game">${escapeHtml(matchup(r))} · ${escapeHtml(fmtWhen(r.commence_time))}</div>
+        <div class="game"><span class="sport-tag">${escapeHtml(r.sport || "")}</span> ${escapeHtml(matchup(r))} · ${escapeHtml(fmtWhen(r.commence_time))}</div>
         <div class="script">${scriptLine(r)}</div>
       </td>
       <td>${escapeHtml(r.stat)}</td>
@@ -394,6 +394,17 @@ function hideLoader() { const el = $("loader"); if (!el) return; el.classList.ad
 let lineIdx = 0;
 const lineTimer = setInterval(() => { lineIdx = (lineIdx + 1) % LOAD_LINES.length; setLoader(LOAD_LINES[lineIdx]); }, 700);
 
+function tagSport(data, sport) {
+  const props = (data?.props || []).map((r) => ({ ...r, sport: r.sport || sport }));
+  const games = (data?.games || []).map((g) => ({ ...g, sport: g.sport || sport }));
+  return { ...data, props, games };
+}
+async function fetchBoard(url, version) {
+  const full = version ? `${url}?v=${encodeURIComponent(version)}` : url;
+  const res = await fetch(full, { cache: "no-cache" });
+  if (!res.ok) throw new Error(`${url} ${res.status}`);
+  return res.json();
+}
 async function loadData() {
   try {
     setLoader("Checking the books…");
@@ -403,14 +414,29 @@ async function loadData() {
       version = meta?.updated || "";
     } catch (_) {}
     setLoader("Hiking the props…");
-    const dataUrl = DATA_URLS[state.sport] || DATA_URLS.nfl;
-    const url = version ? `${dataUrl}?v=${encodeURIComponent(version)}` : dataUrl;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(res.statusText);
-    state.data = await res.json();
+    const sport = $("sport")?.value || state.sport || "all";
+    state.sport = sport;
+    if (sport === "all") {
+      const results = await Promise.allSettled([fetchBoard(DATA_URLS.nfl, version), fetchBoard(DATA_URLS.cfb, version)]);
+      const nfl = results[0].status === "fulfilled" ? tagSport(results[0].value, "NFL") : { props: [], games: [], kalshi: {} };
+      const cfb = results[1].status === "fulfilled" ? tagSport(results[1].value, "CFB") : { props: [], games: [], kalshi: {} };
+      state.data = {
+        updated: nfl.updated || cfb.updated,
+        sport: "ALL",
+        props: [...(nfl.props || []), ...(cfb.props || [])],
+        games: [...(nfl.games || []), ...(cfb.games || [])],
+        kalshi: {
+          ml: [...(nfl.kalshi?.ml || []), ...(cfb.kalshi?.ml || [])],
+          spread: [...(nfl.kalshi?.spread || []), ...(cfb.kalshi?.spread || [])],
+          total: [...(nfl.kalshi?.total || []), ...(cfb.kalshi?.total || [])],
+        },
+      };
+    } else {
+      state.data = tagSport(await fetchBoard(DATA_URLS[sport] || DATA_URLS.nfl, version), sport === "cfb" ? "CFB" : "NFL");
+    }
     render();
   } catch (err) {
-    $("updated").textContent = "Could not load data/nfl-props.json";
+    $("updated").textContent = "Could not load props JSON";
     $("empty").style.display = "block";
     $("empty").textContent = "No data yet. Run the GitHub Action.";
     console.error(err);
