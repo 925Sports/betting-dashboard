@@ -23,6 +23,7 @@ jobs:
       - name: Build dashboard from published Google Sheet
         env:
           SHEET_CSV: "https://docs.google.com/spreadsheets/d/e/2PACX-1vS2Fdvk-56Bf-fiq8ETUftpL1W8cTqtfiOJJSehCXU60lMyo7W4_ldiGJuMrnydlZwM9fBvdrgx6VqQ/pub?gid=0&single=true&output=csv"
+          GAME_CSV: "https://docs.google.com/spreadsheets/d/e/2PACX-1vR4iRyeVVkS5AYbpFqz3LhcHOvosyZE6NUNDrORdvlH-DB2kJaeLqPRIAbqQSEUxydMFvUayxtgTev_/pub?gid=536190425&single=true&output=csv"
           HOURS_AHEAD: "360"
         run: python scripts/fetch_nfl_props.py
 
