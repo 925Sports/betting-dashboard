@@ -8,6 +8,7 @@ const DATA_URLS = {
   cbb: "./data/cbb-props.json",
   nhl: "./data/nhl-props.json",
 };
+const INTEL_URL = "./data/nfl-intel.json";
 const SPORT_LABEL = { nfl: "NFL", cfb: "CFB", mlb: "MLB", soccer: "SOCCER", wnba: "WNBA", nba: "NBA", cbb: "CBB", nhl: "NHL" };
 
 const BOOKS = [
@@ -56,6 +57,7 @@ const BOOK_BY_KEY = Object.fromEntries(BOOKS.map((b) => [b.key, b]));
 
 const state = {
   data: null,
+  intel: null,
   sortKey: "ev",
   sortDir: "desc",
   view: "pp", sport: "all", section: "props",
@@ -111,6 +113,47 @@ function escapeHtml(s) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function normName(s) {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function intelPlayer(name) {
+  const intel = state.intel;
+  if (!intel?.players || !name) return null;
+  return intel.players[normName(name)] || null;
+}
+
+function intelLogs(gsis) {
+  if (!gsis) return [];
+  return state.intel?.logs?.[gsis] || [];
+}
+
+function injClass(status) {
+  const s = String(status || "").toLowerCase();
+  if (s.includes("out") || s === "ir") return "out";
+  if (s.includes("doubt")) return "doubtful";
+  if (s.includes("question")) return "questionable";
+  return "";
+}
+
+function injPill(inj) {
+  if (!inj?.status) return "";
+  const label = inj.status;
+  return `<span class="inj-pill ${injClass(label)}" title="${escapeHtml(inj.injury || "")}">${escapeHtml(label)}</span>`;
+}
+
+function avgLogs(recs, key) {
+  const list = (recs || []).slice(-5);
+  if (!list.length) return null;
+  const sum = list.reduce((a, r) => a + (Number(r[key]) || 0), 0);
+  return +(sum / list.length).toFixed(1);
+}
+
+function playerByGsis(gsis) {
+  const players = state.intel?.players || {};
+  return Object.values(players).find((p) => p.gsis_id === gsis) || null;
 }
 
 function bookMark(book, size) {
@@ -252,20 +295,6 @@ function bestCell(row) {
   return `<td class="price">${mark} ${american(b.price)}</td>`;
 }
 
-function spreadCell(row) {
-  if (row.spread == null) return `<td class="muted">—</td>`;
-  const home = abbr(row.home_team);
-  const n = Number(row.spread);
-  const txt = n > 0 ? `${home} +${n}` : `${home} ${n}`;
-  return `<td>${escapeHtml(txt)}</td>`;
-}
-
-function totalCell(row) {
-  if (row.total == null) return `<td class="muted">—</td>`;
-  return `<td>${Number(row.total)}</td>`;
-}
-
-
 function scriptLine(row) {
   const bits = [];
   if (row.spread != null) {
@@ -301,7 +330,6 @@ function bookImplied(price) {
 }
 function gameBestEdge(g, k) {
   const mlHomeImp = bookImplied(g.ml_home);
-  const mlAwayImp = bookImplied(g.ml_away);
   const kHome = kalshiMatch(k.ml, g);
   let best = null;
   if (kHome && kHome.implied != null && mlHomeImp != null) {
@@ -336,9 +364,7 @@ function renderSlip() {
     ).join("");
   }
   const open = $("slipOpen");
-  if (open) {
-    open.href = ppSlipLink(state.slip);
-  }
+  if (open) open.href = ppSlipLink(state.slip);
 }
 function addToSlip(row) {
   if (state.slip.length >= 6) return;
@@ -350,18 +376,9 @@ function addToSlip(row) {
 
 function renderGames() {
   const wrap = $("gamesWrap");
-  const propsWrap = document.querySelector(".table-wrap:not(#gamesWrap)");
   if (!wrap) return;
   const showGames = state.section === "games";
   wrap.style.display = showGames ? "block" : "none";
-  if (propsWrap) propsWrap.style.display = showGames ? "none" : "block";
-  const filt = document.querySelector(".filters");
-  const books = document.querySelector(".books-bar");
-  if (filt) [...filt.querySelectorAll("select, label, input")].forEach((el) => {
-    if (el.id === "sport" || el.id === "section") return;
-    el.style.display = showGames ? "none" : "";
-  });
-  if (books) books.style.display = showGames ? "none" : "flex";
   if (!showGames) return;
   const games = state.data.games || [];
   const k = state.data.kalshi || {};
@@ -388,10 +405,126 @@ function renderGames() {
   renderSlip();
 }
 
+function renderTicker() {
+  const bar = $("newsTicker");
+  const track = $("tickerTrack");
+  if (!bar || !track) return;
+  const news = state.intel?.news || [];
+  const show = news.length && state.section !== "games";
+  bar.hidden = !show;
+  if (!show) return;
+  track.innerHTML = news.slice(0, 18).map((n) =>
+    `<a class="ticker-item" href="${escapeHtml(n.url || "#")}" target="_blank" rel="noopener"><b>${escapeHtml(n.source || "")}</b> ${escapeHtml(n.headline || "")}</a>`
+  ).join("");
+}
+
+function renderNews() {
+  const wrap = $("newsWrap");
+  if (!wrap) return;
+  wrap.style.display = state.section === "news" ? "block" : "none";
+  if (state.section !== "news") return;
+  const news = state.intel?.news || [];
+  const q = ($("q")?.value || "").trim().toLowerCase();
+  const rows = news.filter((n) => !q || `${n.headline} ${n.description} ${n.source}`.toLowerCase().includes(q));
+  $("newsBody").innerHTML = rows.map((n) => {
+    const names = (n.players || []).map((id) => playerByGsis(id)?.name || id).filter(Boolean);
+    return `<tr>
+      <td>${escapeHtml(n.source || "")}</td>
+      <td><a class="player-btn" href="${escapeHtml(n.url || "#")}" target="_blank" rel="noopener">${escapeHtml(n.headline || "")}</a>
+        <div class="game">${escapeHtml((n.description || "").slice(0, 140))}</div></td>
+      <td class="muted">${escapeHtml(n.published || "")}</td>
+      <td>${escapeHtml(names.join(", ") || "—")}</td>
+    </tr>`;
+  }).join("");
+  $("newsEmpty").style.display = rows.length ? "none" : "block";
+  $("count").textContent = `${rows.length} headlines · pulled ${fmtWhen(state.intel?.news_pulled_at)}`;
+}
+
+function renderInjuries() {
+  const wrap = $("injWrap");
+  if (!wrap) return;
+  wrap.style.display = state.section === "injuries" ? "block" : "none";
+  if (state.section !== "injuries") return;
+  const q = ($("q")?.value || "").trim().toLowerCase();
+  const rows = (state.intel?.injuries || []).filter((r) =>
+    !q || `${r.name} ${r.team} ${r.report_status} ${r.report_injury}`.toLowerCase().includes(q)
+  );
+  $("injBody").innerHTML = rows.map((r) => `<tr>
+    <td><div class="player-row">${headshotTag(r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(r.name)}">${escapeHtml(r.name || "")}</button></div></td>
+    <td>${escapeHtml(r.team || "")}</td>
+    <td>${escapeHtml(r.pos || "")}</td>
+    <td>${injPill({ status: r.report_status, injury: r.report_injury }) || "—"}</td>
+    <td>${escapeHtml(r.report_injury || r.practice_injury || "—")}</td>
+    <td class="muted">${escapeHtml(r.practice_status || "—")}</td>
+    <td class="muted">${r.season || ""} w${r.week || "—"}</td>
+  </tr>`).join("");
+  $("injEmpty").style.display = rows.length ? "none" : "block";
+  const note = state.intel?.has_2026_logs ? "" : " · 2025 season file until Week 1 2026";
+  $("count").textContent = `${rows.length} injury rows · latest ${state.intel?.injury_season || ""}w${state.intel?.injury_week || ""}${note}`;
+}
+
+function renderLogs() {
+  const wrap = $("logsWrap");
+  if (!wrap) return;
+  wrap.style.display = state.section === "logs" ? "block" : "none";
+  if (state.section !== "logs") return;
+  const q = ($("q")?.value || "").trim().toLowerCase();
+  const players = Object.values(state.intel?.players || {}).filter((p) => {
+    if (!["QB", "RB", "WR", "TE", "K"].includes(p.pos)) return false;
+    if (q && !`${p.name} ${p.team} ${p.pos}`.toLowerCase().includes(q)) return false;
+    return (state.intel?.logs?.[p.gsis_id] || []).length;
+  });
+  const ranked = players.map((p) => {
+    const recs = intelLogs(p.gsis_id);
+    const last = recs[recs.length - 1];
+    const inj = (state.intel?.injuries || []).find((i) => i.gsis_id === p.gsis_id);
+    return {
+      ...p, last, inj,
+      rec: avgLogs(recs, "rec"), tgt: avgLogs(recs, "tgt"), recy: avgLogs(recs, "rec_yds"),
+      rush: avgLogs(recs, "rush_yds"), car: avgLogs(recs, "car"),
+      pass: avgLogs(recs, "pass_yds"), ppr: avgLogs(recs, "ppr"),
+    };
+  }).sort((a, b) => (b.ppr || 0) - (a.ppr || 0));
+  $("logsBody").innerHTML = ranked.map((p) => `<tr>
+    <td><div class="player-row">${headshotTag(p.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(p.name)}">${escapeHtml(p.name)}</button></div></td>
+    <td>${escapeHtml(p.pos || "")}</td>
+    <td>${escapeHtml(p.team || "")}</td>
+    <td class="logs-mini">${p.last ? `${p.last.season} w${p.last.week} vs ${escapeHtml(p.last.opp || "")}` : "—"}</td>
+    <td class="logs-mini">${p.rec ?? "—"} / ${p.tgt ?? "—"}</td>
+    <td class="logs-mini">${p.recy ?? "—"}</td>
+    <td class="logs-mini">${p.car ?? "—"}-${p.rush ?? "—"}</td>
+    <td class="logs-mini">${p.pass ?? "—"}</td>
+    <td class="logs-mini">${p.ppr ?? "—"}</td>
+    <td>${p.inj ? injPill({ status: p.inj.report_status, injury: p.inj.report_injury }) : `<span class="muted">${state.intel?.has_2026_logs ? "" : "2025 logs"}</span>`}</td>
+  </tr>`).join("");
+  $("logsEmpty").style.display = ranked.length ? "none" : "block";
+  $("count").textContent = `${ranked.length} skill players · seasons ${(state.intel?.log_seasons || []).join(", ") || "n/a"}`;
+}
+
+function renderIntelSections() {
+  const intel = ["news", "injuries", "logs"].includes(state.section);
+  const propsWrap = document.querySelector(".table-wrap:not(#gamesWrap):not(#newsWrap):not(#injWrap):not(#logsWrap)");
+  const books = document.querySelector(".books-bar");
+  const filt = document.querySelector(".filters");
+  if (propsWrap) propsWrap.style.display = (state.section === "props") ? "block" : "none";
+  if (books) books.style.display = state.section === "props" ? "flex" : "none";
+  if (filt) [...filt.querySelectorAll("select, label, input")].forEach((el) => {
+    if (el.id === "sport" || el.id === "section" || el.id === "q") return;
+    el.style.display = intel || state.section === "games" ? "none" : "";
+  });
+  renderTicker();
+  renderNews();
+  renderInjuries();
+  renderLogs();
+  return intel;
+}
+
 function render() {
-  if (!state.data) return;
+  if (!state.data && !state.intel) return;
+  renderIntelSections();
   renderGames();
-  if (state.section === "games") return;
+  if (state.section !== "props") return;
+  if (!state.data) return;
   const all = state.data.props || [];
   $("updated").textContent = `Updated ${fmtWhen(state.data.updated)} · BE ${breakEven()}%`;
   fillSelect($("game"), unique(all.map((r) => r.game)).sort(), "All games");
@@ -419,7 +552,7 @@ function render() {
     return `
       <tr>
         <td>
-          <div class="player-row">${headshotTag(r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}</button></div>
+          <div class="player-row">${headshotTag(r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}</button>${injPill(r.injury)}</div>
           <div class="game"><span class="sport-tag">${escapeHtml(r.sport || "")}</span> ${escapeHtml(matchup(r))} · ${escapeHtml(fmtWhen(r.commence_time))}</div>
           <div class="script">${scriptLine(r)}${r.broadcasts ? ` · ${escapeHtml(r.broadcasts)}` : ""}</div>
         </td>
@@ -478,7 +611,6 @@ if ($("section")) {
   $(id).addEventListener("change", render);
 });
 
-
 function closePopup() {
   const el = $("popup");
   if (el) el.hidden = true;
@@ -487,14 +619,45 @@ function closePopup() {
 function openPlayerPopup(player, eventId, market, side) {
   const all = state.data?.props || [];
   const mine = all.filter((r) => r.player === player);
-  const focus = mine.find((r) => r.event_id === eventId && r.market === market && r.side === side) || mine[0];
-  if (!focus) return;
+  let focus = mine.find((r) => r.event_id === eventId && r.market === market && r.side === side) || mine[0];
+  if (!focus) {
+    const meta = intelPlayer(player);
+    const inj = (state.intel?.injuries || []).find((i) => i.name === player || i.gsis_id === meta?.gsis_id);
+    if (!meta && !inj) return;
+    focus = {
+      player,
+      headshot: meta?.headshot || inj?.headshot,
+      gsis_id: meta?.gsis_id || inj?.gsis_id,
+      game: meta ? `${meta.team} ${meta.pos}` : "",
+      injury: inj ? { status: inj.report_status, injury: inj.report_injury, week: inj.week, season: inj.season } : null,
+      books: {}, dfs: {},
+    };
+  }
   const edge = rowEdge(focus);
   const books = Object.entries(focus.books || {}).sort((a, b) => (a[0] > b[0] ? 1 : -1));
   const dfs = Object.entries(focus.dfs || {});
   const others = mine
     .filter((r) => !(r.event_id === focus.event_id && r.market === focus.market && r.side === focus.side))
     .sort((a, b) => String(a.stat).localeCompare(String(b.stat)));
+  const meta = intelPlayer(player);
+  const gsis = focus.gsis_id || meta?.gsis_id;
+  const recs = intelLogs(gsis);
+  const relatedNews = (state.intel?.news || []).filter((n) => (n.players || []).includes(gsis) || (n.headline || "").toLowerCase().includes(String(player).toLowerCase()));
+  const logBlock = recs.length ? `<h4 style="margin:16px 0 8px">Recent games ${state.intel?.has_2026_logs ? "" : "(2025 until Week 1)"}</h4>
+    <table class="popup-table popup-logs">
+      <thead><tr><th>Wk</th><th>Opp</th><th>Pass</th><th>Rush</th><th>Rec</th><th>PPR</th></tr></thead>
+      <tbody>${[...recs].reverse().map((g) => `<tr>
+        <td>${g.season} w${g.week}${g.st === "POST" ? " P" : ""}</td>
+        <td>${escapeHtml(g.opp || "")}</td>
+        <td>${g.att ? `${g.cmp}/${g.att}, ${g.pass_yds}y ${g.pass_td}TD` : "—"}</td>
+        <td>${g.car ? `${g.car}-${g.rush_yds}` : "—"}</td>
+        <td>${g.tgt || g.rec ? `${g.rec}/${g.tgt}, ${g.rec_yds}y` : "—"}</td>
+        <td>${g.ppr ?? "—"}</td>
+      </tr>`).join("")}</tbody>
+    </table>` : "";
+  const newsBlock = relatedNews.length ? `<h4 style="margin:16px 0 8px">News</h4>
+    ${relatedNews.slice(0, 6).map((n) => `<div class="popup-stat" style="margin-bottom:8px"><b>${escapeHtml(n.source || "")} · ${escapeHtml(n.published || "")}</b>
+      <a href="${escapeHtml(n.url || "#")}" target="_blank" rel="noopener">${escapeHtml(n.headline || "")}</a></div>`).join("")}` : "";
 
   $("popupCard").innerHTML = `
     <div class="popup-top">
@@ -505,24 +668,27 @@ function openPlayerPopup(player, eventId, market, side) {
       <button type="button" class="popup-x" id="popupClose">✕</button>
     </div>
     <div class="popup-grid">
-      <div class="popup-stat"><b>Stat</b>${escapeHtml(focus.stat)} ${escapeHtml(focus.side)} ${focus.line ?? ""}</div>
+      <div class="popup-stat"><b>Stat</b>${escapeHtml(focus.stat || "")} ${escapeHtml(focus.side || "")} ${focus.line ?? ""}</div>
       <div class="popup-stat"><b>Tier</b>${escapeHtml(focus.pp_tier || "—")}</div>
       <div class="popup-stat"><b>% to hit</b>${focus.pct_to_hit != null ? focus.pct_to_hit.toFixed(1) + "%" : "—"}</div>
       <div class="popup-stat"><b>Edge</b>${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</div>
     </div>
+    ${focus.injury ? `<div class="popup-stat" style="margin-bottom:12px"><b>Injury</b>${injPill(focus.injury)} ${escapeHtml(focus.injury.injury || "")} · ${focus.injury.season || ""}w${focus.injury.week || ""}</div>` : ""}
+    ${logBlock}
+    ${newsBlock}
     <div class="popup-stat" style="margin-bottom:12px">
       <b>DFS lines</b>
       ${dfs.length ? dfs.map(([k, v]) => {
-        const meta = BOOK_BY_KEY[k];
-        return `${meta ? bookMark(meta, "sm") : k} ${v.line ?? "—"} ${american(v.price)}`;
+        const book = BOOK_BY_KEY[k];
+        return `${book ? bookMark(book, "sm") : k} ${v.line ?? "—"} ${american(v.price)}`;
       }).join("&nbsp;&nbsp;&nbsp;") : "—"}
     </div>
     <table class="popup-table">
       <thead><tr><th>Book</th><th>Line</th><th>Price</th><th>Same line</th></tr></thead>
       <tbody>
         ${books.map(([k, v]) => {
-          const meta = BOOK_BY_KEY[k];
-          return `<tr><td>${meta ? bookMark(meta, "sm") + " " + escapeHtml(meta.name) : escapeHtml(k)}</td><td>${v.line ?? "—"}</td><td>${american(v.price)}</td><td>${v.same_line ? "Yes" : "No"}</td></tr>`;
+          const book = BOOK_BY_KEY[k];
+          return `<tr><td>${book ? bookMark(book, "sm") + " " + escapeHtml(book.name) : escapeHtml(k)}</td><td>${v.line ?? "—"}</td><td>${american(v.price)}</td><td>${v.same_line ? "Yes" : "No"}</td></tr>`;
         }).join("") || `<tr><td colspan="4" class="muted">No sportsbook prices</td></tr>`}
       </tbody>
     </table>
@@ -546,6 +712,13 @@ function openPlayerPopup(player, eventId, market, side) {
   const slipBtn = $("popupSlip");
   if (slipBtn) slipBtn.onclick = () => addToSlip(focus);
 }
+
+document.addEventListener("click", (e) => {
+  const intelBtn = e.target.closest("#injBody .player-btn, #logsBody .player-btn");
+  if (intelBtn?.dataset.player) {
+    openPlayerPopup(intelBtn.dataset.player, "", "", "");
+  }
+});
 
 $("tbody").addEventListener("click", (e) => {
   const add = e.target.closest(".slip-add");
@@ -618,6 +791,11 @@ async function loadData() {
       version = meta?.updated || "";
     } catch (_) {}
     setLoader("Hiking the props…");
+    try {
+      state.intel = await fetchBoard(INTEL_URL, version);
+    } catch (_) {
+      state.intel = null;
+    }
     const sport = $("sport")?.value || state.sport || "all";
     state.sport = sport;
     if (sport === "all") {
