@@ -177,6 +177,18 @@ def load_ud(url: str):
     return out
 
 
+def sane_pct(v):
+    """Hit rates only. Drop sheet formula blowups like 254%."""
+    n = base.to_float(v)
+    if n is None:
+        return None
+    if n <= 1:
+        n *= 100
+    if n < 1 or n > 99:
+        return None
+    return round(n, 1)
+
+
 def attach_pp(row, p):
     row["headshot"] = p.get("headshot") or row.get("headshot")
     row["projection"] = p.get("projection")
@@ -193,8 +205,30 @@ def attach_pp(row, p):
         "multiplier": None,
         "id": p.get("pp_id") or "",
     }
-    if row.get("pct_to_hit") is None and p.get("nv_pct") is not None:
-        row["pct_to_hit"] = p["nv_pct"]
+    stat = str(p.get("stat") or row.get("stat") or "")
+    is_fantasy = "fantasy" in stat.lower()
+    edge = sane_pct(p.get("pp_edge"))
+    nv = sane_pct(p.get("nv_pct"))
+    line = p.get("line") if p.get("line") is not None else row.get("line")
+    avg = p.get("avg_line")
+    diff = None
+    if line is not None and avg is not None:
+        try:
+            diff = abs(float(line) - float(avg))
+        except (TypeError, ValueError):
+            diff = None
+
+    if is_fantasy and edge is not None:
+        row["pct_to_hit"] = edge
+    elif nv is not None and (diff is None or diff <= 0.25):
+        row["pct_to_hit"] = nv
+    elif edge is not None:
+        row["pct_to_hit"] = edge
+    elif nv is not None:
+        row["pct_to_hit"] = nv
+    cur = row.get("pct_to_hit")
+    if cur is not None and (cur > 99 or cur < 1):
+        row["pct_to_hit"] = edge
 
 
 def enrich_props(rows, pp_rows, ud_rows):
@@ -243,7 +277,12 @@ def enrich_props(rows, pp_rows, ud_rows):
             "side": p.get("side") or "Over", "line": p.get("line"),
             "game": "", "home_team": "", "away_team": "", "commence_time": "",
             "event_id": f"pp-{p['player_key']}-{p['stat']}-{p.get('line')}-{p.get('side')}",
-            "pct_to_hit": p.get("nv_pct"), "ev": None, "pp_tier": p.get("pp_tier"),
+            "pct_to_hit": (
+                sane_pct(p.get("pp_edge"))
+                if "fantasy" in str(p.get("stat") or "").lower()
+                else (sane_pct(p.get("nv_pct")) or sane_pct(p.get("pp_edge")))
+            ),
+            "ev": None, "pp_tier": p.get("pp_tier"),
             "book_line": p.get("avg_line"), "best": None, "spread": None, "total": None,
             "dfs": {"prizepicks": {"line": p.get("line"), "price": -137, "multiplier": None, "id": p.get("pp_id") or ""}},
             "books": {}, "headshot": p.get("headshot"), "projection": p.get("projection"),
@@ -253,6 +292,10 @@ def enrich_props(rows, pp_rows, ud_rows):
             "sheet_only": True,
         })
     print(f"Added {extra} extra PP stat rows (combo/fantasy/etc)")
+    for row in rows:
+        hit = row.get("pct_to_hit")
+        if hit is not None and (hit > 99 or hit < 1):
+            row["pct_to_hit"] = None
     return rows
 
 
@@ -352,6 +395,8 @@ def build_sport(label, sheet_url, game_url, pp_url, ud_url, out_name):
     base.attach_no_vig(raw)
     rows = base.build_dashboard_rows(raw, games) if raw else []
     rows = enrich_props(rows, load_pp(pp_url), load_ud(ud_url))
+    for row in rows:
+        row["sport"] = label
     kalshi = load_kalshi(label)
     payload = {
         "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
