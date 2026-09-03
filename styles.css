@@ -458,3 +458,10 @@ th[data-key="line"], td.line-cell, td.line-stack {
 }
 .preview-prop button, .preview-corr button { background: none; border: 0; color: inherit; font: inherit; font-weight: 650; cursor: pointer; text-align: left; }
 .corr-why { color: var(--muted); font-size: 11px; }
+.preview-inj {
+  padding: 10px 0;
+  border-bottom: 1px solid #182236;
+  display: grid;
+  gap: 4px;
+}
+.preview-prop .player-row { min-width: 0; }
