@@ -458,10 +458,20 @@ th[data-key="line"], td.line-cell, td.line-stack {
 }
 .preview-prop button, .preview-corr button { background: none; border: 0; color: inherit; font: inherit; font-weight: 650; cursor: pointer; text-align: left; }
 .corr-why { color: var(--muted); font-size: 11px; }
-.preview-inj {
-  padding: 10px 0;
-  border-bottom: 1px solid #182236;
-  display: grid;
-  gap: 4px;
+.preview-inj { border-bottom: 1px solid #182236; }
+.preview-inj-head {
+  width: 100%;
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  background: none; border: 0; color: inherit; font: inherit;
+  padding: 8px 0; cursor: pointer; text-align: left;
 }
+.preview-inj-head.open { color: #cfe0ff; }
+.preview-inj-body { padding: 0 0 10px 36px; display: grid; gap: 3px; }
+.preview-inj-body[hidden] { display: none; }
 .preview-prop .player-row { min-width: 0; }
+.best-pay {
+  color: var(--green);
+  font-weight: 800;
+  background: var(--green-bg);
+  border-radius: 6px;
+}
