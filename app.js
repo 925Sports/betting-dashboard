@@ -880,6 +880,57 @@ function previewInjuries(sample) {
   }).sort((a, b) => rank(a.report_status) - rank(b.report_status) || String(a.name).localeCompare(String(b.name))).slice(0, 20);
 }
 
+function previewGameMarkets(sample) {
+  const listed = (state.data?.games || []).find((g) =>
+    gameKeyOf(g) === gameKeyOf(sample) || (g.home_team === sample.home_team && g.away_team === sample.away_team)
+  ) || sample;
+  const home = abbr(listed.home_team) || listed.home_team || "Home";
+  const away = abbr(listed.away_team) || listed.away_team || "Away";
+  const rows = [];
+  if (listed.spread != null) {
+    const n = Number(listed.spread);
+    const homeLine = n > 0 ? `${home} +${n}` : `${home} ${n}`;
+    const awayLine = n > 0 ? `${away} ${-n}` : `${away} +${Math.abs(n)}`;
+    let lean = "—";
+    if (listed.spread_proj != null) {
+      lean = Number(listed.spread_proj) < n ? `${home} cover` : `${away} cover`;
+    }
+    rows.push({ market: "Spread", a: homeLine, b: awayLine, lean, pa: listed.ml_home, pb: listed.ml_away });
+  }
+  if (listed.total != null) {
+    const t = Number(listed.total);
+    let lean = "—";
+    if (listed.total_proj != null) lean = Number(listed.total_proj) > t ? "Over" : "Under";
+    rows.push({ market: "Total", a: `Over ${t}`, b: `Under ${t}`, lean, pa: null, pb: null });
+  }
+  if (listed.ml_home != null || listed.ml_away != null) {
+    rows.push({
+      market: "Moneyline",
+      a: `${home} ${american(listed.ml_home)}`,
+      b: `${away} ${american(listed.ml_away)}`,
+      lean: listed.ml_home != null && listed.ml_away != null
+        ? (Number(listed.ml_home) < Number(listed.ml_away) ? home : away)
+        : "—",
+      pa: listed.ml_home,
+      pb: listed.ml_away,
+    });
+  }
+  if (!rows.length) return "";
+  return `<div class="preview-card">
+    <h3>Game markets</h3>
+    <table class="popup-table">
+      <thead><tr><th>Market</th><th>Side 1</th><th>Side 2</th><th>Lean</th></tr></thead>
+      <tbody>${rows.map((r) => `<tr>
+        <td>${escapeHtml(r.market)}</td>
+        <td>${escapeHtml(r.a)}</td>
+        <td>${escapeHtml(r.b)}</td>
+        <td>${escapeHtml(r.lean)}</td>
+      </tr>`).join("")}</tbody>
+    </table>
+    <div class="corr-why">Consensus sheet line. Lean uses projection vs the posted number when we have one.</div>
+  </div>`;
+}
+
 function previewNews(sample) {
   const rows = rowsForGame(gameKeyOf(sample));
   const names = rows.map((r) => String(r.player || "").toLowerCase()).filter(Boolean);
@@ -939,6 +990,7 @@ function renderPreview() {
       <div class="script">${escapeHtml(loc)}</div>
       <div class="preview-lines">${lineBits || `<span class="muted">No consensus game line yet</span>`}</div>
     </div>
+    ${previewGameMarkets(sample)}
     <div class="preview-grid">
       <div class="preview-card">
         <h3>Best props</h3>
@@ -962,15 +1014,21 @@ function renderPreview() {
       <div class="preview-card">
         <h3>Injuries / availability</h3>
         ${inj.length ? inj.map((r) => `<div class="preview-inj">
-          <div class="player-row">${headshotTag(r.headshot)}
-            <div>
-              <button type="button" class="player-btn" data-player="${escapeHtml(r.name)}">${escapeHtml(r.name || "")}</button>
-              <div class="corr-why">${escapeHtml(r.team || "")} · ${escapeHtml(r.pos || "")} · ${r.season || ""}w${r.week || ""}</div>
+          <button type="button" class="preview-inj-head" data-inj="1">
+            <div class="player-row">${headshotTag(r.headshot)}
+              <div>
+                <span class="player">${escapeHtml(r.name || "")}</span>
+                <div class="corr-why">${escapeHtml(r.team || "")} · ${escapeHtml(r.pos || "")}</div>
+              </div>
             </div>
+            ${injPill({ status: r.report_status, injury: r.report_injury }) || "—"}
+          </button>
+          <div class="preview-inj-body" hidden>
+            <div>${escapeHtml(r.report_injury || r.practice_injury || "No injury detail")}</div>
+            <div class="corr-why">Practice: ${escapeHtml(r.practice_status || "—")}${r.practice_injury ? ` · ${escapeHtml(r.practice_injury)}` : ""}</div>
+            <div class="corr-why">${r.season || ""}w${r.week || ""} · click name in logs for full card</div>
+            <button type="button" class="player-btn" data-player="${escapeHtml(r.name || "")}">Open ${escapeHtml(r.name || "")} popup</button>
           </div>
-          <div>${injPill({ status: r.report_status, injury: r.report_injury }) || "—"}</div>
-          <div class="corr-why">${escapeHtml(r.report_injury || r.practice_injury || "No injury detail")}</div>
-          <div class="corr-why">Practice: ${escapeHtml(r.practice_status || "—")}${r.practice_injury ? ` · ${escapeHtml(r.practice_injury)}` : ""}</div>
         </div>`).join("") : `<div class="muted">${sample.sport === "NFL" || !sample.sport ? "No matching injury rows." : "Injury feed is NFL-only right now."}</div>`}
       </div>
       <div class="preview-card">
@@ -1132,6 +1190,17 @@ function lastVsOppNote(games, focus) {
   return `Last vs ${opp} (${g.season} w${g.week}): ${v} ${focus.stat}. That ${push ? "pushed" : cash ? "cashed" : "missed"} this ${focus.side} ${focus.line} number.`;
 }
 
+function bestPayoutKey(map, preferLine) {
+  const entries = Object.entries(map || {}).filter(([, v]) => v && v.price != null);
+  if (!entries.length) return "";
+  const exact = preferLine != null && preferLine !== ""
+    ? entries.filter(([, v]) => v.line != null && Number(v.line) === Number(preferLine))
+    : [];
+  const pool = exact.length ? exact : entries;
+  pool.sort((a, b) => Number(b[1].price) - Number(a[1].price));
+  return pool[0][0];
+}
+
 function bestOppositePrice(row) {
   if (!row) return null;
   let best = null;
@@ -1253,31 +1322,49 @@ function openPlayerPopup(player, eventId, market, side) {
         return `${meta ? bookMark(meta, "sm") : k} ${escapeHtml(focus.side || "")} ${v.line ?? "—"} ${american(v.price)}${ov ? ` · ${escapeHtml(oppSide)} ${ov.line ?? "—"} ${american(ov.price)}` : ""}`;
       }).join("<br>") : "—"}
     </div>
-    <table class="popup-table">
-      <thead><tr>
-        <th>Book</th>
-        <th>${escapeHtml(focus.side || "Line")}</th>
-        <th>Price</th>
-        <th>${escapeHtml(oppSide || "Opp")}</th>
-        <th>Opp price</th>
-        <th>Same line</th>
-      </tr></thead>
-      <tbody>
-        ${bookKeys.map((k) => {
-          const meta = BOOK_BY_KEY[k];
-          const v = focus.books?.[k] || {};
-          const o = oppRow?.books?.[k] || {};
-          return `<tr>
-            <td>${meta ? bookMark(meta, "sm") + " " + escapeHtml(meta.name) : escapeHtml(k)}</td>
-            <td>${v.line ?? "—"}</td>
-            <td>${american(v.price)}</td>
-            <td>${o.line ?? "—"}</td>
-            <td>${american(o.price)}</td>
-            <td>${v.same_line ? "Yes" : "No"}</td>
-          </tr>`;
-        }).join("") || `<tr><td colspan="6" class="muted">No sportsbook prices</td></tr>`}
-      </tbody>
-    </table>
+    ${(() => {
+      const bestThisExact = bestPayoutKey(focus.books, focus.line);
+      const bestThisAny = bestPayoutKey(focus.books);
+      const bestOppExact = bestPayoutKey(oppRow?.books, oppRow?.line);
+      const bestOppAny = bestPayoutKey(oppRow?.books);
+      const bestThis = bestThisExact || bestThisAny;
+      const bestOpp = bestOppExact || bestOppAny;
+      const labelBook = (k, map) => {
+        if (!k || !map?.[k]) return "—";
+        const m = BOOK_BY_KEY[k];
+        return `${m?.name || k} ${map[k].line ?? ""} ${american(map[k].price)}`;
+      };
+      return `<div class="popup-stat" style="margin-bottom:10px">
+        <b>Best payout</b>
+        ${escapeHtml(focus.side || "This side")} ${focus.line ?? ""}: ${escapeHtml(labelBook(bestThisExact, focus.books))}${bestThisAny && bestThisAny !== bestThisExact ? ` · any line ${labelBook(bestThisAny, focus.books)}` : ""}
+        ${oppRow ? `<div class="corr-why">${escapeHtml(oppSide)} ${oppRow.line ?? ""}: ${escapeHtml(labelBook(bestOppExact, oppRow.books))}${bestOppAny && bestOppAny !== bestOppExact ? ` · any line ${labelBook(bestOppAny, oppRow.books)}` : ""}</div>` : ""}
+      </div>
+      <table class="popup-table">
+        <thead><tr>
+          <th>Book</th>
+          <th>${escapeHtml(focus.side || "Line")}</th>
+          <th>Price</th>
+          <th>${escapeHtml(oppSide || "Opp")}</th>
+          <th>Opp price</th>
+          <th>Same line</th>
+        </tr></thead>
+        <tbody>
+          ${bookKeys.map((k) => {
+            const meta = BOOK_BY_KEY[k];
+            const v = focus.books?.[k] || {};
+            const o = oppRow?.books?.[k] || {};
+            return `<tr>
+              <td>${meta ? bookMark(meta, "sm") + " " + escapeHtml(meta.name) : escapeHtml(k)}</td>
+              <td>${v.line ?? "—"}</td>
+              <td class="${k === bestThis ? "best-pay" : ""}">${american(v.price)}</td>
+              <td>${o.line ?? "—"}</td>
+              <td class="${k === bestOpp ? "best-pay" : ""}">${american(o.price)}</td>
+              <td>${v.same_line ? "Yes" : "No"}</td>
+            </tr>`;
+          }).join("") || `<tr><td colspan="6" class="muted">No sportsbook prices</td></tr>`}
+        </tbody>
+      </table>`;
+    })()}
     <div style="margin:12px 0 8px;display:flex;gap:8px;flex-wrap:wrap">
       <button type="button" class="tab on" id="popupSlip">Add to PP slip</button>
       <a class="tab" href="${ppSlipLink(focus)}" target="_blank" rel="noopener">Open this pick in PrizePicks</a>
@@ -1300,6 +1387,13 @@ function openPlayerPopup(player, eventId, market, side) {
 }
 
 document.addEventListener("click", (e) => {
+  const injHead = e.target.closest(".preview-inj-head");
+  if (injHead) {
+    const body = injHead.parentElement?.querySelector(".preview-inj-body");
+    if (body) body.hidden = !body.hidden;
+    injHead.classList.toggle("open", body && !body.hidden);
+    return;
+  }
   const pick = e.target.closest("#previewList .preview-game");
   if (pick?.dataset.game) {
     state.previewGame = pick.dataset.game;
