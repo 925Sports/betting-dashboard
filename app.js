@@ -880,54 +880,94 @@ function previewInjuries(sample) {
   }).sort((a, b) => rank(a.report_status) - rank(b.report_status) || String(a.name).localeCompare(String(b.name))).slice(0, 20);
 }
 
+function bestGameBook(books, market, side) {
+  let best = null;
+  Object.entries(books || {}).forEach(([k, pack]) => {
+    const rec = pack?.[market];
+    const price = rec?.[side];
+    if (price == null) return;
+    if (!best || Number(price) > Number(best.price)) best = { book: k, price, line: rec.line };
+  });
+  return best;
+}
+
+function marketSideCell(label, best, hot) {
+  const meta = best ? BOOK_BY_KEY[best.book] : null;
+  const extra = best?.line != null ? ` · ${best.line}` : "";
+  const book = best
+    ? `${meta ? `${bookMark(meta, "sm")} ` : ""}${escapeHtml(meta?.name || best.book)} ${american(best.price)}${escapeHtml(extra)}`
+    : `<span class="muted">no book</span>`;
+  return `<td class="line-stack ${hot ? "best-pay" : ""}">
+    <div class="line-num">${escapeHtml(label)}</div>
+    <div class="line-note">${book}</div>
+  </td>`;
+}
+
 function previewGameMarkets(sample) {
   const listed = (state.data?.games || []).find((g) =>
     gameKeyOf(g) === gameKeyOf(sample) || (g.home_team === sample.home_team && g.away_team === sample.away_team)
   ) || sample;
   const home = abbr(listed.home_team) || listed.home_team || "Home";
   const away = abbr(listed.away_team) || listed.away_team || "Away";
+  const books = listed.books || {};
+  const hasBooks = Object.keys(books).length > 0;
+  const n = listed.spread != null ? Number(listed.spread) : null;
+  const t = listed.total != null ? Number(listed.total) : null;
+  const homeSpread = n == null ? home : (n > 0 ? `${home} +${n}` : `${home} ${n}`);
+  const awaySpread = n == null ? away : (n > 0 ? `${away} ${-n}` : `${away} +${Math.abs(n)}`);
   const rows = [];
-  if (listed.spread != null) {
-    const n = Number(listed.spread);
-    const homeLine = n > 0 ? `${home} +${n}` : `${home} ${n}`;
-    const awayLine = n > 0 ? `${away} ${-n}` : `${away} +${Math.abs(n)}`;
-    let lean = "—";
-    if (listed.spread_proj != null) {
-      lean = Number(listed.spread_proj) < n ? `${home} cover` : `${away} cover`;
-    }
-    rows.push({ market: "Spread", a: homeLine, b: awayLine, lean, pa: listed.ml_home, pb: listed.ml_away });
+  if (n != null || bestGameBook(books, "spread", "home") || bestGameBook(books, "spread", "away")) {
+    rows.push({
+      market: "Spread",
+      a: homeSpread,
+      b: awaySpread,
+      oa: bestGameBook(books, "spread", "home"),
+      ob: bestGameBook(books, "spread", "away"),
+      leanA: listed.spread_proj != null && n != null ? Number(listed.spread_proj) < n : null,
+    });
   }
-  if (listed.total != null) {
-    const t = Number(listed.total);
-    let lean = "—";
-    if (listed.total_proj != null) lean = Number(listed.total_proj) > t ? "Over" : "Under";
-    rows.push({ market: "Total", a: `Over ${t}`, b: `Under ${t}`, lean, pa: null, pb: null });
+  if (t != null || bestGameBook(books, "total", "over") || bestGameBook(books, "total", "under")) {
+    rows.push({
+      market: "Total",
+      a: t != null ? `Over ${t}` : "Over",
+      b: t != null ? `Under ${t}` : "Under",
+      oa: bestGameBook(books, "total", "over"),
+      ob: bestGameBook(books, "total", "under"),
+      leanA: listed.total_proj != null && t != null ? Number(listed.total_proj) > t : null,
+    });
   }
-  if (listed.ml_home != null || listed.ml_away != null) {
+  const mlHome = bestGameBook(books, "ml", "home");
+  const mlAway = bestGameBook(books, "ml", "away");
+  if (listed.ml_home != null || listed.ml_away != null || mlHome || mlAway) {
     rows.push({
       market: "Moneyline",
-      a: `${home} ${american(listed.ml_home)}`,
-      b: `${away} ${american(listed.ml_away)}`,
-      lean: listed.ml_home != null && listed.ml_away != null
-        ? (Number(listed.ml_home) < Number(listed.ml_away) ? home : away)
-        : "—",
-      pa: listed.ml_home,
-      pb: listed.ml_away,
+      a: `${home} ${listed.ml_home != null ? american(listed.ml_home) : ""}`.trim(),
+      b: `${away} ${listed.ml_away != null ? american(listed.ml_away) : ""}`.trim(),
+      oa: mlHome || (listed.ml_home != null ? { book: "consensus", price: listed.ml_home } : null),
+      ob: mlAway || (listed.ml_away != null ? { book: "consensus", price: listed.ml_away } : null),
+      leanA: listed.ml_home != null && listed.ml_away != null ? Number(listed.ml_home) < Number(listed.ml_away) : null,
     });
   }
   if (!rows.length) return "";
   return `<div class="preview-card">
-    <h3>Game markets</h3>
+    <h3>Game markets · best book</h3>
     <table class="popup-table">
-      <thead><tr><th>Market</th><th>Side 1</th><th>Side 2</th><th>Lean</th></tr></thead>
-      <tbody>${rows.map((r) => `<tr>
-        <td>${escapeHtml(r.market)}</td>
-        <td>${escapeHtml(r.a)}</td>
-        <td>${escapeHtml(r.b)}</td>
-        <td>${escapeHtml(r.lean)}</td>
-      </tr>`).join("")}</tbody>
+      <thead><tr><th>Market</th><th>Side 1</th><th>Side 2</th></tr></thead>
+      <tbody>${rows.map((r) => {
+        let hotA = r.leanA === true;
+        let hotB = r.leanA === false;
+        if (r.leanA == null && r.oa?.price != null && r.ob?.price != null) {
+          hotA = Number(r.oa.price) >= Number(r.ob.price);
+          hotB = !hotA;
+        }
+        return `<tr>
+          <td>${escapeHtml(r.market)}</td>
+          ${marketSideCell(r.a, r.oa, hotA)}
+          ${marketSideCell(r.b, r.ob, hotB)}
+        </tr>`;
+      }).join("")}</tbody>
     </table>
-    <div class="corr-why">Consensus sheet line. Lean uses projection vs the posted number when we have one.</div>
+    <div class="corr-why">${hasBooks ? "Top line = consensus number. Second line = best payout at that book. Green = projection lean, or better payout if there is no proj." : "Run Update NFL Props so per-book game odds are written into the JSON."}</div>
   </div>`;
 }
 
