@@ -14,7 +14,7 @@
         <span class="laces"></span>
       </div>
     </div>
-    <div class="loader-brand">925</div>
+    <img class="loader-logo" src="./assets/925-logo.png" alt="Nine to Five Sports" />
     <div class="loader-title">+EV Optimizer</div>
     <div class="loader-sub" id="loaderText">Warming up the slate…</div>
     <div class="loader-bar"><span></span></div>
@@ -22,7 +22,7 @@
 
   <header class="bar">
     <div class="brand">
-      <span class="logo">925</span>
+      <img class="logo-img" src="./assets/925-logo.png" alt="Nine to Five Sports" />
       <div>
         <div class="brand-title">+EV Optimizer</div>
         <div class="brand-sub">All sports · PP Standard</div>
@@ -55,10 +55,12 @@
       </select>
       <select id="section">
         <option value="props">Player props</option>
+        <option value="preview">Game preview</option>
         <option value="games">Game lines</option>
         <option value="news">NFL news</option>
         <option value="injuries">NFL injuries</option>
         <option value="logs">NFL player logs</option>
+        <option value="stacks">NFL stacks</option>
       </select>
       <select id="game"></select>
       <select id="stat"></select>
@@ -87,6 +89,16 @@
       <label class="chk">Min % <input type="number" id="minPct" value="50" min="0" max="100" step="0.5" /></label>
       <input type="search" id="q" placeholder="Search players…" />
       <div class="count" id="count"></div>
+    </div>
+
+    <div class="recipes" id="recipes">
+      <div class="books-label">Recipes</div>
+      <button type="button" class="recipe" data-recipe="cash">Cash Floor</button>
+      <button type="button" class="recipe" data-recipe="gpp">GPP Ceiling</button>
+      <button type="button" class="recipe" data-recipe="milly">Milly Stack</button>
+      <button type="button" class="recipe" data-recipe="goblin">Goblin Locks</button>
+      <button type="button" class="recipe" data-recipe="ev">+EV 5-Pick</button>
+      <button type="button" class="recipe" data-recipe="reset">Reset filters</button>
     </div>
 
     <div class="ticker" id="newsTicker" hidden>
@@ -169,6 +181,32 @@
         <tbody id="logsBody"></tbody>
       </table>
       <div class="empty" id="logsEmpty" style="display:none">No player logs yet.</div>
+    </div>
+
+    <div class="intel-wrap" id="previewWrap" style="display:none">
+      <div class="preview-layout">
+        <aside class="preview-list" id="previewList"></aside>
+        <section class="preview-main" id="previewMain">
+          <div class="empty" id="previewEmpty">Pick a game to open the preview.</div>
+        </section>
+      </div>
+    </div>
+
+    <div class="intel-wrap" id="stacksWrap" style="display:none">
+      <div class="stack-intro">
+        <div>
+          <div class="brand-title">NFL stack board</div>
+          <div class="brand-sub">81% of 2025 Milly winners stacked · default bring-back is the opposing RB</div>
+        </div>
+        <select id="stackShape">
+          <option value="all">All shapes</option>
+          <option value="mini">Mini-stack (QB + 1)</option>
+          <option value="double">Double stack (QB + 2)</option>
+          <option value="game">Game stack + RB bring-back</option>
+        </select>
+      </div>
+      <div id="stacksBody"></div>
+      <div class="empty" id="stacksEmpty" style="display:none">No NFL stack games yet.</div>
     </div>
 
     <div class="table-wrap" id="gamesWrap" style="display:none">
