@@ -893,9 +893,8 @@ function bestGameBook(books, market, side) {
 
 function marketSideCell(label, best, hot) {
   const meta = best ? BOOK_BY_KEY[best.book] : null;
-  const extra = best?.line != null ? ` · ${best.line}` : "";
   const book = best
-    ? `${meta ? `${bookMark(meta, "sm")} ` : ""}${escapeHtml(meta?.name || best.book)} ${american(best.price)}${escapeHtml(extra)}`
+    ? `${meta ? `${bookMark(meta, "sm")} ` : ""}${escapeHtml(meta?.name || best.book)} ${american(best.price)}`
     : `<span class="muted">no book</span>`;
   return `<td class="line-stack ${hot ? "best-pay" : ""}">
     <div class="line-num">${escapeHtml(label)}</div>
@@ -1253,38 +1252,35 @@ function bestOppositePrice(row) {
 }
 
 function betSummary(focus, recs, oppRow) {
-  const bits = [];
   const be = breakEven();
   const edge = rowEdge(focus);
-  bits.push(`The bet is ${focus.player} ${focus.side || ""} ${focus.line ?? ""} ${focus.stat} in ${matchup(focus) || "this game"}.`);
-  if (focus.pct_to_hit != null) {
-    bits.push(`The model has it at ${focus.pct_to_hit.toFixed(1)}% to hit versus a ${be}% break-even on a ${pickSize()}-pick${edge == null ? "" : ` (${edge > 0 ? "+" : ""}${edge} edge)`}.`);
-  }
   const splits = splitStats(recs, focus.stat, focus.line, focus.side);
+  const good = edge != null && edge >= 0;
+  const fade = !good ? bestOppositePrice(oppRow) : null;
+  const fadeMeta = fade ? BOOK_BY_KEY[fade.book] : null;
+  const vs = lastVsOppNote(recs, focus);
+  const rows = [];
+  rows.push(`<div class="sum-kicker">${good ? "Play" : edge == null ? "No edge yet" : "Pass / fade"}</div>`);
+  rows.push(`<p><b>The bet:</b> ${escapeHtml(focus.player)} ${escapeHtml(focus.side || "")} ${focus.line ?? ""} ${escapeHtml(focus.stat)} · ${escapeHtml(matchup(focus) || "this game")}.</p>`);
+  if (focus.pct_to_hit != null) {
+    rows.push(`<p><b>Why it screens ${good ? "good" : "soft"}:</b> ${focus.pct_to_hit.toFixed(1)}% to hit vs ${be}% needed on a ${pickSize()}-pick${edge == null ? "" : ` (${edge > 0 ? "+" : ""}${edge} edge)`}.</p>`);
+  }
   if (splits?.L5?.n) {
-    bits.push(`Log sample: ${splits.L5.hits} of his last ${splits.L5.n} graded games cleared this ${String(focus.side || "side").toLowerCase()} (${splits.L5.hit ?? "—"}% hit rate${splits.L5.pushes ? `, ${splits.L5.pushes} push` : ""}). L5 average is ${splits.L5.avg}.`);
+    rows.push(`<p><b>Recent form:</b> ${splits.L5.hits} of his last ${splits.L5.n} graded games cashed this ${escapeHtml(String(focus.side || "side").toLowerCase())} (${splits.L5.hit ?? "—"}% hit rate${splits.L5.pushes ? `, ${splits.L5.pushes} push` : ""}). L5 average: ${splits.L5.avg}.</p>`);
   }
   if (splits?.L10?.n >= 8 && splits.L10.hit != null) {
-    bits.push(`Over his last ${splits.L10.n} games the same-side hit rate is ${splits.L10.hit}%.`);
+    rows.push(`<p><b>Longer sample:</b> ${splits.L10.hit}% hit rate over his last ${splits.L10.n} games.</p>`);
   }
-  const vs = lastVsOppNote(recs, focus);
-  if (vs) bits.push(vs);
+  if (vs) rows.push(`<p><b>Last meeting:</b> ${escapeHtml(vs)}</p>`);
   if (focus.injury?.status) {
-    bits.push(`Availability note: ${focus.injury.status}${focus.injury.injury ? ` (${focus.injury.injury})` : ""}.`);
+    rows.push(`<p><b>Availability:</b> ${escapeHtml(focus.injury.status)}${focus.injury.injury ? ` (${escapeHtml(focus.injury.injury)})` : ""}.</p>`);
   }
-  if (edge != null && edge >= 0) {
-    bits.push(`It screens as a good card piece because the hit rate clears the ${pickSize()}-pick number after push handling.`);
-  } else if (edge != null) {
-    const fade = bestOppositePrice(oppRow);
-    const meta = fade ? BOOK_BY_KEY[fade.book] : null;
-    bits.push(`This does not clear break-even, so it is not a good ${pickSize()}-pick on this side.`);
-    if (fade && oppRow) {
-      bits.push(`If you disagree and want the other side, the best posted ${oppRow.side} ${fade.line ?? oppRow.line} is ${meta?.name || fade.book} at ${american(fade.price)}.`);
-    } else if (oppRow) {
-      bits.push(`The fade is ${oppRow.side} ${oppRow.line ?? ""}.`);
-    }
+  if (!good && fade && oppRow) {
+    rows.push(`<p><b>If you fade it:</b> ${escapeHtml(oppRow.side)} ${fade.line ?? oppRow.line ?? ""} at ${escapeHtml(fadeMeta?.name || fade.book)} ${american(fade.price)}.</p>`);
+  } else if (!good && oppRow) {
+    rows.push(`<p><b>If you fade it:</b> ${escapeHtml(oppRow.side)} ${oppRow.line ?? ""}.</p>`);
   }
-  return bits.join(" ");
+  return rows.join("");
 }
 
 function openPlayerPopup(player, eventId, market, side) {
@@ -1348,7 +1344,7 @@ function openPlayerPopup(player, eventId, market, side) {
       <div class="popup-stat"><b>% to hit</b>${focus.pct_to_hit != null ? focus.pct_to_hit.toFixed(1) + "%" : "—"}</div>
       <div class="popup-stat"><b>Edge</b>${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</div>
     </div>
-    <div class="popup-stat" style="margin-bottom:12px"><b>Bet write-up</b>${escapeHtml(betSummary(focus, recs, oppRow))}</div>
+    <div class="popup-stat sum-card" style="margin-bottom:12px"><b>Bet write-up</b>${betSummary(focus, recs, oppRow)}</div>
     ${focus.injury ? `<div class="popup-stat" style="margin-bottom:12px"><b>Injury</b>${injPill(focus.injury)} ${escapeHtml(focus.injury.injury || "")} · ${focus.injury.season || ""}w${focus.injury.week || ""}</div>` : ""}
     ${logBlock}
     ${renderSplitChart(focus, recs)}
