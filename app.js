@@ -44,6 +44,39 @@ const TEAM_ABBR = {
   "Tennessee Titans": "TEN", "Washington Commanders": "WAS",
 };
 
+const STADIUMS = {
+  ARI: "State Farm Stadium · Glendale, AZ", ATL: "Mercedes-Benz Stadium · Atlanta, GA",
+  BAL: "M&T Bank Stadium · Baltimore, MD", BUF: "Highmark Stadium · Orchard Park, NY",
+  CAR: "Bank of America Stadium · Charlotte, NC", CHI: "Soldier Field · Chicago, IL",
+  CIN: "Paycor Stadium · Cincinnati, OH", CLE: "Huntington Bank Field · Cleveland, OH",
+  DAL: "AT&T Stadium · Arlington, TX", DEN: "Empower Field at Mile High · Denver, CO",
+  DET: "Ford Field · Detroit, MI", GB: "Lambeau Field · Green Bay, WI",
+  HOU: "NRG Stadium · Houston, TX", IND: "Lucas Oil Stadium · Indianapolis, IN",
+  JAX: "EverBank Stadium · Jacksonville, FL", KC: "GEHA Field at Arrowhead · Kansas City, MO",
+  LV: "Allegiant Stadium · Las Vegas, NV", LAC: "SoFi Stadium · Inglewood, CA",
+  LAR: "SoFi Stadium · Inglewood, CA", MIA: "Hard Rock Stadium · Miami Gardens, FL",
+  MIN: "U.S. Bank Stadium · Minneapolis, MN", NE: "Gillette Stadium · Foxborough, MA",
+  NO: "Caesars Superdome · New Orleans, LA", NYG: "MetLife Stadium · East Rutherford, NJ",
+  NYJ: "MetLife Stadium · East Rutherford, NJ", PHI: "Lincoln Financial Field · Philadelphia, PA",
+  PIT: "Acrisure Stadium · Pittsburgh, PA", SF: "Levi's Stadium · Santa Clara, CA",
+  SEA: "Lumen Field · Seattle, WA", TB: "Raymond James Stadium · Tampa, FL",
+  TEN: "Nissan Stadium · Nashville, TN", WAS: "Northwest Stadium · Landover, MD",
+};
+
+const CASH_STATS = new Set([
+  "Pass Yds", "Rush Yds", "Receptions", "Rec Yds", "Rush+Rec Yds", "Pass+Rush Yds",
+  "Points", "Rebounds", "Pts+Rebs+Asts", "Pts+Rebs", "Pts+Asts", "Assists",
+  "Hits", "Hits+Runs+RBIs", "Strikeouts", "Shots", "Shots On Target",
+]);
+const GPP_STATS = new Set([
+  "Pass Yds", "Pass TDs", "Anytime TD", "Fantasy Score", "Rec Yds", "Receptions",
+  "Rush Yds", "Rush+Rec Yds", "Pass+Rush Yds", "Anytime Goal", "Goals",
+  "Pts+Rebs+Asts", "3-PT Made",
+]);
+const PASS_STATS = new Set(["Pass Yds", "Pass TDs", "Pass+Rush Yds", "Pass Att", "Completions", "Fantasy Score"]);
+const CATCH_STATS = new Set(["Rec Yds", "Receptions", "Rush+Rec Yds", "Targets"]);
+const RUSH_STATS = new Set(["Rush Yds", "Rush Att", "Anytime TD", "Rush+Rec Yds"]);
+
 const CORE_STATS = new Set([
   "Pass Yds", "Rush Yds", "Receptions", "Rec Yds", "Rush+Rec Yds",
   "Pass TDs", "Anytime TD", "Fantasy Score", "Pass+Rush Yds",
@@ -63,6 +96,8 @@ const state = {
   view: "pp", sport: "all", section: "props",
   booksOn: new Set(DEFAULT_ON),
   slip: [],
+  recipe: "",
+  previewGame: "",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -319,6 +354,8 @@ function applyFilters(rows) {
       if (tier === "alternate" && r.pp_tier !== "Alternate" && !r.is_alternate) return false;
     }
     if (hasStarted(r.commence_time)) return false;
+    if (state.recipe === "cash" && r.stat && !CASH_STATS.has(r.stat)) return false;
+    if (state.recipe === "gpp" && r.stat && !GPP_STATS.has(r.stat)) return false;
     if (game && r.game !== game) return false;
     if (stat && r.stat !== stat) return false;
     if (side === "ou" && r.side !== "Over" && r.side !== "Under") return false;
@@ -645,6 +682,325 @@ function renderLogs() {
   $("count").textContent = `${ranked.length} skill players · seasons ${(state.intel?.log_seasons || []).join(", ") || "n/a"}`;
 }
 
+function bestOver(rows, stats) {
+  return rows
+    .filter((r) => r.side === "Over" || r.side === "Yes")
+    .filter((r) => !stats || stats.has(r.stat))
+    .sort((a, b) => (b.pct_to_hit || 0) - (a.pct_to_hit || 0));
+}
+
+function playerTeamGuess(row) {
+  return row.nfl_team || intelPlayer(row.player)?.team || "";
+}
+
+function buildStackGames() {
+  const rows = (state.data?.props || []).filter((r) =>
+    String(r.sport || "").toUpperCase() === "NFL" && !hasStarted(r.commence_time) && r.dfs?.prizepicks
+  );
+  const byGame = {};
+  rows.forEach((r) => {
+    const key = r.game || `${r.away_team} @ ${r.home_team}`;
+    (byGame[key] ||= { game: key, row: r, players: {} }).players[r.player] ||= [];
+    byGame[key].players[r.player].push(r);
+    byGame[key].row = r;
+  });
+  const shape = $("stackShape")?.value || "all";
+  return Object.values(byGame).map((g) => {
+    const all = Object.values(g.players).flat();
+    const passers = bestOver(all, PASS_STATS);
+    const qbName = passers[0]?.player;
+    const wr = bestOver(all.filter((r) => r.player !== qbName), CATCH_STATS);
+    const rush = bestOver(all.filter((r) => r.player !== qbName), RUSH_STATS);
+    const qbTeam = playerTeamGuess(passers[0] || {});
+    const bring = rush.find((r) => {
+      const team = playerTeamGuess(r);
+      return team && qbTeam && team !== qbTeam;
+    }) || rush[0];
+    const mini = [passers[0], wr[0]].filter(Boolean);
+    const dbl = [passers[0], wr[0], wr[1]].filter(Boolean);
+    const gameStack = [passers[0], wr[0], wr[1], bring].filter(Boolean);
+    const picks = shape === "mini" ? mini : shape === "double" ? dbl : shape === "game" ? gameStack : gameStack;
+    const uniq = [];
+    picks.forEach((p) => { if (p && !uniq.some((u) => u.player === p.player && u.stat === p.stat)) uniq.push(p); });
+    const score = uniq.length ? uniq.reduce((s, r) => s + (r.pct_to_hit || 0), 0) / uniq.length : 0;
+    return {
+      game: g.game,
+      total: g.row.total,
+      spread: g.row.spread,
+      home: g.row.home_team,
+      away: g.row.away_team,
+      when: g.row.commence_time,
+      qb: passers[0],
+      pass: wr.slice(0, 3),
+      rush: rush.slice(0, 3),
+      bring,
+      picks: uniq,
+      score,
+    };
+  }).filter((g) => g.qb || g.pass.length).sort((a, b) => (b.total || 0) - (a.total || 0) || b.score - a.score);
+}
+
+function renderStacks() {
+  const wrap = $("stacksWrap");
+  if (!wrap) return;
+  wrap.style.display = state.section === "stacks" ? "block" : "none";
+  if (state.section !== "stacks") return;
+  const games = buildStackGames();
+  $("stacksBody").innerHTML = games.map((g) => `
+    <article class="stack-card">
+      <div class="stack-top">
+        <div>
+          <div class="stack-game">${escapeHtml(g.game)}</div>
+          <div class="stack-meta">${escapeHtml(fmtWhen(g.when))} · ${g.spread != null ? `spread ${g.spread}` : ""} ${g.total != null ? `· O/U ${g.total}` : ""}</div>
+        </div>
+        <div class="stack-score">${g.score ? g.score.toFixed(1) + "% avg hit" : ""}</div>
+      </div>
+      <div class="stack-grid">
+        <div class="stack-col">
+          <h4>QB / pass</h4>
+          ${g.qb ? `<div class="stack-pick"><button type="button" class="player-btn" data-player="${escapeHtml(g.qb.player)}">${escapeHtml(g.qb.player)}</button><span>${escapeHtml(g.qb.stat)} ${g.qb.line ?? ""} · ${g.qb.pct_to_hit?.toFixed(1) || "—"}%</span></div>` : `<div class="muted">—</div>`}
+        </div>
+        <div class="stack-col">
+          <h4>Same-team receivers</h4>
+          ${g.pass.slice(0, 3).map((r) => `<div class="stack-pick"><button type="button" class="player-btn" data-player="${escapeHtml(r.player)}">${escapeHtml(r.player)}</button><span>${escapeHtml(r.stat)} ${r.line ?? ""} · ${r.pct_to_hit?.toFixed(1) || "—"}%</span></div>`).join("") || `<div class="muted">—</div>`}
+        </div>
+        <div class="stack-col">
+          <h4>Bring-back / rush</h4>
+          ${g.bring ? `<div class="stack-pick"><button type="button" class="player-btn" data-player="${escapeHtml(g.bring.player)}">${escapeHtml(g.bring.player)}</button><span>${escapeHtml(g.bring.stat)} ${g.bring.line ?? ""} · ${g.bring.pct_to_hit?.toFixed(1) || "—"}%</span></div>` : `<div class="muted">—</div>`}
+        </div>
+      </div>
+    </article>
+  `).join("");
+  $("stacksEmpty").style.display = games.length ? "none" : "block";
+  $("count").textContent = `${games.length} stack games`;
+}
+
+function setTab(view) {
+  document.querySelectorAll(".tab[data-view]").forEach((b) => b.classList.toggle("on", b.dataset.view === view));
+  state.view = view;
+}
+
+function applyRecipe(name) {
+  state.recipe = name === "reset" ? "" : name;
+  document.querySelectorAll(".recipe").forEach((b) => b.classList.toggle("on", b.dataset.recipe === state.recipe && state.recipe));
+  if (name === "cash") {
+    setTab("pp");
+    $("section").value = "props"; state.section = "props";
+    $("tier").value = "standard";
+    $("side").value = "ou";
+    $("minPct").value = "56";
+    $("picks").value = "5";
+    state.sortKey = "pct_to_hit"; state.sortDir = "desc";
+  } else if (name === "gpp") {
+    setTab("pp");
+    $("section").value = "props"; state.section = "props";
+    $("tier").value = "all";
+    $("side").value = "Over";
+    $("minPct").value = "50";
+    $("picks").value = "5";
+    state.sortKey = "ev"; state.sortDir = "desc";
+  } else if (name === "milly") {
+    $("sport").value = "nfl"; state.sport = "nfl";
+    $("section").value = "stacks"; state.section = "stacks";
+    if ($("stackShape")) $("stackShape").value = "game";
+    loadData();
+    return;
+  } else if (name === "goblin") {
+    setTab("pp");
+    $("section").value = "props"; state.section = "props";
+    $("tier").value = "goblin";
+    $("side").value = "ou";
+    $("minPct").value = "54";
+  } else if (name === "ev") {
+    setTab("ev");
+    $("section").value = "props"; state.section = "props";
+    $("tier").value = "standard";
+    $("minPct").value = String(breakEven());
+  } else {
+    setTab("pp");
+    $("section").value = "props"; state.section = "props";
+    $("tier").value = "standard";
+    $("side").value = "ou";
+    $("minPct").value = "50";
+    $("stat").value = "";
+  }
+  render();
+}
+
+function gameKeyOf(row) {
+  return row.game || `${row.away_team || ""} @ ${row.home_team || ""}`.trim();
+}
+
+function upcomingGames() {
+  const all = state.data?.props || [];
+  const map = new Map();
+  all.forEach((r) => {
+    if (hasStarted(r.commence_time)) return;
+    const key = gameKeyOf(r);
+    if (!key || map.has(key)) return;
+    map.set(key, r);
+  });
+  return [...map.values()].sort((a, b) => String(a.commence_time || "").localeCompare(String(b.commence_time || "")));
+}
+
+function rowsForGame(game) {
+  return (state.data?.props || []).filter((r) => gameKeyOf(r) === game && !hasStarted(r.commence_time));
+}
+
+function previewBest(rows) {
+  return rows
+    .filter((r) => r.dfs?.prizepicks && (!r.pp_tier || r.pp_tier === "Standard") && !r.is_alternate)
+    .map((r) => ({ r, edge: rowEdge(r) }))
+    .filter((x) => x.r.pct_to_hit != null)
+    .sort((a, b) => (b.edge ?? -999) - (a.edge ?? -999))
+    .slice(0, 12);
+}
+
+function previewCorrelates(rows) {
+  const out = [];
+  const passO = rows.filter((r) => r.stat === "Pass Yds" && r.side === "Over");
+  const recO = rows.filter((r) => (r.stat === "Rec Yds" || r.stat === "Receptions") && r.side === "Over");
+  passO.forEach((a) => recO.forEach((b) => {
+    if (a.player !== b.player) out.push({ a, b, why: "QB volume + pass catcher" });
+  }));
+  const rushO = rows.filter((r) => r.stat === "Rush Yds" && r.side === "Over");
+  const totU = rows.filter((r) => /total|team total/i.test(r.stat || "") && r.side === "Under");
+  rushO.slice(0, 2).forEach((a) => {
+    const pair = recO.find((b) => b.player !== a.player) || totU[0];
+    if (pair) out.push({ a, b: pair, why: "Ground game / clock stack" });
+  });
+  const byPlayer = {};
+  rows.forEach((r) => {
+    if (!r.player) return;
+    (byPlayer[r.player] ||= []).push(r);
+  });
+  Object.values(byPlayer).forEach((list) => {
+    const rec = list.find((r) => r.stat === "Receptions" && r.side === "Over");
+    const yds = list.find((r) => r.stat === "Rec Yds" && r.side === "Over");
+    if (rec && yds) out.push({ a: rec, b: yds, why: "Same-player receptions + yards" });
+    const pts = list.find((r) => r.stat === "Points" && r.side === "Over");
+    const pra = list.find((r) => /Pts\+Rebs\+Asts|Fantasy Score/.test(r.stat || "") && r.side === "Over");
+    if (pts && pra) out.push({ a: pts, b: pra, why: "Counting stat + combo" });
+    const hits = list.find((r) => r.stat === "Hits" && r.side === "Over");
+    const hrr = list.find((r) => /Hits\+Runs\+RBIs/.test(r.stat || "") && r.side === "Over");
+    if (hits && hrr) out.push({ a: hits, b: hrr, why: "Hits feed the combo" });
+  });
+  const seen = new Set();
+  return out.filter((p) => {
+    const k = `${p.a.player}|${p.a.stat}|${p.b.player}|${p.b.stat}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  }).slice(0, 8);
+}
+
+function previewInjuries(sample) {
+  const teams = [abbr(sample.away_team), abbr(sample.home_team), sample.nfl_team].filter(Boolean);
+  const names = new Set(rowsForGame(gameKeyOf(sample)).map((r) => normName(r.player)));
+  return (state.intel?.injuries || []).filter((inj) => {
+    if (teams.includes(inj.team)) return true;
+    return names.has(normName(inj.name));
+  }).slice(0, 16);
+}
+
+function previewNews(sample) {
+  const rows = rowsForGame(gameKeyOf(sample));
+  const names = rows.map((r) => String(r.player || "").toLowerCase()).filter(Boolean);
+  const tokens = [sample.away_team, sample.home_team, abbr(sample.away_team), abbr(sample.home_team)]
+    .filter(Boolean).map((s) => String(s).toLowerCase());
+  return (state.intel?.news || []).filter((n) => {
+    const blob = `${n.headline || ""} ${n.description || ""}`.toLowerCase();
+    if (tokens.some((t) => t.length > 2 && blob.includes(t))) return true;
+    return names.some((nm) => nm && blob.includes(nm));
+  }).slice(0, 8);
+}
+
+function renderPreview() {
+  const wrap = $("previewWrap");
+  if (!wrap) return;
+  wrap.style.display = state.section === "preview" ? "block" : "none";
+  if (state.section !== "preview") return;
+  const games = upcomingGames();
+  const q = ($("q")?.value || "").trim().toLowerCase();
+  const shown = games.filter((g) => !q || `${g.game} ${g.away_team} ${g.home_team} ${g.sport}`.toLowerCase().includes(q));
+  if (!state.previewGame || !shown.some((g) => gameKeyOf(g) === state.previewGame)) {
+    state.previewGame = shown[0] ? gameKeyOf(shown[0]) : "";
+  }
+  $("previewList").innerHTML = shown.map((g) => {
+    const key = gameKeyOf(g);
+    const on = key === state.previewGame ? "on" : "";
+    return `<button type="button" class="preview-game ${on}" data-game="${escapeHtml(key)}">
+      <b>${escapeHtml(matchup(g) || key)}</b>
+      <span>${escapeHtml(g.sport || "")} · ${escapeHtml(fmtWhen(g.commence_time))}</span>
+    </button>`;
+  }).join("") || `<div class="empty">No upcoming games.</div>`;
+  const sample = shown.find((g) => gameKeyOf(g) === state.previewGame);
+  const main = $("previewMain");
+  if (!sample) {
+    main.innerHTML = `<div class="empty" id="previewEmpty">Pick a game to open the preview.</div>`;
+    $("count").textContent = `${shown.length} games`;
+    return;
+  }
+  const rows = rowsForGame(state.previewGame);
+  const best = previewBest(rows);
+  const corr = previewCorrelates(rows);
+  const inj = previewInjuries(sample);
+  const news = previewNews(sample);
+  const homeAbbr = abbr(sample.home_team);
+  const loc = STADIUMS[homeAbbr] || (sample.broadcasts ? String(sample.broadcasts) : `${sample.home_team || "Home"} stadium`);
+  const lineBits = [
+    sample.spread != null ? `<div class="preview-chip"><b>Spread</b>${escapeHtml(scriptLine(sample).split(" · ")[0] || String(sample.spread))}</div>` : "",
+    sample.total != null ? `<div class="preview-chip"><b>Total</b>O/U ${Number(sample.total)}</div>` : "",
+    sample.spread_proj != null ? `<div class="preview-chip"><b>Spread proj</b>${sample.spread_proj}</div>` : "",
+    sample.total_proj != null ? `<div class="preview-chip"><b>Total proj</b>${sample.total_proj}</div>` : "",
+  ].join("");
+  main.innerHTML = `
+    <div class="preview-hero">
+      <div class="sport-tag">${escapeHtml(sample.sport || "")}</div>
+      <h2>${escapeHtml(matchup(sample) || state.previewGame)}</h2>
+      <div class="game">${escapeHtml(fmtWhen(sample.commence_time))}${sample.broadcasts ? ` · ${escapeHtml(sample.broadcasts)}` : ""}</div>
+      <div class="script">${escapeHtml(loc)}</div>
+      <div class="preview-lines">${lineBits || `<span class="muted">No consensus game line yet</span>`}</div>
+    </div>
+    <div class="preview-grid">
+      <div class="preview-card">
+        <h3>Best props</h3>
+        ${best.length ? best.map(({ r, edge }) => `<div class="preview-prop">
+          <button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)} ${escapeHtml(r.side)} ${r.line ?? ""} ${escapeHtml(r.stat)}</button>
+          <span class="${pctClass(r.pct_to_hit)}">${r.pct_to_hit?.toFixed(1)}%${edge == null ? "" : ` · ${edge > 0 ? "+" : ""}${edge.toFixed(1)}`}</span>
+        </div>`).join("") : `<div class="muted">No standard PP props with a hit rate yet.</div>`}
+      </div>
+      <div class="preview-card">
+        <h3>Correlated ideas</h3>
+        ${corr.length ? corr.map((p) => `<div class="preview-corr">
+          <div>
+            <button type="button" class="player-btn" data-player="${escapeHtml(p.a.player)}" data-eid="${escapeHtml(p.a.event_id || "")}" data-market="${escapeHtml(p.a.market || "")}" data-side="${escapeHtml(p.a.side)}">${escapeHtml(p.a.player)} ${escapeHtml(p.a.side)} ${p.a.line ?? ""} ${escapeHtml(p.a.stat)}</button>
+            <div class="corr-why">+ ${escapeHtml(p.b.player)} ${escapeHtml(p.b.side)} ${p.b.line ?? ""} ${escapeHtml(p.b.stat)}</div>
+            <div class="corr-why">${escapeHtml(p.why)}</div>
+          </div>
+        </div>`).join("") : `<div class="muted">Not enough overlapping stats to build stacks yet.</div>`}
+      </div>
+    </div>
+    <div class="preview-grid">
+      <div class="preview-card">
+        <h3>Injuries / availability</h3>
+        ${inj.length ? inj.map((r) => `<div class="preview-prop">
+          <span>${escapeHtml(r.name)} · ${escapeHtml(r.team || "")} ${escapeHtml(r.pos || "")}</span>
+          ${injPill({ status: r.report_status, injury: r.report_injury }) || "—"}
+        </div>`).join("") : `<div class="muted">${sample.sport === "NFL" || !sample.sport ? "No matching injury rows." : "Injury feed is NFL-only right now."}</div>`}
+      </div>
+      <div class="preview-card">
+        <h3>News</h3>
+        ${news.length ? news.map((n) => `<div class="preview-prop">
+          <div><a class="player-btn" href="${escapeHtml(n.url || "#")}" target="_blank" rel="noopener">${escapeHtml(n.headline || "")}</a>
+          <div class="corr-why">${escapeHtml(n.source || "")} · ${escapeHtml(n.published || "")}</div></div>
+        </div>`).join("") : `<div class="muted">No tagged headlines for this matchup.</div>`}
+      </div>
+    </div>`;
+  $("count").textContent = `${shown.length} games · ${rows.length} props`;
+  $("updated").textContent = `Updated ${fmtWhen(state.data?.updated)} · BE ${breakEven()}%`;
+}
+
 function renderIntelSections() {
   const intel = ["news", "injuries", "logs"].includes(state.section);
   const propsWrap = document.querySelector(".table-wrap:not(#gamesWrap):not(#newsWrap):not(#injWrap):not(#logsWrap)");
@@ -652,14 +1008,18 @@ function renderIntelSections() {
   const filt = document.querySelector(".filters");
   if (propsWrap) propsWrap.style.display = (state.section === "props") ? "block" : "none";
   if (books) books.style.display = state.section === "props" ? "flex" : "none";
+  const recipes = $("recipes");
+  if (recipes) recipes.style.display = (state.section === "props" || state.section === "stacks") ? "flex" : "none";
   if (filt) [...filt.querySelectorAll("select, label, input")].forEach((el) => {
     if (el.id === "sport" || el.id === "section" || el.id === "q") return;
-    el.style.display = intel || state.section === "games" ? "none" : "";
+    el.style.display = intel || state.section === "games" || state.section === "stacks" || state.section === "preview" ? "none" : "";
   });
   renderTicker();
   renderNews();
   renderInjuries();
   renderLogs();
+  renderStacks();
+  renderPreview();
   return intel;
 }
 
@@ -750,6 +1110,15 @@ if ($("section")) {
     render();
   });
 }
+$("recipes")?.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-recipe]");
+  if (btn) applyRecipe(btn.dataset.recipe);
+});
+$("stackShape")?.addEventListener("change", render);
+$("stacksBody")?.addEventListener("click", (e) => {
+  const btn = e.target.closest(".player-btn");
+  if (btn?.dataset.player) openPlayerPopup(btn.dataset.player, "", "", "");
+});
 ["game", "stat", "side", "tier", "picks", "q", "minPct"].forEach((id) => {
   $(id).addEventListener("input", render);
   $(id).addEventListener("change", render);
@@ -860,9 +1229,15 @@ function openPlayerPopup(player, eventId, market, side) {
 }
 
 document.addEventListener("click", (e) => {
-  const intelBtn = e.target.closest("#injBody .player-btn, #logsBody .player-btn");
+  const pick = e.target.closest("#previewList .preview-game");
+  if (pick?.dataset.game) {
+    state.previewGame = pick.dataset.game;
+    renderPreview();
+    return;
+  }
+  const intelBtn = e.target.closest("#injBody .player-btn, #logsBody .player-btn, #previewMain .player-btn");
   if (intelBtn?.dataset.player) {
-    openPlayerPopup(intelBtn.dataset.player, "", "", "");
+    openPlayerPopup(intelBtn.dataset.player, intelBtn.dataset.eid || "", intelBtn.dataset.market || "", intelBtn.dataset.side || "");
   }
 });
 
