@@ -764,7 +764,14 @@ function renderStacks() {
 
 function setTab(view) {
   document.querySelectorAll(".tab[data-view]").forEach((b) => b.classList.toggle("on", b.dataset.view === view));
+  document.querySelectorAll(".tab[data-section]").forEach((b) => b.classList.remove("on"));
   state.view = view;
+}
+
+function syncTabs() {
+  const previewOn = state.section === "preview";
+  document.querySelectorAll(".tab[data-view]").forEach((b) => b.classList.toggle("on", !previewOn && b.dataset.view === state.view));
+  document.querySelectorAll(".tab[data-section]").forEach((b) => b.classList.toggle("on", b.dataset.section === state.section));
 }
 
 function gameKeyOf(row) {
@@ -963,6 +970,7 @@ function renderIntelSections() {
 
 function render() {
   if (!state.data && !state.intel) return;
+  syncTabs();
   renderIntelSections();
   renderGames();
   if (state.section !== "props") return;
@@ -1011,9 +1019,18 @@ function render() {
 
 document.querySelectorAll(".tab[data-view]").forEach((btn) => {
   btn.addEventListener("click", () => {
-    document.querySelectorAll(".tab[data-view]").forEach((b) => b.classList.remove("on"));
-    btn.classList.add("on");
     state.view = btn.dataset.view;
+    if (state.section === "preview") {
+      state.section = "props";
+      if ($("section")) $("section").value = "props";
+    }
+    render();
+  });
+});
+document.querySelectorAll(".tab[data-section]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    state.section = btn.dataset.section;
+    if ($("section")) $("section").value = state.section;
     render();
   });
 });
