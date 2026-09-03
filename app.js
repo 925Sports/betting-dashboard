@@ -803,37 +803,60 @@ function previewBest(rows) {
     .slice(0, 12);
 }
 
-function previewCorrelates(rows) {
+function rowTeam(r) {
+  return r.nfl_team || intelPlayer(r.player)?.team || "";
+}
+
+function gameScript(sample) {
+  const sp = Number(sample.spread);
+  if (sample.spread == null || Number.isNaN(sp)) return null;
+  const homeFav = sp < 0;
+  return {
+    homeFav,
+    margin: Math.abs(sp),
+    fav: homeFav ? abbr(sample.home_team) : abbr(sample.away_team),
+    dog: homeFav ? abbr(sample.away_team) : abbr(sample.home_team),
+    favName: homeFav ? sample.home_team : sample.away_team,
+    dogName: homeFav ? sample.away_team : sample.home_team,
+  };
+}
+
+function rankedOvers(rows, team, stats) {
+  return rows
+    .filter((r) => r.side === "Over" && r.dfs?.prizepicks && (!stats || stats.has(r.stat)) && (!team || rowTeam(r) === team))
+    .sort((a, b) => (b.pct_to_hit || 0) - (a.pct_to_hit || 0));
+}
+
+function previewCorrelates(rows, sample) {
   const out = [];
-  const passO = rows.filter((r) => r.stat === "Pass Yds" && r.side === "Over");
-  const recO = rows.filter((r) => (r.stat === "Rec Yds" || r.stat === "Receptions") && r.side === "Over");
-  passO.forEach((a) => recO.forEach((b) => {
-    if (a.player !== b.player) out.push({ a, b, why: "QB volume + pass catcher" });
-  }));
-  const rushO = rows.filter((r) => r.stat === "Rush Yds" && r.side === "Over");
-  const totU = rows.filter((r) => /total|team total/i.test(r.stat || "") && r.side === "Under");
-  rushO.slice(0, 2).forEach((a) => {
-    const pair = recO.find((b) => b.player !== a.player) || totU[0];
-    if (pair) out.push({ a, b: pair, why: "Ground game / clock stack" });
-  });
-  const byPlayer = {};
-  rows.forEach((r) => {
-    if (!r.player) return;
-    (byPlayer[r.player] ||= []).push(r);
-  });
-  Object.values(byPlayer).forEach((list) => {
-    const rec = list.find((r) => r.stat === "Receptions" && r.side === "Over");
-    const yds = list.find((r) => r.stat === "Rec Yds" && r.side === "Over");
-    if (rec && yds) out.push({ a: rec, b: yds, why: "Same-player receptions + yards" });
-    const pts = list.find((r) => r.stat === "Points" && r.side === "Over");
-    const pra = list.find((r) => /Pts\+Rebs\+Asts|Fantasy Score/.test(r.stat || "") && r.side === "Over");
-    if (pts && pra) out.push({ a: pts, b: pra, why: "Counting stat + combo" });
-    const hits = list.find((r) => r.stat === "Hits" && r.side === "Over");
-    const hrr = list.find((r) => /Hits\+Runs\+RBIs/.test(r.stat || "") && r.side === "Over");
-    if (hits && hrr) out.push({ a: hits, b: hrr, why: "Hits feed the combo" });
-  });
+  const script = gameScript(sample);
+  if (script && script.margin >= 3) {
+    const favRush = rankedOvers(rows, script.fav, RUSH_STATS);
+    const dogPass = rankedOvers(rows, script.dog, PASS_STATS);
+    const dogCatch = rankedOvers(rows, script.dog, CATCH_STATS);
+    const whyBase = `${script.favName} are ${script.margin}-point favorites. If they stay in front they should lean on the run and chew clock. ${script.dogName} are more likely to play from behind and throw.`;
+    if (favRush[0] && (dogCatch[0] || dogPass[0])) {
+      const b = dogCatch[0] || dogPass[0];
+      out.push({ a: favRush[0], b, why: `${whyBase} Pair ${favRush[0].player} rush volume with ${b.player} ${b.stat}.` });
+    }
+    if (favRush[1] && dogPass[0] && dogPass[0].player !== (out[0]?.b?.player)) {
+      out.push({ a: favRush[1], b: dogPass[0], why: `Same script: extra ${script.fav} carries plus ${script.dog} dropbacks.` });
+    }
+    if (dogPass[0] && dogCatch[0] && dogPass[0].player !== dogCatch[0].player) {
+      out.push({ a: dogPass[0], b: dogCatch[0], why: `${script.dogName} trailing-script stack: QB yards with a pass catcher.` });
+    }
+  }
+  const top = previewBest(rows).map((x) => x.r);
+  if (top[0] && top[1] && top[0].player !== top[1].player) {
+    out.push({
+      a: top[0],
+      b: top[1],
+      why: `Two highest-edge standard props on this slate. Confirm they do not fight the same game script before combining.`,
+    });
+  }
   const seen = new Set();
   return out.filter((p) => {
+    if (!p.a || !p.b) return false;
     const k = `${p.a.player}|${p.a.stat}|${p.b.player}|${p.b.stat}`;
     if (seen.has(k)) return false;
     seen.add(k);
@@ -844,10 +867,17 @@ function previewCorrelates(rows) {
 function previewInjuries(sample) {
   const teams = [abbr(sample.away_team), abbr(sample.home_team), sample.nfl_team].filter(Boolean);
   const names = new Set(rowsForGame(gameKeyOf(sample)).map((r) => normName(r.player)));
+  const rank = (s) => {
+    const t = String(s || "").toLowerCase();
+    if (t.includes("out") || t === "ir") return 0;
+    if (t.includes("doubt")) return 1;
+    if (t.includes("question")) return 2;
+    return 3;
+  };
   return (state.intel?.injuries || []).filter((inj) => {
     if (teams.includes(inj.team)) return true;
     return names.has(normName(inj.name));
-  }).slice(0, 16);
+  }).sort((a, b) => rank(a.report_status) - rank(b.report_status) || String(a.name).localeCompare(String(b.name))).slice(0, 20);
 }
 
 function previewNews(sample) {
@@ -890,7 +920,7 @@ function renderPreview() {
   }
   const rows = rowsForGame(state.previewGame);
   const best = previewBest(rows);
-  const corr = previewCorrelates(rows);
+  const corr = previewCorrelates(rows, sample);
   const inj = previewInjuries(sample);
   const news = previewNews(sample);
   const homeAbbr = abbr(sample.home_team);
@@ -913,7 +943,7 @@ function renderPreview() {
       <div class="preview-card">
         <h3>Best props</h3>
         ${best.length ? best.map(({ r, edge }) => `<div class="preview-prop">
-          <button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)} ${escapeHtml(r.side)} ${r.line ?? ""} ${escapeHtml(r.stat)}</button>
+          <div class="player-row">${headshotTag(r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)} ${escapeHtml(r.side)} ${r.line ?? ""} ${escapeHtml(r.stat)}</button></div>
           <span class="${pctClass(r.pct_to_hit)}">${r.pct_to_hit?.toFixed(1)}%${edge == null ? "" : ` · ${edge > 0 ? "+" : ""}${edge.toFixed(1)}`}</span>
         </div>`).join("") : `<div class="muted">No standard PP props with a hit rate yet.</div>`}
       </div>
@@ -931,9 +961,16 @@ function renderPreview() {
     <div class="preview-grid">
       <div class="preview-card">
         <h3>Injuries / availability</h3>
-        ${inj.length ? inj.map((r) => `<div class="preview-prop">
-          <span>${escapeHtml(r.name)} · ${escapeHtml(r.team || "")} ${escapeHtml(r.pos || "")}</span>
-          ${injPill({ status: r.report_status, injury: r.report_injury }) || "—"}
+        ${inj.length ? inj.map((r) => `<div class="preview-inj">
+          <div class="player-row">${headshotTag(r.headshot)}
+            <div>
+              <button type="button" class="player-btn" data-player="${escapeHtml(r.name)}">${escapeHtml(r.name || "")}</button>
+              <div class="corr-why">${escapeHtml(r.team || "")} · ${escapeHtml(r.pos || "")} · ${r.season || ""}w${r.week || ""}</div>
+            </div>
+          </div>
+          <div>${injPill({ status: r.report_status, injury: r.report_injury }) || "—"}</div>
+          <div class="corr-why">${escapeHtml(r.report_injury || r.practice_injury || "No injury detail")}</div>
+          <div class="corr-why">Practice: ${escapeHtml(r.practice_status || "—")}${r.practice_injury ? ` · ${escapeHtml(r.practice_injury)}` : ""}</div>
         </div>`).join("") : `<div class="muted">${sample.sport === "NFL" || !sample.sport ? "No matching injury rows." : "Injury feed is NFL-only right now."}</div>`}
       </div>
       <div class="preview-card">
@@ -1081,6 +1118,66 @@ function closePopup() {
   if (el) el.hidden = true;
 }
 
+function lastVsOppNote(games, focus) {
+  const opp = upcomingOpp(focus);
+  if (!opp || !games.length) return "";
+  const hits = [...games].reverse().filter((g) => String(g.opp || "").toUpperCase() === String(opp).toUpperCase());
+  if (!hits.length) return "";
+  const g = hits[0];
+  const v = logValue(g, focus.stat);
+  if (v == null || focus.line == null) return `Last vs ${opp}: ${g.season} w${g.week}.`;
+  const over = String(focus.side || "Over").toLowerCase() !== "under";
+  const cash = over ? v > Number(focus.line) : v < Number(focus.line);
+  const push = v === Number(focus.line);
+  return `Last vs ${opp} (${g.season} w${g.week}): ${v} ${focus.stat}. That ${push ? "pushed" : cash ? "cashed" : "missed"} this ${focus.side} ${focus.line} number.`;
+}
+
+function bestOppositePrice(row) {
+  if (!row) return null;
+  let best = null;
+  const scan = { ...(row.books || {}), ...(row.dfs || {}) };
+  Object.entries(scan).forEach(([k, v]) => {
+    if (v?.price == null) return;
+    if (!best || Number(v.price) > Number(best.price)) best = { book: k, price: v.price, line: v.line };
+  });
+  return best;
+}
+
+function betSummary(focus, recs, oppRow) {
+  const bits = [];
+  const be = breakEven();
+  const edge = rowEdge(focus);
+  bits.push(`The bet is ${focus.player} ${focus.side || ""} ${focus.line ?? ""} ${focus.stat} in ${matchup(focus) || "this game"}.`);
+  if (focus.pct_to_hit != null) {
+    bits.push(`The model has it at ${focus.pct_to_hit.toFixed(1)}% to hit versus a ${be}% break-even on a ${pickSize()}-pick${edge == null ? "" : ` (${edge > 0 ? "+" : ""}${edge} edge)`}.`);
+  }
+  const splits = splitStats(recs, focus.stat, focus.line, focus.side);
+  if (splits?.L5?.n) {
+    bits.push(`Log sample: ${splits.L5.hits} of his last ${splits.L5.n} graded games cleared this ${String(focus.side || "side").toLowerCase()} (${splits.L5.hit ?? "—"}% hit rate${splits.L5.pushes ? `, ${splits.L5.pushes} push` : ""}). L5 average is ${splits.L5.avg}.`);
+  }
+  if (splits?.L10?.n >= 8 && splits.L10.hit != null) {
+    bits.push(`Over his last ${splits.L10.n} games the same-side hit rate is ${splits.L10.hit}%.`);
+  }
+  const vs = lastVsOppNote(recs, focus);
+  if (vs) bits.push(vs);
+  if (focus.injury?.status) {
+    bits.push(`Availability note: ${focus.injury.status}${focus.injury.injury ? ` (${focus.injury.injury})` : ""}.`);
+  }
+  if (edge != null && edge >= 0) {
+    bits.push(`It screens as a good card piece because the hit rate clears the ${pickSize()}-pick number after push handling.`);
+  } else if (edge != null) {
+    const fade = bestOppositePrice(oppRow);
+    const meta = fade ? BOOK_BY_KEY[fade.book] : null;
+    bits.push(`This does not clear break-even, so it is not a good ${pickSize()}-pick on this side.`);
+    if (fade && oppRow) {
+      bits.push(`If you disagree and want the other side, the best posted ${oppRow.side} ${fade.line ?? oppRow.line} is ${meta?.name || fade.book} at ${american(fade.price)}.`);
+    } else if (oppRow) {
+      bits.push(`The fade is ${oppRow.side} ${oppRow.line ?? ""}.`);
+    }
+  }
+  return bits.join(" ");
+}
+
 function openPlayerPopup(player, eventId, market, side) {
   const all = state.data?.props || [];
   const mine = all.filter((r) => r.player === player);
@@ -1099,8 +1196,12 @@ function openPlayerPopup(player, eventId, market, side) {
     };
   }
   const edge = rowEdge(focus);
-  const books = Object.entries(focus.books || {}).sort((a, b) => (a[0] > b[0] ? 1 : -1));
+  const oppSide = focus.side === "Over" ? "Under" : focus.side === "Under" ? "Over" : focus.side === "Yes" ? "No" : focus.side === "No" ? "Yes" : "";
+  const oppRow = oppSide ? (mine.find((r) => r.stat === focus.stat && r.game === focus.game && r.side === oppSide)
+    || mine.find((r) => r.stat === focus.stat && r.side === oppSide)) : null;
+  const bookKeys = unique([...Object.keys(focus.books || {}), ...Object.keys(oppRow?.books || {})]).sort();
   const dfs = Object.entries(focus.dfs || {});
+  const oppDfs = Object.entries(oppRow?.dfs || {});
   const others = mine
     .filter((r) => !(r.event_id === focus.event_id && r.market === focus.market && r.side === focus.side))
     .sort((a, b) => String(a.stat).localeCompare(String(b.stat)));
@@ -1138,24 +1239,43 @@ function openPlayerPopup(player, eventId, market, side) {
       <div class="popup-stat"><b>% to hit</b>${focus.pct_to_hit != null ? focus.pct_to_hit.toFixed(1) + "%" : "—"}</div>
       <div class="popup-stat"><b>Edge</b>${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</div>
     </div>
+    <div class="popup-stat" style="margin-bottom:12px"><b>Bet write-up</b>${escapeHtml(betSummary(focus, recs, oppRow))}</div>
     ${focus.injury ? `<div class="popup-stat" style="margin-bottom:12px"><b>Injury</b>${injPill(focus.injury)} ${escapeHtml(focus.injury.injury || "")} · ${focus.injury.season || ""}w${focus.injury.week || ""}</div>` : ""}
     ${logBlock}
     ${renderSplitChart(focus, recs)}
     ${newsBlock}
     <div class="popup-stat" style="margin-bottom:12px">
       <b>DFS lines</b>
+      <div class="game">${escapeHtml(focus.side || "")} ${focus.line ?? ""}${oppRow ? ` · opposite ${escapeHtml(oppRow.side)} ${oppRow.line ?? ""}` : ""}</div>
       ${dfs.length ? dfs.map(([k, v]) => {
         const meta = BOOK_BY_KEY[k];
-        return `${meta ? bookMark(meta, "sm") : k} ${v.line ?? "—"} ${american(v.price)}`;
-      }).join("&nbsp;&nbsp;&nbsp;") : "—"}
+        const ov = oppRow?.dfs?.[k];
+        return `${meta ? bookMark(meta, "sm") : k} ${escapeHtml(focus.side || "")} ${v.line ?? "—"} ${american(v.price)}${ov ? ` · ${escapeHtml(oppSide)} ${ov.line ?? "—"} ${american(ov.price)}` : ""}`;
+      }).join("<br>") : "—"}
     </div>
     <table class="popup-table">
-      <thead><tr><th>Book</th><th>Line</th><th>Price</th><th>Same line</th></tr></thead>
+      <thead><tr>
+        <th>Book</th>
+        <th>${escapeHtml(focus.side || "Line")}</th>
+        <th>Price</th>
+        <th>${escapeHtml(oppSide || "Opp")}</th>
+        <th>Opp price</th>
+        <th>Same line</th>
+      </tr></thead>
       <tbody>
-        ${books.map(([k, v]) => {
+        ${bookKeys.map((k) => {
           const meta = BOOK_BY_KEY[k];
-          return `<tr><td>${meta ? bookMark(meta, "sm") + " " + escapeHtml(meta.name) : escapeHtml(k)}</td><td>${v.line ?? "—"}</td><td>${american(v.price)}</td><td>${v.same_line ? "Yes" : "No"}</td></tr>`;
-        }).join("") || `<tr><td colspan="4" class="muted">No sportsbook prices</td></tr>`}
+          const v = focus.books?.[k] || {};
+          const o = oppRow?.books?.[k] || {};
+          return `<tr>
+            <td>${meta ? bookMark(meta, "sm") + " " + escapeHtml(meta.name) : escapeHtml(k)}</td>
+            <td>${v.line ?? "—"}</td>
+            <td>${american(v.price)}</td>
+            <td>${o.line ?? "—"}</td>
+            <td>${american(o.price)}</td>
+            <td>${v.same_line ? "Yes" : "No"}</td>
+          </tr>`;
+        }).join("") || `<tr><td colspan="6" class="muted">No sportsbook prices</td></tr>`}
       </tbody>
     </table>
     <div style="margin:12px 0 8px;display:flex;gap:8px;flex-wrap:wrap">
