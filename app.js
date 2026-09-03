@@ -63,16 +63,6 @@ const STADIUMS = {
   TEN: "Nissan Stadium · Nashville, TN", WAS: "Northwest Stadium · Landover, MD",
 };
 
-const CASH_STATS = new Set([
-  "Pass Yds", "Rush Yds", "Receptions", "Rec Yds", "Rush+Rec Yds", "Pass+Rush Yds",
-  "Points", "Rebounds", "Pts+Rebs+Asts", "Pts+Rebs", "Pts+Asts", "Assists",
-  "Hits", "Hits+Runs+RBIs", "Strikeouts", "Shots", "Shots On Target",
-]);
-const GPP_STATS = new Set([
-  "Pass Yds", "Pass TDs", "Anytime TD", "Fantasy Score", "Rec Yds", "Receptions",
-  "Rush Yds", "Rush+Rec Yds", "Pass+Rush Yds", "Anytime Goal", "Goals",
-  "Pts+Rebs+Asts", "3-PT Made",
-]);
 const PASS_STATS = new Set(["Pass Yds", "Pass TDs", "Pass+Rush Yds", "Pass Att", "Completions", "Fantasy Score"]);
 const CATCH_STATS = new Set(["Rec Yds", "Receptions", "Rush+Rec Yds", "Targets"]);
 const RUSH_STATS = new Set(["Rush Yds", "Rush Att", "Anytime TD", "Rush+Rec Yds"]);
@@ -96,7 +86,6 @@ const state = {
   view: "pp", sport: "all", section: "props",
   booksOn: new Set(DEFAULT_ON),
   slip: [],
-  recipe: "",
   previewGame: "",
 };
 
@@ -354,8 +343,6 @@ function applyFilters(rows) {
       if (tier === "alternate" && r.pp_tier !== "Alternate" && !r.is_alternate) return false;
     }
     if (hasStarted(r.commence_time)) return false;
-    if (state.recipe === "cash" && r.stat && !CASH_STATS.has(r.stat)) return false;
-    if (state.recipe === "gpp" && r.stat && !GPP_STATS.has(r.stat)) return false;
     if (game && r.game !== game) return false;
     if (stat && r.stat !== stat) return false;
     if (side === "ou" && r.side !== "Over" && r.side !== "Under") return false;
@@ -780,53 +767,6 @@ function setTab(view) {
   state.view = view;
 }
 
-function applyRecipe(name) {
-  state.recipe = name === "reset" ? "" : name;
-  document.querySelectorAll(".recipe").forEach((b) => b.classList.toggle("on", b.dataset.recipe === state.recipe && state.recipe));
-  if (name === "cash") {
-    setTab("pp");
-    $("section").value = "props"; state.section = "props";
-    $("tier").value = "standard";
-    $("side").value = "ou";
-    $("minPct").value = "56";
-    $("picks").value = "5";
-    state.sortKey = "pct_to_hit"; state.sortDir = "desc";
-  } else if (name === "gpp") {
-    setTab("pp");
-    $("section").value = "props"; state.section = "props";
-    $("tier").value = "all";
-    $("side").value = "Over";
-    $("minPct").value = "50";
-    $("picks").value = "5";
-    state.sortKey = "ev"; state.sortDir = "desc";
-  } else if (name === "milly") {
-    $("sport").value = "nfl"; state.sport = "nfl";
-    $("section").value = "stacks"; state.section = "stacks";
-    if ($("stackShape")) $("stackShape").value = "game";
-    loadData();
-    return;
-  } else if (name === "goblin") {
-    setTab("pp");
-    $("section").value = "props"; state.section = "props";
-    $("tier").value = "goblin";
-    $("side").value = "ou";
-    $("minPct").value = "54";
-  } else if (name === "ev") {
-    setTab("ev");
-    $("section").value = "props"; state.section = "props";
-    $("tier").value = "standard";
-    $("minPct").value = String(breakEven());
-  } else {
-    setTab("pp");
-    $("section").value = "props"; state.section = "props";
-    $("tier").value = "standard";
-    $("side").value = "ou";
-    $("minPct").value = "50";
-    $("stat").value = "";
-  }
-  render();
-}
-
 function gameKeyOf(row) {
   return row.game || `${row.away_team || ""} @ ${row.home_team || ""}`.trim();
 }
@@ -1008,8 +948,6 @@ function renderIntelSections() {
   const filt = document.querySelector(".filters");
   if (propsWrap) propsWrap.style.display = (state.section === "props") ? "block" : "none";
   if (books) books.style.display = state.section === "props" ? "flex" : "none";
-  const recipes = $("recipes");
-  if (recipes) recipes.style.display = (state.section === "props" || state.section === "stacks") ? "flex" : "none";
   if (filt) [...filt.querySelectorAll("select, label, input")].forEach((el) => {
     if (el.id === "sport" || el.id === "section" || el.id === "q") return;
     el.style.display = intel || state.section === "games" || state.section === "stacks" || state.section === "preview" ? "none" : "";
@@ -1110,10 +1048,6 @@ if ($("section")) {
     render();
   });
 }
-$("recipes")?.addEventListener("click", (e) => {
-  const btn = e.target.closest("[data-recipe]");
-  if (btn) applyRecipe(btn.dataset.recipe);
-});
 $("stackShape")?.addEventListener("change", render);
 $("stacksBody")?.addEventListener("click", (e) => {
   const btn = e.target.closest(".player-btn");
