@@ -406,17 +406,6 @@ th[data-key="line"], td.line-cell, td.line-stack {
   font-size: 10px; font-style: normal; font-weight: 700;
   color: #e8eef8;
 }
-.recipes {
-  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
-  background: var(--panel); border: 1px solid var(--line);
-  border-radius: 14px; padding: 10px; margin-bottom: 10px;
-}
-.recipe {
-  background: var(--chip); color: var(--muted);
-  border: 1px solid var(--line); border-radius: 999px;
-  padding: 7px 12px; font-size: 12px; cursor: pointer;
-}
-.recipe.on { color: #fff; border-color: #3d6fd6; background: #173056; }
 .stack-intro {
   display: flex; justify-content: space-between; gap: 12px; align-items: center;
   margin-bottom: 12px; flex-wrap: wrap;
