@@ -33,6 +33,17 @@ html, body {
   background: linear-gradient(180deg, #3d7bff, #1f4fd0);
   font-weight: 800; font-size: 12px; letter-spacing: 0.04em;
 }
+.logo-img {
+  width: 46px; height: 46px; border-radius: 50%;
+  object-fit: cover; object-position: center 40%;
+  background: #e2e3e5; border: 1px solid #2a3b55;
+}
+.loader-logo {
+  width: 112px; height: 112px; border-radius: 50%;
+  object-fit: cover; object-position: center 40%;
+  margin-bottom: 8px; border: 1px solid #2a3b55;
+  background: #e2e3e5;
+}
 .brand-title { font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; font-size: 14px; }
 .brand-sub { color: var(--muted); font-size: 11px; }
 .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -395,3 +406,66 @@ th[data-key="line"], td.line-cell, td.line-stack {
   font-size: 10px; font-style: normal; font-weight: 700;
   color: #e8eef8;
 }
+.recipes {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 14px; padding: 10px; margin-bottom: 10px;
+}
+.recipe {
+  background: var(--chip); color: var(--muted);
+  border: 1px solid var(--line); border-radius: 999px;
+  padding: 7px 12px; font-size: 12px; cursor: pointer;
+}
+.recipe.on { color: #fff; border-color: #3d6fd6; background: #173056; }
+.stack-intro {
+  display: flex; justify-content: space-between; gap: 12px; align-items: center;
+  margin-bottom: 12px; flex-wrap: wrap;
+}
+.stack-card {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 14px; padding: 14px; margin-bottom: 10px;
+}
+.stack-top { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.stack-game { font-weight: 700; }
+.stack-meta { color: var(--muted); font-size: 12px; }
+.stack-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.stack-col h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #9ec0ff; }
+.stack-pick {
+  display: flex; justify-content: space-between; gap: 8px;
+  padding: 6px 0; border-bottom: 1px solid #182236; font-size: 12px;
+}
+.stack-pick button { background: none; border: 0; color: inherit; font: inherit; font-weight: 650; cursor: pointer; text-align: left; }
+.stack-score { color: var(--green); font-weight: 700; }
+
+.preview-layout { display: grid; grid-template-columns: 280px 1fr; gap: 14px; align-items: start; }
+@media (max-width: 900px) { .preview-layout { grid-template-columns: 1fr; } }
+.preview-list {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  max-height: 72vh; overflow: auto; padding: 8px;
+}
+.preview-game {
+  width: 100%; text-align: left; background: transparent; color: inherit;
+  border: 0; border-radius: 10px; padding: 10px 10px; cursor: pointer;
+}
+.preview-game:hover, .preview-game.on { background: #142036; }
+.preview-game b { display: block; font-size: 13px; }
+.preview-game span { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+.preview-main { display: grid; gap: 12px; }
+.preview-hero, .preview-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px;
+}
+.preview-hero h2 { margin: 4px 0 6px; font-size: 22px; }
+.preview-lines { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
+.preview-chip {
+  background: #101827; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-width: 90px;
+}
+.preview-chip b { display: block; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.preview-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 900px) { .preview-grid { grid-template-columns: 1fr; } }
+.preview-card h3 { margin: 0 0 8px; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: #9ec0ff; }
+.preview-prop, .preview-corr {
+  display: flex; justify-content: space-between; gap: 10px; align-items: center;
+  padding: 7px 0; border-bottom: 1px solid #182236; font-size: 13px;
+}
+.preview-prop button, .preview-corr button { background: none; border: 0; color: inherit; font: inherit; font-weight: 650; cursor: pointer; text-align: left; }
+.corr-why { color: var(--muted); font-size: 11px; }
