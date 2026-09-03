@@ -475,3 +475,17 @@ th[data-key="line"], td.line-cell, td.line-stack {
   background: var(--green-bg);
   border-radius: 6px;
 }
+.sum-card p { margin: 6px 0 0; line-height: 1.45; color: #d5deeb; font-size: 13px; }
+.sum-card p b { color: #cfe0ff; }
+.sum-kicker {
+  display: inline-block;
+  margin: 6px 0 2px;
+  background: #173056;
+  color: #cfe0ff;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
