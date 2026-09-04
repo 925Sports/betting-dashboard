@@ -1,7 +1,7 @@
 {
-  "updated": "2026-09-04T02:28:43Z",
+  "updated": "2026-09-04T02:36:35Z",
   "source": "google_sheet_csv+kalshi",
-  "row_count": 3624,
+  "row_count": 3021,
   "cfb_rows": 3488,
   "mlb_rows": 3580,
   "soccer_rows": 25288,
@@ -9,8 +9,8 @@
   "cbb_rows": 0,
   "nba_rows": 72,
   "nhl_rows": 0,
-  "sheet_rows": 19194,
-  "raw_count": 19194,
+  "sheet_rows": 19185,
+  "raw_count": 19185,
   "game_count": 272,
   "books_seen": [
     "ballybet",
