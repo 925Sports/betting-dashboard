@@ -489,7 +489,7 @@ def attach_pp(row, p):
         row["pp_tier"] = p["pp_tier"]
     row.setdefault("dfs", {})["prizepicks"] = {
         "line": p.get("line") if p.get("line") is not None else row.get("line"),
-        "price": (row.get("dfs") or {}).get("prizepicks", {}).get("price") or -137,
+        "price": -117,
         "multiplier": None,
         "id": p.get("pp_id") or "",
     }
@@ -584,7 +584,7 @@ def enrich_props(rows, pp_rows, ud_rows):
             "ev": None, "pp_tier": p.get("pp_tier"),
             "book_line": p.get("avg_line"), "best": None,
             "spread": p.get("spread"), "total": p.get("total"),
-            "dfs": {"prizepicks": {"line": p.get("line"), "price": -137, "multiplier": None, "id": p.get("pp_id") or ""}},
+            "dfs": {"prizepicks": {"line": p.get("line"), "price": -117, "multiplier": None, "id": p.get("pp_id") or ""}},
             "books": {}, "headshot": p.get("headshot"), "projection": p.get("projection"),
             "pp_sheet_edge": p.get("pp_edge"), "true_point": p.get("true_point"),
             "proj_vs_line": p.get("proj_vs_line"),
