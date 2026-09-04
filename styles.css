@@ -489,3 +489,37 @@ th[data-key="line"], td.line-cell, td.line-stack {
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
+.gm-board {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  overflow-x: auto;
+}
+.gm-col {
+  flex: 1 1 0;
+  min-width: 240px;
+}
+.gm-pair {
+  display: flex;
+  gap: 8px;
+}
+.gm-lab {
+  margin-bottom: 6px;
+  font-size: 11px; font-weight: 800; letter-spacing: 0.06em;
+  text-transform: uppercase; color: #9ec0ff;
+}
+.gm-side {
+  flex: 1 1 0;
+  min-width: 0;
+  background: #0b1220;
+  border: 1px solid #1c2a3f;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.gm-side.hot {
+  border-color: rgba(25,195,125,.45);
+  background: var(--green-bg);
+}
+.gm-line { font-weight: 800; font-size: 15px; }
+.gm-book { margin-top: 4px; color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.gm-book b { color: var(--text); }
