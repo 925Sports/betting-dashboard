@@ -26,6 +26,14 @@ const BOOKS = [
   { key: "betonlineag", label: "BOL", name: "BetOnline", color: "#3D7BFF", dfs: false, on: false, logo: "https://mma.prnewswire.com/media/2323695/betonline_logo.jpg?p=facebook" },
   { key: "prophetx", label: "PX", name: "ProphetX", color: "#4CC9F0", dfs: false, on: true, exchange: true, logo: "https://play-lh.googleusercontent.com/zeTZent4Try2Ck1Rl93lOPtLpO6y5jAZ6IZTid-x4eDA-k_sGX6PQAO8XoHL5cETPVnUxddoR_kHASzg6riBxQ" },
   { key: "betmgm", label: "MGM", name: "BetMGM", color: "#C4A35A", dfs: false, on: false, logo: "https://play-lh.googleusercontent.com/8GjU4o5tBpLJ5AT_4eqEiwTz9dy_nVFsLsmlPpsMjMIOCrskJSNLzZkpsgHQp1c1cNhRqfsZns1BPK9Qywh8eXY" },
+  { key: "bovada", label: "BOV", name: "Bovada", color: "#E10600", dfs: false, on: true, logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRKaEtH4vUZ5xn5VsCjTI83Mtg-2HRmiyRiDPrp6qCfzQ&s" },
+  { key: "fliff", label: "FLF", name: "Fliff", color: "#2BB8C8", dfs: false, on: false, logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRm10PVwjP3RMEzbVw2-Jjulm10qZEKA8R5MpZZWYnwrg&s=10" },
+  { key: "hardrockbet", label: "HRB", name: "Hard Rock Bet", color: "#7B4BFF", dfs: false, on: true, logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcS1_S4jfOi856zdvQpLs4_tikOvNEH8skoe7DHw5djbqg&s=10" },
+  { key: "ladbrokes", label: "LAD", name: "Ladbrokes", color: "#E10600", dfs: false, on: false, logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQgkaiy5fl7ApBmt52nq9bGUqJj3kAvH7HwBWaSndj1KA&s=10" },
+  { key: "pinnacle", label: "PIN", name: "Pinnacle", color: "#F26A21", dfs: false, on: true, logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRt9kxbJqjWvs-TSUYr-fKUvsn4x5q-uuuQzADsBRIijQ&s=10" },
+  { key: "pointsbet", label: "PB", name: "PointsBet", color: "#E1062A", dfs: false, on: false, logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRhU5K6C-Bvro0jHJm4wDxyHL7-0kkKfpnKxraxVCoXjg&s=10" },
+  { key: "rebet", label: "REB", name: "ReBet", color: "#FF6A00", dfs: false, on: false, logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRyaJLsiu_ZP8O7szIrosaofgPNwxAWnUX--JNk9EkKIw&s" },
+  { key: "sportsbet", label: "SB", name: "Sportsbet", color: "#1A73E8", dfs: false, on: false, logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRC5PiimMuDZXrn-cs1LiQZetRIa5apk47uXL8nzXyABw&s=10" },
 ];
 
 const PP_BE = { 2: 57.74, 3: 58.48, 4: 56.23, 5: 54.93, 6: 54.09 };
@@ -166,8 +174,30 @@ function isFantasyStat(stat) {
   return /fantasy/i.test(String(stat || ""));
 }
 
+const BOOK_ALIAS = {
+  hardrockbet_fl: "hardrockbet",
+  hardrock_fl: "hardrockbet",
+  williamhill: "williamhill_us",
+  caesars: "williamhill_us",
+  ladbrokes_uk: "ladbrokes",
+  ladbrokes_au: "ladbrokes",
+  pointsbetus: "pointsbet",
+  pointsbetau: "pointsbet",
+  sportsbetio: "sportsbet",
+};
+function canonBook(k) { return BOOK_ALIAS[String(k || "")] || k; }
+
+function mergeBooks(map) {
+  const out = {};
+  Object.entries(map || {}).forEach(([k, v]) => {
+    const c = canonBook(k);
+    if (!out[c] || (v?.price != null && out[c].price == null)) out[c] = v;
+  });
+  return out;
+}
+
 function sportsbookCount(row) {
-  return Object.values(row.books || {}).filter((b) => b && b.price != null).length;
+  return Object.values(mergeBooks(row.books)).filter((b) => b && b.price != null).length;
 }
 
 function abbr(team) { return TEAM_ABBR[team] || team || ""; }
@@ -359,8 +389,14 @@ function bookMark(book, size) {
 
 function bookOffer(row, key) {
   const meta = BOOK_BY_KEY[key];
-  if (meta?.dfs) return row.dfs?.[key] || null;
-  return row.books?.[key] || null;
+  if (meta?.dfs) {
+    const src = row.dfs?.[key] || null;
+    if (!src) return null;
+    if (key === "prizepicks") return { ...src, price: -117 };
+    return src;
+  }
+  const books = mergeBooks(row.books);
+  return books[key] || row.books?.[key] || null;
 }
 
 function applyFilters(rows) {
@@ -1373,6 +1409,8 @@ function openPlayerPopup(player, eventId, market, side) {
   const oppSide = focus.side === "Over" ? "Under" : focus.side === "Under" ? "Over" : focus.side === "Yes" ? "No" : focus.side === "No" ? "Yes" : "";
   const oppRow = oppSide ? (mine.find((r) => r.stat === focus.stat && r.game === focus.game && r.side === oppSide)
     || mine.find((r) => r.stat === focus.stat && r.side === oppSide)) : null;
+  focus = { ...focus, books: mergeBooks(focus.books) };
+  if (oppRow) oppRow = { ...oppRow, books: mergeBooks(oppRow.books) };
   const bookKeys = unique([...Object.keys(focus.books || {}), ...Object.keys(oppRow?.books || {})]).sort();
   const dfs = Object.entries(focus.dfs || {});
   const oppDfs = Object.entries(oppRow?.dfs || {});
@@ -1424,7 +1462,9 @@ function openPlayerPopup(player, eventId, market, side) {
       ${dfs.length ? dfs.map(([k, v]) => {
         const meta = BOOK_BY_KEY[k];
         const ov = oppRow?.dfs?.[k];
-        return `${meta ? bookMark(meta, "sm") : k} ${escapeHtml(focus.side || "")} ${v.line ?? "—"} ${american(v.price)}${ov ? ` · ${escapeHtml(oppSide)} ${ov.line ?? "—"} ${american(ov.price)}` : ""}`;
+        const px = k === "prizepicks" ? -117 : v.price;
+        const opx = k === "prizepicks" ? -117 : ov?.price;
+        return `${meta ? bookMark(meta, "sm") : k} ${escapeHtml(focus.side || "")} ${v.line ?? "—"} ${american(px)}${ov ? ` · ${escapeHtml(oppSide)} ${ov.line ?? "—"} ${american(opx)}` : ""}`;
       }).join("<br>") : "—"}
     </div>
     ${(() => {
