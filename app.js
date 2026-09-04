@@ -1053,7 +1053,7 @@ function previewGameMarkets(sample) {
   if (!rows.length) return "";
   return `<div class="preview-card">
     <h3>Game markets · best book</h3>
-    <div class="gm-grid">
+    <div class="gm-board">
       ${rows.map((r) => {
         let hotA = r.leanA === true;
         let hotB = r.leanA === false;
@@ -1061,14 +1061,16 @@ function previewGameMarkets(sample) {
           hotA = Number(r.oa.price) >= Number(r.ob.price);
           hotB = !hotA;
         }
-        return `<div class="gm-row">
+        return `<div class="gm-col">
           <div class="gm-lab">${escapeHtml(r.market)}</div>
-          ${marketSideCard(r.a, r.oa, hotA)}
-          ${marketSideCard(r.b, r.ob, hotB)}
+          <div class="gm-pair">
+            ${marketSideCard(r.a, r.oa, hotA)}
+            ${marketSideCard(r.b, r.ob, hotB)}
+          </div>
         </div>`;
       }).join("")}
     </div>
-    <div class="corr-why">${hasBooks ? "Left / right are the two sides. Green is the projection lean (or the better payout if there is no proj)." : "Run Update NFL Props so per-book game odds are written into the JSON."}</div>
+    <div class="corr-why">${hasBooks ? "Each market is a column. Left / right inside it are the two sides. Green = lean." : "Run Update NFL Props so per-book game odds are written into the JSON."}</div>
   </div>`;
 }
 
@@ -1115,11 +1117,15 @@ function renderPreview() {
   const corr = previewCorrelates(rows, sample);
   const inj = previewInjuries(sample);
   const news = previewNews(sample);
+  const listed = (state.data?.games || []).find((g) =>
+    gameKeyOf(g) === gameKeyOf(sample) || (g.home_team === sample.home_team && g.away_team === sample.away_team)
+  ) || sample;
   const homeAbbr = abbr(sample.home_team);
   const loc = STADIUMS[homeAbbr] || (sample.broadcasts ? String(sample.broadcasts) : `${sample.home_team || "Home"} stadium`);
   const lineBits = [
     sample.spread != null ? `<div class="preview-chip"><b>Spread</b>${escapeHtml(scriptLine(sample).split(" · ")[0] || String(sample.spread))}</div>` : "",
     sample.total != null ? `<div class="preview-chip"><b>Total</b>O/U ${Number(sample.total)}</div>` : "",
+    listed.ml_away != null || listed.ml_home != null ? `<div class="preview-chip"><b>Moneyline</b>${escapeHtml(abbr(sample.away_team))} ${american(listed.ml_away)} · ${escapeHtml(abbr(sample.home_team))} ${american(listed.ml_home)}</div>` : "",
     sample.spread_proj != null ? `<div class="preview-chip"><b>Spread proj</b>${sample.spread_proj}</div>` : "",
     sample.total_proj != null ? `<div class="preview-chip"><b>Total proj</b>${sample.total_proj}</div>` : "",
   ].join("");
