@@ -85,7 +85,15 @@
         <option value="5" selected>PP 5-Pick (BE 54.9%)</option>
         <option value="6">PP 6-Pick (BE 54.1%)</option>
       </select>
+      <select id="when">
+        <option value="">All dates</option>
+        <option value="today">Today</option>
+        <option value="tomorrow">Tomorrow</option>
+      </select>
       <label class="chk">Min % <input type="number" id="minPct" value="50" min="0" max="100" step="0.5" /></label>
+      <label class="chk" title="Ignore Fantasy Score. Requires two sportsbook prices.">
+        <input type="checkbox" id="minBooks" checked /> 2+ books
+      </label>
       <input type="search" id="q" placeholder="Search players…" />
       <div class="count" id="count"></div>
     </div>
