@@ -87,6 +87,7 @@ const state = {
   booksOn: new Set(DEFAULT_ON),
   slip: [],
   previewGame: "",
+  minBooks: true,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -125,6 +126,48 @@ function hasStarted(iso) {
   const t = new Date(iso).getTime();
   if (Number.isNaN(t)) return false;
   return t <= Date.now();
+}
+
+function ymdLocal(iso) {
+  const d = iso ? new Date(iso) : new Date();
+  if (Number.isNaN(d.getTime())) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function shiftYmd(offset) {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function dateLabel(ymd) {
+  if (!ymd) return "";
+  const d = new Date(`${ymd}T12:00:00`);
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+function matchesWhen(iso) {
+  const sel = $("when")?.value || "";
+  if (!sel) return true;
+  const day = ymdLocal(iso);
+  if (!day) return false;
+  if (sel === "today") return day === ymdLocal();
+  if (sel === "tomorrow") return day === shiftYmd(1);
+  return day === sel;
+}
+
+function isFantasyStat(stat) {
+  return /fantasy/i.test(String(stat || ""));
+}
+
+function sportsbookCount(row) {
+  return Object.values(row.books || {}).filter((b) => b && b.price != null).length;
 }
 
 function abbr(team) { return TEAM_ABBR[team] || team || ""; }
@@ -343,6 +386,8 @@ function applyFilters(rows) {
       if (tier === "alternate" && r.pp_tier !== "Alternate" && !r.is_alternate) return false;
     }
     if (hasStarted(r.commence_time)) return false;
+    if (!matchesWhen(r.commence_time)) return false;
+    if (state.minBooks && !isFantasyStat(r.stat) && sportsbookCount(r) < 2) return false;
     if (game && r.game !== game) return false;
     if (stat && r.stat !== stat) return false;
     if (side === "ou" && r.side !== "Over" && r.side !== "Under") return false;
@@ -383,6 +428,20 @@ function bookCell(row, key) {
   const same = src.line == null || shown == null || Number(src.line) === Number(shown);
   const note = same ? "" : `<div class="line-note">${src.line}</div>`;
   return `<td class="price">${american(src.price)}${note}</td>`;
+}
+
+function fillWhen(all) {
+  const sel = $("when");
+  if (!sel) return;
+  const current = sel.value;
+  const days = unique((all || []).map((r) => ymdLocal(r.commence_time)).filter(Boolean)).sort();
+  sel.innerHTML = [
+    ["", "All dates"],
+    ["today", "Today"],
+    ["tomorrow", "Tomorrow"],
+    ...days.map((d) => [d, dateLabel(d)]),
+  ].map(([v, lab]) => `<option value="${escapeHtml(v)}">${escapeHtml(lab)}</option>`).join("");
+  if ([...sel.options].some((o) => o.value === current)) sel.value = current;
 }
 
 function fillSelect(sel, values, allLabel) {
@@ -548,7 +607,7 @@ function renderGames() {
   const showGames = state.section === "games";
   wrap.style.display = showGames ? "block" : "none";
   if (!showGames) return;
-  const games = (state.data.games || []).filter((g) => !hasStarted(g.commence_time));
+  const games = (state.data.games || []).filter((g) => !hasStarted(g.commence_time) && matchesWhen(g.commence_time));
   const k = state.data.kalshi || {};
   const ranked = games.map((g) => {
     const edge = gameBestEdge(g, k);
@@ -783,6 +842,7 @@ function upcomingGames() {
   const map = new Map();
   all.forEach((r) => {
     if (hasStarted(r.commence_time)) return;
+    if (!matchesWhen(r.commence_time)) return;
     const key = gameKeyOf(r);
     if (!key || map.has(key)) return;
     map.set(key, r);
@@ -1091,6 +1151,10 @@ function renderIntelSections() {
   if (books) books.style.display = state.section === "props" ? "flex" : "none";
   if (filt) [...filt.querySelectorAll("select, label, input")].forEach((el) => {
     if (el.id === "sport" || el.id === "section" || el.id === "q") return;
+    if (el.id === "when") {
+      el.style.display = intel || state.section === "stacks" ? "none" : "";
+      return;
+    }
     el.style.display = intel || state.section === "games" || state.section === "stacks" || state.section === "preview" ? "none" : "";
   });
   renderTicker();
@@ -1107,9 +1171,10 @@ function render() {
   syncTabs();
   renderIntelSections();
   renderGames();
+  const all = state.data?.props || [];
+  fillWhen(all);
   if (state.section !== "props") return;
   if (!state.data) return;
-  const all = state.data.props || [];
   $("updated").textContent = `Updated ${fmtWhen(state.data.updated)} · BE ${breakEven()}%`;
   fillSelect($("game"), unique(all.map((r) => r.game)).sort(), "All games");
   const stats = unique(all.map((r) => r.stat));
@@ -1204,7 +1269,11 @@ $("stacksBody")?.addEventListener("click", (e) => {
   const btn = e.target.closest(".player-btn");
   if (btn?.dataset.player) openPlayerPopup(btn.dataset.player, "", "", "");
 });
-["game", "stat", "side", "tier", "picks", "q", "minPct"].forEach((id) => {
+$("minBooks")?.addEventListener("change", () => {
+  state.minBooks = !!$("minBooks").checked;
+  render();
+});
+["game", "stat", "side", "tier", "picks", "q", "minPct", "when"].forEach((id) => {
   $(id).addEventListener("input", render);
   $(id).addEventListener("change", render);
 });
