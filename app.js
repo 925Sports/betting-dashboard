@@ -34,6 +34,10 @@ const BOOKS = [
   { key: "pointsbet", label: "PB", name: "PointsBet", color: "#E1062A", dfs: false, on: false, logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRhU5K6C-Bvro0jHJm4wDxyHL7-0kkKfpnKxraxVCoXjg&s=10" },
   { key: "rebet", label: "REB", name: "ReBet", color: "#FF6A00", dfs: false, on: false, logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRyaJLsiu_ZP8O7szIrosaofgPNwxAWnUX--JNk9EkKIw&s" },
   { key: "sportsbet", label: "SB", name: "Sportsbet", color: "#1A73E8", dfs: false, on: false, logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRC5PiimMuDZXrn-cs1LiQZetRIa5apk47uXL8nzXyABw&s=10" },
+  { key: "lowvig", label: "LV", name: "LowVig", color: "#6AA8FF", dfs: false, on: false, logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQn_v2-jq2tK8KhaK22Y1nzy-eKS64xKPQxAdRLd02hgg&s=10" },
+  { key: "betus", label: "BUS", name: "BetUS", color: "#2E7D32", dfs: false, on: false, logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRxDsdHZiNvjwjr9siD-voOquXBP8n4Gn1PnKGA7Nij9w&s" },
+  { key: "fanatics", label: "FAN", name: "Fanatics", color: "#E1062A", dfs: false, on: false, logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSSux_F3VXmZFaIhASk929Dlir6zaoojrqsQnny1bU_w7kr428BXiCWnv0&s=10" },
+  { key: "mybookieag", label: "MB", name: "MyBookie", color: "#F5A623", dfs: false, on: false, logo: "https://play-lh.googleusercontent.com/4xoo_moz_ctNrvD9dwcZhUKBOxD6fJJlL1z6LBlRe1NvAS_Ga2ahPlJpY10nNVEtVZbvp7jpC6brEF6PCA6V" },
 ];
 
 const PP_BE = { 2: 57.74, 3: 58.48, 4: 56.23, 5: 54.93, 6: 54.09 };
@@ -184,6 +188,8 @@ const BOOK_ALIAS = {
   pointsbetus: "pointsbet",
   pointsbetau: "pointsbet",
   sportsbetio: "sportsbet",
+  lowvig_ag: "lowvig",
+  mybookie: "mybookieag",
 };
 function canonBook(k) { return BOOK_ALIAS[String(k || "")] || k; }
 
@@ -982,20 +988,21 @@ function bestGameBook(books, market, side) {
     const rec = pack?.[market];
     const price = rec?.[side];
     if (price == null) return;
-    if (!best || Number(price) > Number(best.price)) best = { book: k, price, line: rec.line };
+    const book = canonBook(k);
+    if (!best || Number(price) > Number(best.price)) best = { book, price, line: rec.line };
   });
   return best;
 }
 
-function marketSideCell(label, best, hot) {
+function marketSideCard(label, best, hot) {
   const meta = best ? BOOK_BY_KEY[best.book] : null;
   const book = best
-    ? `${meta ? `${bookMark(meta, "sm")} ` : ""}${escapeHtml(meta?.name || best.book)} ${american(best.price)}`
-    : `<span class="muted">no book</span>`;
-  return `<td class="line-stack ${hot ? "best-pay" : ""}">
-    <div class="line-num">${escapeHtml(label)}</div>
-    <div class="line-note">${book}</div>
-  </td>`;
+    ? `${meta ? `${bookMark(meta, "sm")} ` : ""}${escapeHtml(meta?.name || best.book)} <b>${american(best.price)}</b>`
+    : `<span class="muted">No price</span>`;
+  return `<div class="gm-side ${hot ? "hot" : ""}">
+    <div class="gm-line">${escapeHtml(label)}</div>
+    <div class="gm-book">${book}</div>
+  </div>`;
 }
 
 function previewGameMarkets(sample) {
@@ -1046,23 +1053,22 @@ function previewGameMarkets(sample) {
   if (!rows.length) return "";
   return `<div class="preview-card">
     <h3>Game markets · best book</h3>
-    <table class="popup-table">
-      <thead><tr><th>Market</th><th>Side 1</th><th>Side 2</th></tr></thead>
-      <tbody>${rows.map((r) => {
+    <div class="gm-grid">
+      ${rows.map((r) => {
         let hotA = r.leanA === true;
         let hotB = r.leanA === false;
         if (r.leanA == null && r.oa?.price != null && r.ob?.price != null) {
           hotA = Number(r.oa.price) >= Number(r.ob.price);
           hotB = !hotA;
         }
-        return `<tr>
-          <td>${escapeHtml(r.market)}</td>
-          ${marketSideCell(r.a, r.oa, hotA)}
-          ${marketSideCell(r.b, r.ob, hotB)}
-        </tr>`;
-      }).join("")}</tbody>
-    </table>
-    <div class="corr-why">${hasBooks ? "Top line = consensus number. Second line = best payout at that book. Green = projection lean, or better payout if there is no proj." : "Run Update NFL Props so per-book game odds are written into the JSON."}</div>
+        return `<div class="gm-row">
+          <div class="gm-lab">${escapeHtml(r.market)}</div>
+          ${marketSideCard(r.a, r.oa, hotA)}
+          ${marketSideCard(r.b, r.ob, hotB)}
+        </div>`;
+      }).join("")}
+    </div>
+    <div class="corr-why">${hasBooks ? "Left / right are the two sides. Green is the projection lean (or the better payout if there is no proj)." : "Run Update NFL Props so per-book game odds are written into the JSON."}</div>
   </div>`;
 }
 
