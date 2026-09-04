@@ -381,16 +381,26 @@ def lambda_from_cdf(k: int, p: float) -> float:
 
 
 def consensus_half_line(row) -> float | None:
-    """Most common sportsbook line, preferring a .5 next to the PP line."""
-    cands = []
-    if row.get("book_line") is not None:
-        cands.append(row["book_line"])
+    """Prefer a .5 sportsbook line next to the PrizePicks number."""
+    pp = base.to_float(row.get("line"))
+    book_nums = []
     for b in (row.get("books") or {}).values():
-        if b.get("line") is not None:
-            cands.append(b["line"])
+        n = base.to_float(b.get("line"))
+        if n is not None:
+            book_nums.append(n)
+    halves = [n for n in book_nums if abs((n * 2) % 2 - 1) < 0.05]
+    if pp is not None:
+        near = [n for n in halves if abs(n - pp) <= 0.6]
+        if near:
+            return Counter(near).most_common(1)[0][0]
+    if halves:
+        return Counter(halves).most_common(1)[0][0]
+    extra = []
+    if row.get("book_line") is not None:
+        extra.append(row["book_line"])
     if row.get("avg_line") is not None:
-        cands.append(row["avg_line"])
-    nums = [base.to_float(x) for x in cands]
+        extra.append(row["avg_line"])
+    nums = [base.to_float(x) for x in book_nums + extra]
     nums = [n for n in nums if n is not None]
     if not nums:
         return None
@@ -399,8 +409,9 @@ def consensus_half_line(row) -> float | None:
 
 def strict_hit_pct(side, pp_line, book_line, raw_pct):
     """
-    Book Under 3.5 = P(X <= 3) = PP Under 3 win + push.
-    % to Hit is P(win | graded) = P(X <= 2) / (P(X <= 2) + P(X >= 4)).
+    PrizePicks whole number: exact = void.
+    Over 2 cashes only on 3+. Under 2 cashes only on 0–1.
+    raw from a 1.5 / 2.5 book is P(X >= 2) or P(X <= 2), not the cash rate.
     """
     raw = sane_pct(raw_pct)
     if raw is None or not is_whole_line(pp_line):
@@ -411,20 +422,13 @@ def strict_hit_pct(side, pp_line, book_line, raw_pct):
     L = int(round(float(pp_line)))
     p = raw / 100.0
     side = (side or "").title()
-    def graded(p_win, p_lose):
-        den = p_win + p_lose
-        if den <= 0:
-            return raw
-        return sane_pct((p_win / den) * 100)
-
     if side == "Under" and abs(bl - (L + 0.5)) <= 0.2:
-        # raw p = P(X <= L) = win + push. Lose = 1-p.
         lam = lambda_from_cdf(L, p)
-        return graded(poisson_cdf(L - 1, lam), 1.0 - p)
+        return sane_pct(poisson_cdf(L - 1, lam) * 100)
     if side == "Over" and abs(bl - (L - 0.5)) <= 0.2:
         p_le = max(0.03, min(0.97, 1.0 - p))
         lam = lambda_from_cdf(L - 1, p_le)
-        return graded(1.0 - poisson_cdf(L, lam), p_le)
+        return sane_pct((1.0 - poisson_cdf(L, lam)) * 100)
     return raw
 
 
@@ -434,10 +438,13 @@ def apply_strict_hit(row):
     if not is_whole_line(row.get("line")):
         return
     book_line = consensus_half_line(row)
-    adj = strict_hit_pct(row.get("side"), row.get("line"), book_line, row.get("pct_to_hit"))
+    raw = row.get("pct_to_hit")
+    adj = strict_hit_pct(row.get("side"), row.get("line"), book_line, raw)
     if adj is not None:
+        row["pct_raw"] = raw
         row["pct_to_hit"] = adj
-        row["hit_model"] = "graded_no_push"
+        row["hit_model"] = "cash_no_push"
+        row["book_line"] = book_line
 
 
 def fill_headshots(rows, *sources):
@@ -756,26 +763,39 @@ def load_game_map(url: str):
         rec = by_game.setdefault(base.game_key(away, home), {
             "home_team": home, "away_team": away, "commence_time": r.get("commence_time"),
             "spread": None, "total": None, "spread_proj": None, "total_proj": None,
-            "ml_home": None, "ml_away": None,
+            "ml_home": None, "ml_away": None, "books": {},
         })
         market = (r.get("market") or "").lower()
         avg = base.to_float(r.get("Average Line"))
         proj = base.to_float(r.get("Projection"))
         point = base.to_float(r.get("point"))
         price = base.to_float(r.get("price"))
+        over_p = base.to_float(r.get("Over Price"))
+        under_p = base.to_float(r.get("Under Price"))
         label = (r.get("label") or "")
-        line = avg if avg is not None else point
-        if market == "spreads" and rec["spread"] is None and line is not None and home.lower() in label.lower():
-            rec["spread"], rec["spread_proj"] = line, proj
-        if market == "spreads" and rec["spread"] is None and line is not None and not label:
-            rec["spread"], rec["spread_proj"] = line, proj
-        if market == "totals" and rec["total"] is None and line is not None:
-            rec["total"], rec["total_proj"] = line, proj
+        book = (r.get("bookmaker") or "").strip()
+        line = point if point is not None else avg
+        if market == "spreads" and rec["spread"] is None and (avg if avg is not None else point) is not None:
+            rec["spread"], rec["spread_proj"] = (avg if avg is not None else point), proj
+        if market == "totals" and rec["total"] is None and (avg if avg is not None else point) is not None:
+            rec["total"], rec["total_proj"] = (avg if avg is not None else point), proj
         if market in {"h2h", "moneyline"} and price is not None:
             if home.lower() in label.lower():
                 rec["ml_home"] = rec["ml_home"] or price
             else:
                 rec["ml_away"] = rec["ml_away"] or price
+        if book:
+            slot = rec["books"].setdefault(book, {})
+            if market == "spreads" and line is not None:
+                slot["spread"] = {"line": line, "home": over_p, "away": under_p}
+            elif market == "totals" and line is not None:
+                slot["total"] = {"line": line, "over": over_p, "under": under_p}
+            elif market in {"h2h", "moneyline"} and price is not None:
+                ml = slot.setdefault("ml", {})
+                if home.lower() in label.lower():
+                    ml["home"] = price
+                else:
+                    ml["away"] = price
     print(f"game matchups={len(by_game)}")
     return by_game
 
@@ -823,6 +843,7 @@ def build_sport(label, sheet_url, game_url, pp_url, ud_url, out_name):
             "spread": g.get("spread"), "total": g.get("total"),
             "spread_proj": g.get("spread_proj"), "total_proj": g.get("total_proj"),
             "ml_home": g.get("ml_home"), "ml_away": g.get("ml_away"),
+            "books": g.get("books") or {},
         } for g in games.values()],
         "kalshi": kalshi,
     }
