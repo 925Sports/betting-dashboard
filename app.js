@@ -162,6 +162,26 @@ function venueIcon(row) {
   return `<span class="venue-ico" title="${escapeHtml(label + extra)}">${mark}</span>`;
 }
 
+function weatherIcon(row) {
+  const cond = String(row.weather || "").trim();
+  const temp = String(row.temp || "").trim();
+  if (!cond && !temp) return "";
+  const low = cond.toLowerCase();
+  let mark = "🌡️";
+  if (/thunder|storm/.test(low)) mark = "⛈️";
+  else if (/snow|sleet|ice/.test(low)) mark = "❄️";
+  else if (/drizzle/.test(low)) mark = "🌦️";
+  else if (/rain|shower/.test(low)) mark = "🌧️";
+  else if (/fog|mist|haze/.test(low)) mark = "🌫️";
+  else if (/partly/.test(low)) mark = "⛅";
+  else if (/overcast|cloud/.test(low)) mark = "☁️";
+  else if (/clear|sunny|mainly clear/.test(low)) mark = "☀️";
+  else if (/dome|indoor/.test(low)) mark = "🏟️";
+  else if (/wind/.test(low)) mark = "💨";
+  const tip = [cond || "Weather", temp ? `${temp}°` : ""].filter(Boolean).join(" · ");
+  return `<span class="venue-ico" title="${escapeHtml(tip)}">${mark}</span>`;
+}
+
 function ymdInCT(iso) {
   const d = iso ? parseWhen(iso) || new Date(iso) : new Date();
   if (Number.isNaN(d.getTime())) return "";
@@ -1295,7 +1315,7 @@ function render() {
     return `
       <tr>
         <td>
-          <div class="player-row">${headshotTag(r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}</button>${venueIcon(r)}${flagIcons(r)}</div>
+          <div class="player-row">${headshotTag(r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}</button>${venueIcon(r)}${weatherIcon(r)}${flagIcons(r)}</div>
           <div class="game"><span class="sport-tag">${escapeHtml(r.sport || "")}</span> ${escapeHtml(matchup(r))} · ${escapeHtml(fmtWhen(r.commence_time))}</div>
           <div class="script">${scriptLine(r)}${r.broadcasts ? ` · ${escapeHtml(r.broadcasts)}` : ""}</div>
         </td>
