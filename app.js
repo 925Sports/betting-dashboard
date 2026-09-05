@@ -151,6 +151,12 @@ function hasStarted(iso) {
   return !!(d && d.getTime() <= Date.now());
 }
 
+function posTag(row) {
+  const p = String(row.position || "").trim();
+  if (!p) return "";
+  return ` (${escapeHtml(p)})`;
+}
+
 function venueIcon(row) {
   const raw = `${row.venue_type || ""} ${row.venue_name || ""}`.toLowerCase();
   if (!raw.trim()) return "";
@@ -1315,7 +1321,7 @@ function render() {
     return `
       <tr>
         <td>
-          <div class="player-row">${headshotTag(r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}</button>${venueIcon(r)}${weatherIcon(r)}${flagIcons(r)}</div>
+          <div class="player-row">${headshotTag(r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}${posTag(r)}</button>${venueIcon(r)}${weatherIcon(r)}${flagIcons(r)}</div>
           <div class="game"><span class="sport-tag">${escapeHtml(r.sport || "")}</span> ${escapeHtml(matchup(r))} · ${escapeHtml(fmtWhen(r.commence_time))}</div>
           <div class="script">${scriptLine(r)}${r.broadcasts ? ` · ${escapeHtml(r.broadcasts)}` : ""}</div>
         </td>
@@ -1518,7 +1524,7 @@ function openPlayerPopup(player, eventId, market, side) {
   $("popupCard").innerHTML = `
     <div class="popup-top">
       <div>
-        <div class="popup-name">${headshotTag(focus.headshot)} ${escapeHtml(focus.player)}</div>
+        <div class="popup-name">${headshotTag(focus.headshot)} ${escapeHtml(focus.player)}${posTag(focus)}</div>
         <div class="popup-sub">${escapeHtml(matchup(focus))} · ${escapeHtml(fmtWhen(focus.commence_time))}<br>${escapeHtml(scriptLine(focus))}</div>
       </div>
       <button type="button" class="popup-x" id="popupClose">✕</button>
