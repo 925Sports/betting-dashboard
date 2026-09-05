@@ -606,7 +606,153 @@ def enrich_props(rows, pp_rows, ud_rows):
         if hit is not None and (hit > 99 or hit < 1):
             row["pct_to_hit"] = sane_pct(row.get("pp_sheet_edge"))
         apply_strict_hit(row)
+    attach_fantasy_compare(rows)
     return rows
+
+
+def _is_fantasy_stat(stat: str) -> bool:
+    return "fantasy" in str(stat or "").lower()
+
+
+def _looks_like_qb(group) -> bool:
+    return any(str(r.get("stat") or "") in {"Pass Yds", "Pass TDs", "Pass Att", "Completions", "INTs"} for r in group)
+
+
+def book_line_avg(row):
+    """Mean of sportsbook lines, drop high/low when 4+ books so one outlier cannot pull it."""
+    nums = []
+    for rec in (row.get("books") or {}).values():
+        n = base.to_float((rec or {}).get("line"))
+        if n is not None:
+            nums.append(n)
+    if not nums:
+        return None
+    nums.sort()
+    if len(nums) >= 4:
+        nums = nums[1:-1]
+    return sum(nums) / len(nums)
+
+
+def true_avg(row):
+    """Consensus average only. Do not use a single True Point."""
+    v = base.to_float(row.get("avg_line"))
+    if v is not None:
+        return v
+    trimmed = book_line_avg(row)
+    if trimmed is not None:
+        return trimmed
+    v = base.to_float(row.get("book_line"))
+    if v is not None:
+        return v
+    return base.to_float(row.get("line"))
+
+
+def stat_true(group, names):
+    names = {n.lower() for n in names}
+    picked = None
+    for r in group:
+        if str(r.get("stat") or "").lower() not in names:
+            continue
+        if r.get("avg_line") is not None:
+            return round(float(r["avg_line"]), 2)
+        v = true_avg(r)
+        if v is not None and picked is None:
+            picked = v
+    return None if picked is None else round(float(picked), 2)
+
+
+def attach_fantasy_compare(rows):
+    """
+    Compare PP vs UD Fantasy Score on the same scoring system.
+    Inputs use True Point / Average Line when present.
+    Football pass-catchers: PP full PPR, UD half-PPR.
+      PP_equiv = UD_line + 0.5 * rec_true
+      UD_equiv = PP_line - 0.5 * rec_true
+    MLB hitters (UD vs PP): +1 walk, +1 double, -1 stolen base.
+      PP_equiv = UD_line - BB - 2B + SB
+      UD_equiv = PP_line + BB + 2B - SB
+    QBs and basketball: 1-for-1.
+    """
+    groups = defaultdict(list)
+    for r in rows:
+        groups[(norm_name(r.get("player")), r.get("game") or "")].append(r)
+    n = 0
+    for group in groups.values():
+        recs = stat_true(group, ["Receptions"])
+        walks = stat_true(group, ["Walks", "Batter Walks", "BB", "HBP", "Walks + HBP"])
+        doubles = stat_true(group, ["Doubles"])
+        steals = stat_true(group, ["Stolen Bases", "SB"])
+        qb = _looks_like_qb(group)
+        sport = str((group[0].get("sport") if group else "") or "").upper()
+        shared_ud = None
+        shared_pp = None
+        for r in group:
+            if not _is_fantasy_stat(r.get("stat")):
+                continue
+            if (r.get("dfs") or {}).get("underdog", {}).get("line") is not None:
+                shared_ud = r["dfs"]["underdog"]
+            if (r.get("dfs") or {}).get("prizepicks", {}).get("line") is not None:
+                shared_pp = r["dfs"]["prizepicks"]
+        for r in group:
+            if not _is_fantasy_stat(r.get("stat")):
+                continue
+            r.setdefault("dfs", {})
+            if shared_ud and "underdog" not in r["dfs"]:
+                r["dfs"]["underdog"] = dict(shared_ud)
+            if shared_pp and "prizepicks" not in r["dfs"]:
+                r["dfs"]["prizepicks"] = dict(shared_pp)
+            pp_line = (r.get("dfs") or {}).get("prizepicks", {}).get("line")
+            if pp_line is None and "prizepicks" in str(r.get("stat") or "").lower():
+                pp_line = r.get("line")
+            if pp_line is None and r.get("dfs", {}).get("prizepicks"):
+                pp_line = r.get("line")
+            ud = (r.get("dfs") or {}).get("underdog") or {}
+            ud_line = ud.get("line")
+            if pp_line is None:
+                pp_line = r.get("line") if (r.get("dfs") or {}).get("prizepicks") else None
+            mode = "same"
+            recs_used = None
+            ud_as_pp = ud_line
+            pp_as_ud = pp_line
+            if sport in {"NFL", "CFB"} and not qb:
+                mode = "ppr_vs_half"
+                recs_used = recs
+                if recs is not None:
+                    if ud_line is not None:
+                        ud_as_pp = round(float(ud_line) + 0.5 * recs, 2)
+                    if pp_line is not None:
+                        pp_as_ud = round(float(pp_line) - 0.5 * recs, 2)
+                else:
+                    mode = "ppr_vs_half_no_recs"
+            elif sport == "MLB" and "pitcher" not in str(r.get("stat") or "").lower():
+                mode = "mlb_hitter"
+                bb, two_b, sb = walks or 0.0, doubles or 0.0, steals or 0.0
+                if walks is None and doubles is None and steals is None:
+                    mode = "mlb_hitter_no_avgs"
+                else:
+                    if ud_line is not None:
+                        ud_as_pp = round(float(ud_line) - bb - two_b + sb, 2)
+                    if pp_line is not None:
+                        pp_as_ud = round(float(pp_line) + bb + two_b - sb, 2)
+            if ud_line is not None or pp_line is not None:
+                r["fantasy_cmp"] = {
+                    "pp": pp_line,
+                    "ud": ud_line,
+                    "ud_as_pp": ud_as_pp,
+                    "pp_as_ud": pp_as_ud,
+                    "recs": recs_used,
+                    "walks": walks,
+                    "doubles": doubles,
+                    "steals": steals,
+                    "mode": mode,
+                    "diff_pp": None if pp_line is None or ud_as_pp is None else round(float(ud_as_pp) - float(pp_line), 2),
+                    "diff_ud": None if ud_line is None or pp_as_ud is None else round(float(pp_as_ud) - float(ud_line), 2),
+                }
+                if ud and ud_as_pp is not None:
+                    ud["line_raw"] = ud_line
+                    ud["line_pp"] = ud_as_pp
+                n += 1
+    print(f"fantasy compares={n}")
 
 
 def mark_alternate_lines(rows):
@@ -773,29 +919,37 @@ def load_game_map(url: str):
         over_p = base.to_float(r.get("Over Price"))
         under_p = base.to_float(r.get("Under Price"))
         label = (r.get("label") or "")
-        book = (r.get("bookmaker") or "").strip()
+        book = base.canon_book(r.get("bookmaker") or "")
         line = point if point is not None else avg
         if market == "spreads" and rec["spread"] is None and (avg if avg is not None else point) is not None:
             rec["spread"], rec["spread_proj"] = (avg if avg is not None else point), proj
         if market == "totals" and rec["total"] is None and (avg if avg is not None else point) is not None:
             rec["total"], rec["total_proj"] = (avg if avg is not None else point), proj
-        if market in {"h2h", "moneyline"} and price is not None:
-            if home.lower() in label.lower():
-                rec["ml_home"] = rec["ml_home"] or price
-            else:
-                rec["ml_away"] = rec["ml_away"] or price
+        # h2h point is 0.5 (to win). Over Price = away ML, Under Price = home ML.
+        is_ml = market in {"h2h", "moneyline", "ml"}
+        home_ml = under_p if is_ml else None
+        away_ml = over_p if is_ml else None
+        if is_ml:
+            if price is not None and home.lower() in (label or "").lower():
+                home_ml = home_ml if home_ml is not None else price
+            elif price is not None and away.lower() in (label or "").lower():
+                away_ml = away_ml if away_ml is not None else price
+            if home_ml is not None:
+                rec["ml_home"] = rec["ml_home"] or home_ml
+            if away_ml is not None:
+                rec["ml_away"] = rec["ml_away"] or away_ml
         if book:
             slot = rec["books"].setdefault(book, {})
             if market == "spreads" and line is not None:
                 slot["spread"] = {"line": line, "home": over_p, "away": under_p}
             elif market == "totals" and line is not None:
                 slot["total"] = {"line": line, "over": over_p, "under": under_p}
-            elif market in {"h2h", "moneyline"} and price is not None:
+            elif is_ml:
                 ml = slot.setdefault("ml", {})
-                if home.lower() in label.lower():
-                    ml["home"] = price
-                else:
-                    ml["away"] = price
+                if home_ml is not None:
+                    ml["home"] = home_ml
+                if away_ml is not None:
+                    ml["away"] = away_ml
     print(f"game matchups={len(by_game)}")
     return by_game
 
