@@ -351,6 +351,8 @@ def load_ud(url: str):
             "total": base.to_float(r.get("O/U")),
             "pp_edge": pct_num(r.get("Edge %") or r.get("% Edge")),
             "broadcasts": (r.get("Broadcasts") or "").strip(),
+            "venue_type": (r.get("Venue Type") or "").strip(),
+            "venue_name": (r.get("Venue Name") or "").strip(),
             "nv_over": pct_num(r.get("Average No-Vig Over %") or r.get("True Over Odds (No Vig)")),
             "nv_under": pct_num(r.get("Average No-Vig Under %") or r.get("True Under Odds (No Vig)")),
         })
@@ -592,6 +594,10 @@ def enrich_props(rows, pp_rows, ud_rows):
             })
             if u.get("broadcasts") and not row.get("broadcasts"):
                 row["broadcasts"] = u["broadcasts"]
+            if u.get("venue_type"):
+                row["venue_type"] = row.get("venue_type") or u.get("venue_type")
+            if u.get("venue_name"):
+                row["venue_name"] = row.get("venue_name") or u.get("venue_name")
             break
 
     extra = 0
@@ -865,6 +871,10 @@ def fill_player_context(rows):
                 r["headshot"] = donor.get("headshot") or ""
             if not r.get("broadcasts"):
                 r["broadcasts"] = donor.get("broadcasts") or ""
+            if not r.get("venue_type"):
+                r["venue_type"] = donor.get("venue_type") or ""
+            if not r.get("venue_name"):
+                r["venue_name"] = donor.get("venue_name") or ""
             if not r.get("event_id") or str(r.get("event_id") or "").startswith("pp-"):
                 if donor.get("event_id") and not str(donor.get("event_id")).startswith("pp-"):
                     r["event_id"] = donor.get("event_id")
@@ -945,7 +955,10 @@ def load_game_map(url: str):
             "home_team": home, "away_team": away, "commence_time": r.get("commence_time"),
             "spread": None, "total": None, "spread_proj": None, "total_proj": None,
             "ml_home": None, "ml_away": None, "books": {},
+            "_spread_votes": [], "_total_votes": [],
         })
+        if r.get("commence_time") and (not rec.get("commence_time") or rec["commence_time"] < r.get("commence_time")):
+            rec["commence_time"] = r.get("commence_time")
         market = (r.get("market") or "").lower()
         avg = base.to_float(r.get("Average Line"))
         proj = base.to_float(r.get("Projection"))
@@ -956,10 +969,22 @@ def load_game_map(url: str):
         label = (r.get("label") or "")
         book = base.canon_book(r.get("bookmaker") or "")
         line = point if point is not None else avg
-        if market == "spreads" and rec["spread"] is None and (avg if avg is not None else point) is not None:
-            rec["spread"], rec["spread_proj"] = (avg if avg is not None else point), proj
-        if market == "totals" and rec["total"] is None and (avg if avg is not None else point) is not None:
-            rec["total"], rec["total_proj"] = (avg if avg is not None else point), proj
+        home_pt = None
+        if market == "spreads" and point is not None:
+            if label and home and home.lower() == label.lower():
+                home_pt = point
+            elif label and away and away.lower() == label.lower():
+                home_pt = -point
+            elif avg is not None:
+                home_pt = avg
+            if home_pt is not None:
+                rec["_spread_votes"].append(home_pt)
+                if rec["spread_proj"] is None:
+                    rec["spread_proj"] = proj
+        if market == "totals" and (avg is not None or point is not None):
+            rec["_total_votes"].append(avg if avg is not None else point)
+            if rec["total_proj"] is None:
+                rec["total_proj"] = proj
         # h2h point is 0.5 (to win). Over Price = away ML, Under Price = home ML.
         is_ml = market in {"h2h", "moneyline", "ml"}
         home_ml = under_p if is_ml else None
@@ -976,7 +1001,21 @@ def load_game_map(url: str):
         if book:
             slot = rec["books"].setdefault(book, {})
             if market == "spreads" and line is not None:
-                slot["spread"] = {"line": line, "home": over_p, "away": under_p}
+                sp = slot.setdefault("spread", {"line": None, "home": None, "away": None})
+                if label and home and home.lower() == label.lower():
+                    sp["home"] = price if price is not None else over_p
+                    sp["line"] = point
+                elif label and away and away.lower() == label.lower():
+                    sp["away"] = price if price is not None else under_p
+                    if sp["line"] is None and point is not None:
+                        sp["line"] = -point
+                else:
+                    if over_p is not None:
+                        sp["home"] = over_p
+                    if under_p is not None:
+                        sp["away"] = under_p
+                    if sp["line"] is None:
+                        sp["line"] = line
             elif market == "totals" and line is not None:
                 slot["total"] = {"line": line, "over": over_p, "under": under_p}
             elif is_ml:
@@ -985,6 +1024,13 @@ def load_game_map(url: str):
                     ml["home"] = home_ml
                 if away_ml is not None:
                     ml["away"] = away_ml
+    for rec in by_game.values():
+        votes = rec.pop("_spread_votes", [])
+        if votes:
+            rec["spread"] = Counter(round(v * 2) / 2 for v in votes).most_common(1)[0][0]
+        totals = rec.pop("_total_votes", [])
+        if totals:
+            rec["total"] = Counter(round(v * 2) / 2 for v in totals).most_common(1)[0][0]
     print(f"game matchups={len(by_game)}")
     return by_game
 
@@ -1012,6 +1058,26 @@ def build_sport(label, sheet_url, game_url, pp_url, ud_url, out_name):
     rows = enrich_props(rows, load_pp(pp_url), load_ud(ud_url))
     for row in rows:
         row["sport"] = label
+        g = games.get(base.game_key(row.get("away_team"), row.get("home_team")))
+        if not g and row.get("game"):
+            g = games.get(row["game"])
+        if g:
+            if g.get("spread") is not None:
+                row["spread"] = g["spread"]
+            if g.get("total") is not None:
+                row["total"] = g["total"]
+            if g.get("spread_proj") is not None:
+                row["spread_proj"] = g["spread_proj"]
+            if g.get("total_proj") is not None:
+                row["total_proj"] = g["total_proj"]
+            if g.get("ml_home") is not None:
+                row["ml_home"] = g["ml_home"]
+            if g.get("ml_away") is not None:
+                row["ml_away"] = g["ml_away"]
+            if g.get("commence_time"):
+                row["commence_time"] = g["commence_time"]
+            if g.get("books"):
+                row["game_books"] = g["books"]
     kalshi = load_kalshi(label)
     payload = {
         "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
