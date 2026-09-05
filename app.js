@@ -463,12 +463,38 @@ function displayLine(row) {
   return row.line;
 }
 
+function fantasyNote(row) {
+  const f = row.fantasy_cmp;
+  if (!f || !/fantasy/i.test(row.stat || "")) return "";
+  const bits = [];
+  if (f.recs != null) bits.push(`${f.recs} rec`);
+  if (f.walks != null) bits.push(`${f.walks} bb`);
+  if (f.doubles != null) bits.push(`${f.doubles} 2b`);
+  if (f.steals != null) bits.push(`${f.steals} sb`);
+  const extra = bits.length ? ` · ${bits.join(" / ")}` : "";
+  if (state.view === "pp" && f.ud != null && f.ud_as_pp != null) {
+    const txt = Number(f.ud) === Number(f.ud_as_pp) ? `UD ${f.ud}` : `UD ${f.ud} → ${f.ud_as_pp} PP`;
+    return `<div class="line-note">${txt}${extra}</div>`;
+  }
+  if (state.view === "ud" && f.pp != null && f.pp_as_ud != null) {
+    const txt = Number(f.pp) === Number(f.pp_as_ud) ? `PP ${f.pp}` : `PP ${f.pp} → ${f.pp_as_ud} UD`;
+    return `<div class="line-note">${txt}${extra}</div>`;
+  }
+  return "";
+}
+
 function bookCell(row, key) {
   const src = bookOffer(row, key);
   if (!src) return `<td class="muted">—</td>`;
   const shown = displayLine(row);
-  const same = src.line == null || shown == null || Number(src.line) === Number(shown);
-  const note = same ? "" : `<div class="line-note">${src.line}</div>`;
+  const cmp = row.fantasy_cmp;
+  let offerLine = src.line;
+  if (cmp && /fantasy/i.test(row.stat || "")) {
+    if (state.view === "pp" && key === "underdog" && cmp.ud_as_pp != null) offerLine = cmp.ud_as_pp;
+    if (state.view === "ud" && key === "prizepicks" && cmp.pp_as_ud != null) offerLine = cmp.pp_as_ud;
+  }
+  const same = offerLine == null || shown == null || Number(offerLine) === Number(shown);
+  const note = same ? "" : `<div class="line-note">${offerLine}</div>`;
   return `<td class="price">${american(src.price)}${note}</td>`;
 }
 
@@ -1254,7 +1280,7 @@ function render() {
           <div class="script">${scriptLine(r)}${r.broadcasts ? ` · ${escapeHtml(r.broadcasts)}` : ""}</div>
         </td>
         <td>${escapeHtml(r.stat)}</td>
-        <td class="line-cell"><div class="line-stack"><span class="tag ${sideClass}">${escapeHtml(r.side)}</span><div class="line-num">${lineTxt ?? "—"}</div></div></td>
+        <td class="line-cell"><div class="line-stack"><span class="tag ${sideClass}">${escapeHtml(r.side)}</span><div class="line-num">${lineTxt ?? "—"}</div>${fantasyNote(r)}</div></td>
         <td>${tierBadge(r.pp_tier)}</td>
         <td><span class="${pctClass(r.pct_to_hit)}">${r.pct_to_hit != null ? r.pct_to_hit.toFixed(1) + "%" : "—"}</span></td>
         <td class="${edge >= 0 ? "" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}${r.dfs?.prizepicks ? `<button type="button" class="slip-add" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">+ slip</button>` : ""}</td>
@@ -1478,6 +1504,22 @@ function openPlayerPopup(player, eventId, market, side) {
         const opx = k === "prizepicks" ? -117 : ov?.price;
         return `${meta ? bookMark(meta, "sm") : k} ${escapeHtml(focus.side || "")} ${v.line ?? "—"} ${american(px)}${ov ? ` · ${escapeHtml(oppSide)} ${ov.line ?? "—"} ${american(opx)}` : ""}`;
       }).join("<br>") : "—"}
+      ${focus.fantasy_cmp ? `<div class="corr-why" style="margin-top:6px">
+        Scoring convert: ${
+          focus.fantasy_cmp.mode === "ppr_vs_half"
+            ? `football PPR vs half-PPR using true rec avg ${focus.fantasy_cmp.recs}`
+            : focus.fantasy_cmp.mode === "ppr_vs_half_no_recs"
+              ? "football PPR vs half-PPR (no receptions true line yet)"
+              : focus.fantasy_cmp.mode === "mlb_hitter"
+                ? `MLB convert using true avgs BB ${focus.fantasy_cmp.walks ?? 0} / 2B ${focus.fantasy_cmp.doubles ?? 0} / SB ${focus.fantasy_cmp.steals ?? 0}`
+                : focus.fantasy_cmp.mode === "mlb_hitter_no_avgs"
+                  ? "MLB scorer differs on BB / 2B / SB — no true lines yet"
+                  : "same scoring"
+        }.
+        PP ${focus.fantasy_cmp.pp ?? "—"} · UD ${focus.fantasy_cmp.ud ?? "—"}
+        · UD as PP ${focus.fantasy_cmp.ud_as_pp ?? "—"}
+        · PP as UD ${focus.fantasy_cmp.pp_as_ud ?? "—"}.
+      </div>` : ""}
     </div>
     ${(() => {
       const bestThisExact = bestPayoutKey(focus.books, focus.line);
