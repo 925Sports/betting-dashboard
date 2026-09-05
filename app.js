@@ -126,36 +126,56 @@ function pctClass(pct) {
   return "pct bad";
 }
 
+const TZ = "America/Chicago";
+
+function parseWhen(iso) {
+  if (!iso) return null;
+  let s = String(iso).trim();
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s)) s = s.replace(" ", "T");
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s) && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(s)) s += "Z";
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 function fmtWhen(iso) {
-  if (!iso) return "";
-  return new Date(iso).toLocaleString(undefined, {
+  const d = parseWhen(iso);
+  if (!d) return "";
+  return d.toLocaleString("en-US", {
+    timeZone: TZ,
     weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
-  });
+  }) + " CT";
 }
 
 function hasStarted(iso) {
-  if (!iso) return false;
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return false;
-  return t <= Date.now();
+  const d = parseWhen(iso);
+  return !!(d && d.getTime() <= Date.now());
 }
 
-function ymdLocal(iso) {
-  const d = iso ? new Date(iso) : new Date();
+function venueIcon(row) {
+  const raw = `${row.venue_type || ""} ${row.venue_name || ""}`.toLowerCase();
+  if (!raw.trim()) return "";
+  let mark = "🏟️", label = row.venue_type || row.venue_name || "Venue";
+  if (/retract/.test(raw)) { mark = "🔃"; label = row.venue_type || "Retractable"; }
+  else if (/indoor|dome|domed|closed/.test(raw)) { mark = "🏟️"; label = row.venue_type || "Dome"; }
+  else if (/outdoor|open/.test(raw)) { mark = "🌤️"; label = row.venue_type || "Outdoor"; }
+  const extra = row.venue_name ? ` · ${row.venue_name}` : "";
+  return `<span class="venue-ico" title="${escapeHtml(label + extra)}">${mark}</span>`;
+}
+
+function ymdInCT(iso) {
+  const d = iso ? parseWhen(iso) || new Date(iso) : new Date();
   if (Number.isNaN(d.getTime())) return "";
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(d);
+  const get = (t) => parts.find((p) => p.type === t)?.value;
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
 function shiftYmd(offset) {
-  const d = new Date();
-  d.setDate(d.getDate() + offset);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  const [y, m, day] = ymdInCT().split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1, day + offset, 12));
+  return ymdInCT(d.toISOString());
 }
 
 function dateLabel(ymd) {
@@ -167,9 +187,9 @@ function dateLabel(ymd) {
 function matchesWhen(iso) {
   const sel = $("when")?.value || "";
   if (!sel) return true;
-  const day = ymdLocal(iso);
+  const day = ymdInCT(iso);
   if (!day) return false;
-  if (sel === "today") return day === ymdLocal();
+  if (sel === "today") return day === ymdInCT();
   if (sel === "tomorrow") return day === shiftYmd(1);
   return day === sel;
 }
@@ -502,7 +522,7 @@ function fillWhen(all) {
   const sel = $("when");
   if (!sel) return;
   const current = sel.value;
-  const days = unique((all || []).map((r) => ymdLocal(r.commence_time)).filter(Boolean)).sort();
+  const days = unique((all || []).map((r) => ymdInCT(r.commence_time)).filter(Boolean)).sort();
   sel.innerHTML = [
     ["", "All dates"],
     ["today", "Today"],
@@ -1275,7 +1295,7 @@ function render() {
     return `
       <tr>
         <td>
-          <div class="player-row">${headshotTag(r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}</button>${flagIcons(r)}</div>
+          <div class="player-row">${headshotTag(r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}</button>${venueIcon(r)}${flagIcons(r)}</div>
           <div class="game"><span class="sport-tag">${escapeHtml(r.sport || "")}</span> ${escapeHtml(matchup(r))} · ${escapeHtml(fmtWhen(r.commence_time))}</div>
           <div class="script">${scriptLine(r)}${r.broadcasts ? ` · ${escapeHtml(r.broadcasts)}` : ""}</div>
         </td>
