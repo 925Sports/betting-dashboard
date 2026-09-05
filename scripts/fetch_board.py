@@ -1193,11 +1193,7 @@ def main():
         "cbb_rows": cbb["row_count"],
         "nba_rows": nba["row_count"],
         "nhl_rows": nhl["row_count"],
-        "sheet_rows": nfl["sheet_rows"],
-        "raw_count": nfl["raw_count"],
         "game_count": nfl["game_count"],
-        "books_seen": nfl["books_seen"],
-        "markets_seen": nfl["markets_seen"],
     }, indent=2))
     print("Done.")
 
