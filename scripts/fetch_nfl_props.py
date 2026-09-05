@@ -26,6 +26,23 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 
 DFS_BOOKS = {"prizepicks", "underdog", "pick6", "dabble_us_dfs"}
+BOOK_ALIASES = {
+    "hardrockbet_fl": "hardrockbet",
+    "hardrock_fl": "hardrockbet",
+    "hardrockbetflorida": "hardrockbet",
+    "williamhill": "williamhill_us",
+    "caesars": "williamhill_us",
+    "ladbrokes_uk": "ladbrokes",
+    "ladbrokes_au": "ladbrokes",
+    "pointsbetus": "pointsbet",
+    "pointsbetau": "pointsbet",
+    "sportsbetio": "sportsbet",
+}
+
+
+def canon_book(name: str) -> str:
+    key = (name or "").strip().lower()
+    return BOOK_ALIASES.get(key, key)
 
 STAT_LABELS = {
     "player_pass_yds": "Pass Yds",
@@ -305,6 +322,8 @@ def collect_combo(sheet_rows, hours_ahead: int):
                 "player": player,
                 "side": side,
                 "line": point,
+                "avg_line": to_float(r.get("Average Line")),
+                "true_point": to_float(r.get("True Point")),
                 "price": price,
                 "implied": american_to_implied(price),
                 "no_vig": nv,
@@ -353,6 +372,8 @@ def collect_raw(sheet_rows, hours_ahead: int):
                 "player": player,
                 "side": side,
                 "line": point,
+                "avg_line": to_float(r.get("Average Line")),
+                "true_point": to_float(r.get("True Point")),
                 "price": price,
                 "implied": american_to_implied(price),
                 "no_vig": None,
@@ -463,9 +484,7 @@ def build_dashboard_rows(raw, games):
 
         book_map = {}
         matching_nv = []
-        matching_implied = []
         any_nv = []
-        any_implied = []
         best = None
         for b in books:
             rec = {
@@ -475,28 +494,22 @@ def build_dashboard_rows(raw, games):
                 "no_vig": b.get("no_vig"),
                 "same_line": lines_close(b.get("line"), line),
             }
-            book_map[b["book"]] = rec
+            book_map[canon_book(b["book"])] = rec
             if b.get("no_vig") is not None:
                 any_nv.append(b["no_vig"])
-            elif b.get("implied") is not None:
-                any_implied.append(b["implied"])
             if rec["same_line"] or (b.get("line") is None and line is None):
                 if b.get("no_vig") is not None:
                     matching_nv.append(b["no_vig"])
-                elif b.get("implied") is not None:
-                    matching_implied.append(b["implied"])
                 if better_american(b.get("price"), None if not best else best.get("price")):
-                    best = {"book": b["book"], "price": b.get("price"), "line": b.get("line")}
+                    best = {"book": canon_book(b["book"]), "price": b.get("price"), "line": b.get("line")}
         if best is None:
             for b in books:
                 if better_american(b.get("price"), None if not best else best.get("price")):
                     best = {"book": b["book"], "price": b.get("price"), "line": b.get("line")}
 
-        # Only same-line sportsbook no-vig. A 3.5 Under % is not valid on a 3 line.
+        # Only two-way no-vig. A lone -125 has juice and no Under, so it is not a hit rate.
         if matching_nv:
             pct = sum(matching_nv) / len(matching_nv)
-        elif matching_implied:
-            pct = sum(matching_implied) / len(matching_implied)
         else:
             pct = None
 
@@ -533,6 +546,8 @@ def build_dashboard_rows(raw, games):
                 "pp_tier": tier,
                 "is_alternate": is_alt_market(market) or tier == "Alternate",
                 "book_line": book_cons,
+                "avg_line": primary.get("avg_line") if primary.get("avg_line") is not None else book_cons,
+                "true_point": next((i.get("true_point") for i in items if i.get("true_point") is not None), primary.get("true_point")),
                 "best": best,
                 "spread": g.get("spread"),
                 "total": g.get("total"),
