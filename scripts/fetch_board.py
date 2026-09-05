@@ -1064,6 +1064,50 @@ def load_game_map(url: str):
     return by_game
 
 
+def slim_books(books, keep_all=True):
+    out = {}
+    for k, rec in (books or {}).items():
+        if not rec:
+            continue
+        cut = {kk: vv for kk, vv in rec.items() if vv is not None and kk not in {"implied", "same_line"}}
+        if not cut:
+            continue
+        out[k] = cut
+        if not keep_all and len(out) >= 12:
+            break
+    return out
+
+
+def slim_prop(row, sport):
+    keep_all_books = sport not in {"SOCCER"}
+    out = {}
+    skip = {"game_books", "sheet_only"}
+    for k, v in row.items():
+        if k in skip or v in (None, "", [], {}):
+            continue
+        if k == "books":
+            out[k] = slim_books(v, keep_all_books)
+        else:
+            out[k] = v
+    return out
+
+
+def slim_game(g):
+    return {
+        "away_team": g.get("away_team"),
+        "home_team": g.get("home_team"),
+        "game": f"{g.get('away_team')} @ {g.get('home_team')}",
+        "commence_time": g.get("commence_time"),
+        "spread": g.get("spread"),
+        "total": g.get("total"),
+        "spread_proj": g.get("spread_proj"),
+        "total_proj": g.get("total_proj"),
+        "ml_home": g.get("ml_home"),
+        "ml_away": g.get("ml_away"),
+        "books": slim_books(g.get("books") or {}, True),
+    }
+
+
 def build_sport(label, sheet_url, game_url, pp_url, ud_url, out_name):
     print(f"\n===== {label} =====")
     text = safe_download(sheet_url, f"{label} props")
@@ -1105,35 +1149,27 @@ def build_sport(label, sheet_url, game_url, pp_url, ud_url, out_name):
                 row["ml_away"] = g["ml_away"]
             if g.get("commence_time"):
                 row["commence_time"] = g["commence_time"]
-            if g.get("books"):
-                row["game_books"] = g["books"]
+            # Do not copy per-game book boards onto every prop row (soccer blew past 100MB).
     kalshi = load_kalshi(label)
     payload = {
         "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "source": "google_sheet_csv+kalshi",
         "sport": label,
         "hours_ahead": base.HOURS_AHEAD,
-        "sheet_rows": len(sheet_rows),
-        "raw_count": len(raw),
         "row_count": len(rows),
         "game_count": len(games),
-        "books_seen": sorted({r.get("book") for r in raw if r.get("book")}),
-        "markets_seen": sorted({r.get("market") for r in raw if r.get("market")}),
-        "props": rows,
-        "games": [{
-            "away_team": g.get("away_team"), "home_team": g.get("home_team"),
-            "game": f"{g.get('away_team')} @ {g.get('home_team')}",
-            "commence_time": g.get("commence_time"),
-            "spread": g.get("spread"), "total": g.get("total"),
-            "spread_proj": g.get("spread_proj"), "total_proj": g.get("total_proj"),
-            "ml_home": g.get("ml_home"), "ml_away": g.get("ml_away"),
-            "books": g.get("books") or {},
-        } for g in games.values()],
+        "props": [slim_prop(r, label) for r in rows],
+        "games": [slim_game(g) for g in games.values()],
         "kalshi": kalshi,
     }
     base.DATA_DIR.mkdir(parents=True, exist_ok=True)
-    (base.DATA_DIR / out_name).write_text(json.dumps(payload))
-    print(f"Wrote {out_name} props={len(rows)} games={len(payload['games'])}")
+    text = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+    path = base.DATA_DIR / out_name
+    path.write_text(text)
+    mb = path.stat().st_size / 1_000_000
+    print(f"Wrote {out_name} props={len(rows)} games={len(payload['games'])} {mb:.1f}MB")
+    if mb >= 95:
+        print(f"WARNING {out_name} still near GitHub 100MB limit")
     return payload
 
 
