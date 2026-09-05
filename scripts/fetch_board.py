@@ -607,11 +607,20 @@ def apply_ud(row, ud_list):
         if not same_stat(u.get("stat"), row.get("stat")):
             continue
         row["headshot"] = row.get("headshot") or u.get("headshot")
-        row.setdefault("dfs", {}).setdefault("underdog", {
+        price = u.get("over_price") if row.get("side") == "Over" else u.get("under_price")
+        row.setdefault("dfs", {})["underdog"] = {
             "line": u.get("line"),
-            "price": u.get("over_price") if row.get("side") == "Over" else u.get("under_price"),
+            "price": price if price is not None else -112,
             "multiplier": None,
-        })
+            "source": "filter",
+        }
+        nv = u.get("nv_over") if row.get("side") == "Over" else u.get("nv_under")
+        if nv is not None:
+            row["pct_ud"] = sane_pct(nv)
+        elif "fantasy" in str(u.get("stat") or "").lower() and u.get("pp_edge") is not None:
+            row["pct_ud"] = sane_pct(u.get("pp_edge"))
+        else:
+            row["pct_ud"] = 50.0
         return True
     return False
 
@@ -676,11 +685,50 @@ def enrich_props(rows, pp_rows, ud_rows):
         })
         apply_ud(rows[-1], ud_by.get(p["player_key"], []))
     print(f"Added {extra} extra PP stat rows (combo/fantasy/etc)")
-    # Second pass: UD lines on every row, including Fantasy Score extras.
     for row in rows:
-        if (row.get("dfs") or {}).get("underdog"):
-            continue
         apply_ud(row, ud_by.get(norm_name(row.get("player") or ""), []))
+    extra_ud = 0
+    have_ud = {(norm_name(r.get("player") or ""), r.get("stat")) for r in rows if (r.get("dfs") or {}).get("underdog", {}).get("source") == "filter"}
+    for u in ud_rows:
+        key = (u.get("player_key"), u.get("stat"))
+        if not u.get("player") or not u.get("stat") or key in have_ud:
+            continue
+        have_ud.add(key)
+        extra_ud += 1
+        game_title = u.get("game") or ""
+        away, home = "", ""
+        if " @ " in game_title:
+            away, home = [x.strip() for x in game_title.split(" @ ", 1)]
+        is_fan = "fantasy" in str(u.get("stat") or "").lower()
+        for side in ("Over", "Under"):
+            nv = u.get("nv_over") if side == "Over" else u.get("nv_under")
+            price = u.get("over_price") if side == "Over" else u.get("under_price")
+            rows.append({
+                "player": u["player"], "stat": u["stat"], "market": u["stat"],
+                "side": side, "line": u.get("line"),
+                "game": game_title, "home_team": home, "away_team": away,
+                "commence_time": u.get("commence_time") or "",
+                "event_id": f"ud-{u['player_key']}-{u['stat']}-{u.get('line')}-{side}",
+                "pct_to_hit": sane_pct(nv) or (sane_pct(u.get("pp_edge")) if is_fan else 50.0),
+                "pct_ud": sane_pct(nv) or (sane_pct(u.get("pp_edge")) if is_fan else 50.0),
+                "ev": None, "pp_tier": "Standard",
+                "book_line": u.get("line"), "best": None,
+                "spread": u.get("spread"), "total": u.get("total"),
+                "dfs": {"underdog": {
+                    "line": u.get("line"), "price": price if price is not None else -112,
+                    "multiplier": None, "source": "filter",
+                }},
+                "books": {}, "headshot": u.get("headshot"),
+                "position": u.get("position"), "venue_type": u.get("venue_type"),
+                "venue_name": u.get("venue_name"), "weather": u.get("weather"),
+                "temp": u.get("temp"), "broadcasts": u.get("broadcasts") or "",
+                "sheet_only": True,
+            })
+    print(f"Added {extra_ud} extra UD standard stat rows")
+    for row in rows:
+        ud = (row.get("dfs") or {}).get("underdog")
+        if ud and ud.get("source") != "filter":
+            del row["dfs"]["underdog"]
     mark_alternate_lines(rows)
     fill_player_context(rows)
     fill_headshots(rows, pp_rows, ud_rows)
