@@ -355,6 +355,7 @@ def load_ud(url: str):
             "venue_name": (r.get("Venue Name") or "").strip(),
             "weather": (r.get("Weather Condition") or "").strip(),
             "temp": (r.get("Weather Temperature") or "").strip(),
+            "position": (r.get("Player Position Name") or "").strip(),
             "nv_over": pct_num(r.get("Average No-Vig Over %") or r.get("True Over Odds (No Vig)")),
             "nv_under": pct_num(r.get("Average No-Vig Under %") or r.get("True Under Odds (No Vig)")),
         })
@@ -582,6 +583,8 @@ def apply_ud(row, ud_list):
             row["weather"] = row.get("weather") or u.get("weather")
         if u.get("temp"):
             row["temp"] = row.get("temp") or u.get("temp")
+        if u.get("position"):
+            row["position"] = row.get("position") or u.get("position")
         return True
     return False
 
@@ -896,6 +899,8 @@ def fill_player_context(rows):
                 r["weather"] = donor.get("weather") or ""
             if not r.get("temp"):
                 r["temp"] = donor.get("temp") or ""
+            if not r.get("position"):
+                r["position"] = donor.get("position") or ""
             if not r.get("event_id") or str(r.get("event_id") or "").startswith("pp-"):
                 if donor.get("event_id") and not str(donor.get("event_id")).startswith("pp-"):
                     r["event_id"] = donor.get("event_id")
