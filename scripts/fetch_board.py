@@ -985,15 +985,48 @@ def kalshi_price(m):
     bid = base.to_float(m.get("yes_bid_dollars"))
     ask = base.to_float(m.get("yes_ask_dollars"))
     mid = round((bid + ask) / 2, 4) if bid is not None and ask is not None else last
+    contracts = base.to_float(m.get("volume_fp")) or base.to_float(m.get("volume")) or 0.0
+    vol24 = base.to_float(m.get("volume_24h_fp")) or base.to_float(m.get("volume_24h")) or 0.0
+    oi = base.to_float(m.get("open_interest_fp")) or base.to_float(m.get("open_interest")) or 0.0
+    liq = base.to_float(m.get("liquidity_dollars"))
+    px = last if last is not None else mid
+    dollar = contracts * (px if px is not None else 1.0)
+    dollar24 = vol24 * (px if px is not None else 1.0)
     return {
         "ticker": m.get("ticker"),
-        "title": m.get("title"),
+        "title": m.get("title") or "",
+        "subtitle": m.get("yes_sub_title") or m.get("subtitle") or "",
         "event": m.get("event_ticker"),
         "yes_bid": bid, "yes_ask": ask, "last": last, "mid": mid,
-        "volume": base.to_float(m.get("volume_fp")) or base.to_float(m.get("volume")),
+        "volume": contracts,
+        "volume_24h": vol24,
+        "oi": oi,
+        "liquidity": liq,
+        "dollar": round(dollar, 2),
+        "dollar_24h": round(dollar24, 2),
         "implied": None if mid is None else round(mid * 100, 1),
-        "expires": m.get("expiration_time"),
+        "expires": m.get("expiration_time") or m.get("close_time"),
     }
+
+
+def attach_kalshi_share(bundle):
+    """% of event and % of sport slate by dollar volume."""
+    all_rows = []
+    for kind, rows in (bundle or {}).items():
+        for r in rows or []:
+            r["kind"] = kind
+            all_rows.append(r)
+    slate = sum(r.get("dollar") or 0 for r in all_rows) or 0.0
+    by_event = defaultdict(float)
+    for r in all_rows:
+        by_event[r.get("event") or ""] += r.get("dollar") or 0
+    for r in all_rows:
+        ev = by_event.get(r.get("event") or "") or 0
+        r["pct_event"] = round(100.0 * (r.get("dollar") or 0) / ev, 1) if ev else None
+        r["pct_slate"] = round(100.0 * (r.get("dollar") or 0) / slate, 1) if slate else None
+        r["event_dollar"] = round(ev, 2)
+        r["slate_dollar"] = round(slate, 2)
+    return bundle
 
 
 def load_kalshi(sport: str):
@@ -1011,7 +1044,7 @@ def load_kalshi(sport: str):
     pages = 2 if sport in {"NBA", "WNBA", "NHL"} else 6
     for kind, ticker in series.items():
         out[kind] = [kalshi_price(m) for m in fetch_kalshi_series(ticker, pages=pages)]
-    return out
+    return attach_kalshi_share(out)
 
 
 def load_game_map(url: str):
