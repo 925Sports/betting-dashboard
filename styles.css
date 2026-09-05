@@ -523,3 +523,10 @@ th[data-key="line"], td.line-cell, td.line-stack {
 .gm-line { font-weight: 800; font-size: 15px; }
 .gm-book { margin-top: 4px; color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .gm-book b { color: var(--text); }
+.venue-ico {
+  font-size: 11px;
+  line-height: 1;
+  margin-left: 4px;
+  opacity: 0.85;
+  cursor: default;
+}
