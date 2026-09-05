@@ -114,9 +114,15 @@ function american(price) {
 function pickSize() { return Number($("picks").value || 5); }
 function breakEven() { return PP_BE[pickSize()] || 54.93; }
 
+function hitPct(row) {
+  if (state.view === "ud" && row.pct_ud != null) return row.pct_ud;
+  return row.pct_to_hit;
+}
+
 function rowEdge(row) {
-  if (row.pct_to_hit == null) return null;
-  return +(row.pct_to_hit - breakEven()).toFixed(1);
+  const pct = hitPct(row);
+  if (pct == null) return null;
+  return +(pct - breakEven()).toFixed(1);
 }
 
 function pctClass(pct) {
@@ -454,13 +460,9 @@ function bookOffer(row, key) {
 function isStandardUd(r) {
   const u = r.dfs?.underdog;
   if (!u || u.line == null) return false;
-  if (u.source === "filter") return !r.is_alternate;
-  const price = Number(u.price);
-  if (Number.isFinite(price) && Math.abs(price) >= 250) return false;
+  if (u.source !== "filter") return false;
   if (r.is_alternate) return false;
-  const stat = String(r.stat || "").toLowerCase();
-  if (Number(u.line) === 0.5 && /shot|sot|goal|home run|bases|hits/.test(stat) && r.side === "Under") return false;
-  return u.source !== "odds";
+  return true;
 }
 
 function applyFilters(rows) {
@@ -492,7 +494,7 @@ function applyFilters(rows) {
     if (stat && r.stat !== stat) return false;
     if (side === "ou" && r.side !== "Over" && r.side !== "Under") return false;
     if (side && side !== "ou" && side !== "all" && r.side !== side) return false;
-    if (r.pct_to_hit != null && r.pct_to_hit < minPct) return false;
+    if (hitPct(r) != null && hitPct(r) < minPct) return false;
     if (q && !`${r.player} ${r.stat} ${r.game} ${r.side}`.toLowerCase().includes(q)) return false;
     return true;
   });
@@ -504,6 +506,7 @@ function sortRows(rows) {
     let va = a[state.sortKey];
     let vb = b[state.sortKey];
     if (state.sortKey === "ev") { va = rowEdge(a); vb = rowEdge(b); }
+    if (state.sortKey === "pct_to_hit") { va = hitPct(a); vb = hitPct(b); }
     if (va == null && vb == null) return 0;
     if (va == null) return 1;
     if (vb == null) return -1;
@@ -1346,7 +1349,7 @@ function render(full) {
         <td>${escapeHtml(r.stat)}</td>
         <td class="line-cell"><div class="line-stack"><span class="tag ${sideClass}">${escapeHtml(r.side)}</span><div class="line-num">${lineTxt ?? "—"}</div>${fantasyNote(r)}</div></td>
         <td>${tierBadge(r.pp_tier)}</td>
-        <td><span class="${pctClass(r.pct_to_hit)}">${r.pct_to_hit != null ? r.pct_to_hit.toFixed(1) + "%" : "—"}</span></td>
+        <td><span class="${pctClass(hitPct(r))}">${hitPct(r) != null ? hitPct(r).toFixed(1) + "%" : "—"}</span></td>
         <td class="${edge >= 0 ? "" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}${r.dfs?.prizepicks ? `<button type="button" class="slip-add" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">+ slip</button>` : ""}</td>
         ${bestCell(r)}
         ${cols.map((b) => bookCell(r, b.key)).join("")}
