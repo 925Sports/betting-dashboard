@@ -136,14 +136,25 @@ STAT_ALIASES = {
     "pass tds": "Pass TDs", "passing tds": "Pass TDs",
     "anytime td": "Anytime TD", "anytime touchdown": "Anytime TD",
     "fantasy score": "Fantasy Score", "fantasy pts": "Fantasy Score",
-    "hitter fantasy score": "Hitter Fantasy Score", "pitcher fantasy score": "Pitcher Fantasy Score",
+    "fantasy points": "Fantasy Score", "fantasy points scored": "Fantasy Score",
+    "ud fantasy points": "Fantasy Score", "fantasy pt": "Fantasy Score",
+    "fantasy": "Fantasy Score", "dfs fantasy points": "Fantasy Score",
+    "hitter fantasy score": "Hitter Fantasy Score", "hitter fantasy points": "Hitter Fantasy Score",
+    "batter fantasy score": "Hitter Fantasy Score", "batter fantasy points": "Hitter Fantasy Score",
+    "pitcher fantasy score": "Pitcher Fantasy Score", "pitcher fantasy points": "Pitcher Fantasy Score",
     "hits + runs + rbis": "Hits+Runs+RBIs", "hits+runs+rbis": "Hits+Runs+RBIs",
-    "hitter strikeouts": "Hitter Ks", "batter strikeouts": "Hitter Ks",
-    "pitcher strikeouts": "Pitcher Ks", "pitches seen": "Pitches Seen",
-    "total bases": "Total Bases", "stolen bases": "Stolen Bases",
-    "home runs": "Home Runs", "hits": "Hits", "runs": "Runs", "rbis": "RBIs",
-    "singles": "Singles", "doubles": "Doubles", "walks": "Walks", "batter walks": "Walks",
-    "pitcher outs": "Outs", "earned runs": "ER", "hits allowed": "Hits Allowed",
+    "hits runs rbis": "Hits+Runs+RBIs", "hrr": "Hits+Runs+RBIs",
+    "hitter strikeouts": "Hitter Ks", "batter strikeouts": "Hitter Ks", "hitter ks": "Hitter Ks",
+    "pitcher strikeouts": "Pitcher Ks", "pitcher ks": "Pitcher Ks", "strikeouts": "Pitcher Ks",
+    "pitches seen": "Pitches Seen",
+    "total bases": "Total Bases", "stolen bases": "Stolen Bases", "sb": "Stolen Bases", "stolen base": "Stolen Bases",
+    "home runs": "Home Runs", "hr": "Home Runs", "hits": "Hits", "runs": "Runs",
+    "rbis": "RBIs", "runs batted in": "RBIs", "rbi": "RBIs",
+    "singles": "Singles", "doubles": "Doubles", "triples": "Triples",
+    "walks": "Walks", "batter walks": "Walks", "bb": "Walks", "bases on balls": "Walks",
+    "walks + hbp": "Walks", "hbp": "HBP", "hit by pitch": "HBP",
+    "pitcher outs": "Outs", "outs": "Outs", "earned runs": "ER", "earned runs allowed": "ER",
+    "hits allowed": "Hits Allowed", "walks allowed": "Walks Allowed",
     "ints thrown": "INTs", "int": "INTs", "interceptions": "INTs",
     "pass attempts": "Pass Att", "completions": "Completions", "rush attempts": "Rush Att",
     "longest reception": "Longest Rec", "longest completion": "Longest Pass",
@@ -153,12 +164,18 @@ STAT_ALIASES = {
     "rec targets": "Targets", "sacks": "Sacks",
     "shots": "Shots", "sot": "Shots On Target", "shots on target": "Shots On Target",
     "goals": "Goals", "assists": "Assists", "g+a": "Goal + Assist",
+    "g + a": "Goal + Assist", "goals + assists": "Goal + Assist",
     "goal + assist": "Goal + Assist", "anytime goal": "Anytime Goal",
     "first goal": "First Goal", "goalie saves": "Goalie Saves", "saves": "Goalie Saves",
     "tackles": "Tackles", "fouls drawn": "Fouls Drawn", "fouls committed": "Fouls",
     "1h goals": "1H Goals", "points": "Points", "rebounds": "Rebounds",
-    "pts+rebs+asts": "Pts+Rebs+Asts", "pts+rebs": "Pts+Rebs", "pts+asts": "Pts+Asts",
-    "rebs+asts": "Rebs+Asts", "3-pt made": "3-PT Made", "3-pt attempted": "3-PT Attempted",
+    "pts+rebs+asts": "Pts+Rebs+Asts", "pts + rebs + asts": "Pts+Rebs+Asts",
+    "points + rebounds + assists": "Pts+Rebs+Asts", "pra": "Pts+Rebs+Asts",
+    "pts+rebs": "Pts+Rebs", "pts + rebs": "Pts+Rebs",
+    "pts+asts": "Pts+Asts", "pts + asts": "Pts+Asts",
+    "rebs+asts": "Rebs+Asts", "rebs + asts": "Rebs+Asts",
+    "3-pt made": "3-PT Made", "3pm": "3-PT Made", "threes": "3-PT Made",
+    "3-pt attempted": "3-PT Attempted",
     "blocked shots": "Blocks", "blocks": "Blocks", "steals": "Steals",
     "turnovers": "Turnovers", "double-double": "Double-Double",
     "points (combo)": "Points (Combo)",
@@ -170,10 +187,28 @@ def norm_name(s: str) -> str:
 
 
 def norm_stat(s: str) -> str:
-    raw = " ".join((s or "").replace("_", " ").strip().lower().split())
+    raw = " ".join((s or "").replace("_", " ").replace("+", " + ").strip().lower().split())
     if raw.startswith("player "):
         raw = raw[7:]
+    if raw.startswith("batter "):
+        raw = raw[7:]
+    if raw.startswith("pitcher ") and raw not in {"pitcher strikeouts", "pitcher outs", "pitcher ks", "pitcher fantasy score", "pitcher fantasy points"}:
+        raw = raw[8:]
     return STAT_ALIASES.get(raw, (s or "").strip())
+
+
+def same_stat(a, b) -> bool:
+    a, b = norm_stat(a), norm_stat(b)
+    if a == b:
+        return True
+    al, bl = a.lower(), b.lower()
+    if "fantasy" in al and "fantasy" in bl:
+        if ("pitcher" in al) != ("pitcher" in bl):
+            return False
+        if ("hitter" in al or "batter" in al) != ("hitter" in bl or "batter" in bl):
+            return False
+        return True
+    return False
 
 
 def safe_download(url: str, label: str) -> str:
@@ -537,7 +572,7 @@ def enrich_props(rows, pp_rows, ud_rows):
         have_stat.add((key, row["stat"], row.get("side")))
         best_pp, best_diff = None, 1e9
         for p in pp_by.get(key, []):
-            if p["stat"] != row["stat"]:
+            if not same_stat(p["stat"], row["stat"]):
                 continue
             if p.get("side") and row.get("side") and p["side"] != row["side"]:
                 continue
@@ -547,7 +582,7 @@ def enrich_props(rows, pp_rows, ud_rows):
         if best_pp:
             attach_pp(row, best_pp)
         for u in ud_by.get(key, []):
-            if u["stat"] != row["stat"]:
+            if not same_stat(u["stat"], row["stat"]):
                 continue
             row["headshot"] = row.get("headshot") or u.get("headshot")
             row.setdefault("dfs", {}).setdefault("underdog", {
