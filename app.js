@@ -451,6 +451,18 @@ function bookOffer(row, key) {
   return books[key] || row.books?.[key] || null;
 }
 
+function isStandardUd(r) {
+  const u = r.dfs?.underdog;
+  if (!u || u.line == null) return false;
+  if (u.source === "filter") return !r.is_alternate;
+  const price = Number(u.price);
+  if (Number.isFinite(price) && Math.abs(price) >= 250) return false;
+  if (r.is_alternate) return false;
+  const stat = String(r.stat || "").toLowerCase();
+  if (Number(u.line) === 0.5 && /shot|sot|goal|home run|bases|hits/.test(stat) && r.side === "Under") return false;
+  return u.source !== "odds";
+}
+
 function applyFilters(rows) {
   const game = $("game").value;
   const stat = $("stat").value;
@@ -462,12 +474,12 @@ function applyFilters(rows) {
 
   return rows.filter((r) => {
     if (state.view === "pp" && !r.dfs?.prizepicks) return false;
-    if (state.view === "ud" && !r.dfs?.underdog) return false;
+    if (state.view === "ud" && !isStandardUd(r)) return false;
     if (state.view === "pick6" && !r.dfs?.pick6) return false;
     if (state.view === "prophetx" && !r.books?.prophetx) return false;
     if (state.view === "novig" && !r.books?.novig) return false;
     if (state.view === "ev" && !(r.pct_to_hit >= be)) return false;
-    if (state.view === "pp" || state.view === "pick6" || state.view === "ev") {
+    if (state.view === "pp" || state.view === "ud" || state.view === "pick6" || state.view === "ev") {
       if (tier === "standard" && ((r.pp_tier && r.pp_tier !== "Standard") || r.is_alternate)) return false;
       if (tier === "demon" && r.pp_tier !== "Demon") return false;
       if (tier === "goblin" && r.pp_tier !== "Goblin") return false;
@@ -1286,26 +1298,32 @@ function renderIntelSections() {
   return intel;
 }
 
-function render() {
+function render(full) {
   if (!state.data && !state.intel) return;
   syncTabs();
-  renderIntelSections();
-  renderGames();
-  const all = state.data?.props || [];
-  fillWhen(all);
+  if (full || !state.uiReady) {
+    renderIntelSections();
+    renderGames();
+    const all = state.data?.props || [];
+    fillWhen(all);
+    if (state.data) {
+      $("updated").textContent = `Updated ${fmtWhen(state.data.updated)} · BE ${breakEven()}%`;
+      fillSelect($("game"), unique(all.map((r) => r.game)).sort(), "All games");
+      const stats = unique(all.map((r) => r.stat));
+      const coreFirst = [...stats.filter((s) => CORE_STATS.has(s)).sort(), ...stats.filter((s) => !CORE_STATS.has(s)).sort()];
+      fillSelect($("stat"), coreFirst, "All props");
+    }
+    renderBookPicks();
+    renderHead();
+    state.uiReady = true;
+  }
   if (state.section !== "props") return;
   if (!state.data) return;
-  $("updated").textContent = `Updated ${fmtWhen(state.data.updated)} · BE ${breakEven()}%`;
-  fillSelect($("game"), unique(all.map((r) => r.game)).sort(), "All games");
-  const stats = unique(all.map((r) => r.stat));
-  const coreFirst = [...stats.filter((s) => CORE_STATS.has(s)).sort(), ...stats.filter((s) => !CORE_STATS.has(s)).sort()];
-  fillSelect($("stat"), coreFirst, "All props");
-
-  renderBookPicks();
-  renderHead();
-
+  const all = state.liveProps || state.data.props || [];
   const rows = sortRows(applyFilters(all));
-  $("count").textContent = `${rows.length.toLocaleString()} shown`;
+  const cap = 200;
+  const view = rows.slice(0, cap);
+  $("count").textContent = rows.length > cap ? `${cap} of ${rows.length.toLocaleString()} shown` : `${rows.length.toLocaleString()} shown`;
 
   if (!rows.length) {
     $("tbody").innerHTML = "";
@@ -1314,7 +1332,7 @@ function render() {
   }
   $("empty").style.display = "none";
   const cols = visibleBooks();
-  $("tbody").innerHTML = rows.map((r) => {
+  $("tbody").innerHTML = view.map((r) => {
     const sideClass = r.side === "Over" || r.side === "Yes" ? "over" : (r.side === "Under" || r.side === "No" ? "under" : "");
     const lineTxt = displayLine(r);
     const edge = rowEdge(r);
@@ -1343,7 +1361,7 @@ document.querySelectorAll(".tab[data-view]").forEach((btn) => {
       state.section = "props";
       if ($("section")) $("section").value = "props";
     }
-    render();
+    render(true);
   });
 });
 document.querySelectorAll(".tab[data-section]").forEach((btn) => {
@@ -1393,9 +1411,13 @@ $("minBooks")?.addEventListener("change", () => {
   state.minBooks = !!$("minBooks").checked;
   render();
 });
-["game", "stat", "side", "tier", "picks", "q", "minPct", "when"].forEach((id) => {
-  $(id).addEventListener("input", render);
-  $(id).addEventListener("change", render);
+let qTimer = null;
+["game", "stat", "side", "tier", "picks", "minPct", "when"].forEach((id) => {
+  $(id)?.addEventListener("change", () => render());
+});
+$("q")?.addEventListener("input", () => {
+  clearTimeout(qTimer);
+  qTimer = setTimeout(() => render(), 180);
 });
 
 
@@ -1777,7 +1799,9 @@ async function loadData() {
       const data = await fetchBoard(DATA_URLS[sport] || DATA_URLS.nfl, version);
       state.data = tagSport(data, label);
     }
-    render();
+    state.liveProps = (state.data.props || []).filter((r) => !hasStarted(r.commence_time));
+    state.uiReady = false;
+    render(true);
   } catch (err) {
     $("updated").textContent = "Could not load props JSON";
     $("empty").style.display = "block";
