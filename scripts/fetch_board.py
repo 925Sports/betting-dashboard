@@ -447,29 +447,44 @@ def consensus_half_line(row) -> float | None:
     return Counter(nums).most_common(1)[0][0]
 
 
-def strict_hit_pct(side, pp_line, book_line, raw_pct):
-    """
-    PrizePicks whole number: exact = void.
-    Over 2 cashes only on 3+. Under 2 cashes only on 0–1.
-    raw from a 1.5 / 2.5 book is P(X >= 2) or P(X <= 2), not the cash rate.
-    """
-    raw = sane_pct(raw_pct)
-    if raw is None or not is_whole_line(pp_line):
-        return raw
-    bl = base.to_float(book_line)
-    if bl is None:
-        return raw
-    L = int(round(float(pp_line)))
-    p = raw / 100.0
+def half_line_nv(row, half):
+    """This side's no-vig % at the .5 sportsbook line (already one-sided on the row)."""
+    vals = []
+    for rec in (row.get("books") or {}).values():
+        n = base.to_float((rec or {}).get("line"))
+        if n is None or abs(n - half) > 0.2:
+            continue
+        nv = sane_pct(rec.get("no_vig"))
+        if nv is not None:
+            vals.append(nv)
+    if vals:
+        vals.sort()
+        return vals[len(vals) // 2]
+    return None
+
+
+def cash_from_half(side, L, half, p_over_half):
+    """Turn P(X > half) into PrizePicks cash P(X > L) / P(X < L). Push at L is void."""
+    p = min(0.97, max(0.03, float(p_over_half) / 100.0))
     side = (side or "").title()
-    if side == "Under" and abs(bl - (L + 0.5)) <= 0.2:
-        lam = lambda_from_cdf(L, p)
-        return sane_pct(poisson_cdf(L - 1, lam) * 100)
-    if side == "Over" and abs(bl - (L - 0.5)) <= 0.2:
-        p_le = max(0.03, min(0.97, 1.0 - p))
-        lam = lambda_from_cdf(L - 1, p_le)
-        return sane_pct((1.0 - poisson_cdf(L, lam)) * 100)
-    return raw
+    if abs(half - (L - 0.5)) <= 0.2:
+        # half is L-0.5 so Over-half = P(X >= L)
+        p_lt_L = max(0.03, min(0.97, 1.0 - p))
+        lam = lambda_from_cdf(L - 1, p_lt_L)
+        push = poisson_pmf(L, lam) * 100
+        over_cash = (1.0 - poisson_cdf(L, lam)) * 100
+        under_cash = poisson_cdf(L - 1, lam) * 100
+    elif abs(half - (L + 0.5)) <= 0.2:
+        # half is L+0.5 so Over-half = P(X >= L+1) = over cash already
+        p_le_L = max(0.03, min(0.97, 1.0 - p))
+        lam = lambda_from_cdf(L, p_le_L)
+        push = poisson_pmf(L, lam) * 100
+        over_cash = (1.0 - poisson_cdf(L, lam)) * 100
+        under_cash = poisson_cdf(L - 1, lam) * 100
+    else:
+        return None
+    cash = over_cash if side == "Over" else under_cash
+    return sane_pct(cash), sane_pct(push), round(lam, 3)
 
 
 def apply_strict_hit(row):
@@ -477,14 +492,25 @@ def apply_strict_hit(row):
         return
     if not is_whole_line(row.get("line")):
         return
-    book_line = consensus_half_line(row)
+    L = int(round(float(row["line"])))
+    half = consensus_half_line(row)
     raw = row.get("pct_to_hit")
-    adj = strict_hit_pct(row.get("side"), row.get("line"), book_line, raw)
-    if adj is not None:
-        row["pct_raw"] = raw
-        row["pct_to_hit"] = adj
-        row["hit_model"] = "cash_no_push"
-        row["book_line"] = book_line
+    nv = half_line_nv(row, half) if half is not None else None
+    src = nv if nv is not None else raw
+    if half is None or src is None:
+        return
+    out = cash_from_half(row.get("side"), L, half, src)
+    if not out:
+        return
+    cash, push, lam = out
+    if cash is None:
+        return
+    row["pct_raw"] = raw
+    row["pct_to_hit"] = cash
+    row["pct_push"] = push
+    row["hit_lambda"] = lam
+    row["hit_model"] = "cash_no_push"
+    row["book_line"] = half
 
 
 def fill_headshots(rows, *sources):
