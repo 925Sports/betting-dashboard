@@ -563,7 +563,20 @@ def attach_pp(row, p):
         apply_strict_hit(row)
 
 
+PROFILE_KEYS = ("position", "venue_type", "venue_name", "weather", "temp", "broadcasts", "headshot")
+
+
+def apply_ud_profile(row, ud_list):
+    if not ud_list:
+        return
+    u = next((x for x in ud_list if x.get("position") or x.get("weather") or x.get("venue_type")), ud_list[0])
+    for k in PROFILE_KEYS:
+        if u.get(k) and not row.get(k):
+            row[k] = u[k]
+
+
 def apply_ud(row, ud_list):
+    apply_ud_profile(row, ud_list)
     for u in ud_list or []:
         if not same_stat(u.get("stat"), row.get("stat")):
             continue
@@ -573,18 +586,6 @@ def apply_ud(row, ud_list):
             "price": u.get("over_price") if row.get("side") == "Over" else u.get("under_price"),
             "multiplier": None,
         })
-        if u.get("broadcasts") and not row.get("broadcasts"):
-            row["broadcasts"] = u["broadcasts"]
-        if u.get("venue_type"):
-            row["venue_type"] = row.get("venue_type") or u.get("venue_type")
-        if u.get("venue_name"):
-            row["venue_name"] = row.get("venue_name") or u.get("venue_name")
-        if u.get("weather"):
-            row["weather"] = row.get("weather") or u.get("weather")
-        if u.get("temp"):
-            row["temp"] = row.get("temp") or u.get("temp")
-        if u.get("position"):
-            row["position"] = row.get("position") or u.get("position")
         return True
     return False
 
@@ -858,52 +859,28 @@ def mark_alternate_lines(rows):
 
 
 def fill_player_context(rows):
-    """Copy game / spread / total / time / headshot onto sheet-only rows like Fantasy Score."""
+    """Copy game / venue / weather / position onto every line for the same player."""
     by_player = defaultdict(list)
     for row in rows:
         by_player[norm_name(row.get("player") or "")].append(row)
+    share = (
+        "home_team", "away_team", "game", "commence_time", "spread", "total",
+        "spread_proj", "total_proj", "headshot", "broadcasts",
+        "venue_type", "venue_name", "weather", "temp", "position",
+    )
     for recs in by_player.values():
-        donor = None
+        bag = {}
         for r in recs:
-            if r.get("home_team") or r.get("away_team") or r.get("game") or r.get("spread") is not None:
-                donor = r
-                break
-        if not donor:
-            continue
+            for k in share:
+                if bag.get(k) in (None, "") and r.get(k) not in (None, ""):
+                    bag[k] = r.get(k)
+        donor_eid = next((r.get("event_id") for r in recs if r.get("event_id") and not str(r.get("event_id")).startswith("pp-")), None)
         for r in recs:
-            if not r.get("home_team"):
-                r["home_team"] = donor.get("home_team") or ""
-            if not r.get("away_team"):
-                r["away_team"] = donor.get("away_team") or ""
-            if not r.get("game"):
-                r["game"] = donor.get("game") or ""
-            if not r.get("commence_time"):
-                r["commence_time"] = donor.get("commence_time") or ""
-            if r.get("spread") is None:
-                r["spread"] = donor.get("spread")
-            if r.get("total") is None:
-                r["total"] = donor.get("total")
-            if r.get("spread_proj") is None:
-                r["spread_proj"] = donor.get("spread_proj")
-            if r.get("total_proj") is None:
-                r["total_proj"] = donor.get("total_proj")
-            if not r.get("headshot"):
-                r["headshot"] = donor.get("headshot") or ""
-            if not r.get("broadcasts"):
-                r["broadcasts"] = donor.get("broadcasts") or ""
-            if not r.get("venue_type"):
-                r["venue_type"] = donor.get("venue_type") or ""
-            if not r.get("venue_name"):
-                r["venue_name"] = donor.get("venue_name") or ""
-            if not r.get("weather"):
-                r["weather"] = donor.get("weather") or ""
-            if not r.get("temp"):
-                r["temp"] = donor.get("temp") or ""
-            if not r.get("position"):
-                r["position"] = donor.get("position") or ""
-            if not r.get("event_id") or str(r.get("event_id") or "").startswith("pp-"):
-                if donor.get("event_id") and not str(donor.get("event_id")).startswith("pp-"):
-                    r["event_id"] = donor.get("event_id")
+            for k, v in bag.items():
+                if r.get(k) in (None, ""):
+                    r[k] = v
+            if donor_eid and (not r.get("event_id") or str(r.get("event_id")).startswith("pp-")):
+                r["event_id"] = donor_eid
 
 
 def fetch_kalshi_series(series_ticker: str, pages: int = 6):
