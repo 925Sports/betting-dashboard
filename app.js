@@ -659,21 +659,38 @@ function scriptLine(row) {
   return bits.join(" · ") || "—";
 }
 
+function moneyShort(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x) || x <= 0) return "";
+  if (x >= 1e6) return `$${(x / 1e6).toFixed(1)}M`;
+  if (x >= 1e3) return `$${(x / 1e3).toFixed(1)}k`;
+  return `$${Math.round(x)}`;
+}
+
 function kalshiMatch(list, game) {
   const blob = `${game.away_team || ""} ${game.home_team || ""} ${game.game || ""}`.toLowerCase();
   const bits = blob.split(/[^a-z0-9]+/).filter((w) => w.length > 3);
-  const hits = (list || []).filter((m) => {
-    const t = (m.title || "").toLowerCase();
-    return bits.filter((w) => t.includes(w)).length >= 1;
-  });
-  return hits[0] || null;
+  const hits = (list || []).map((m) => {
+    const t = `${m.title || ""} ${m.subtitle || ""}`.toLowerCase();
+    const score = bits.filter((w) => t.includes(w)).length;
+    return { m, score, dollar: m.dollar || 0 };
+  }).filter((x) => x.score >= 1);
+  hits.sort((a, b) => b.score - a.score || b.dollar - a.dollar);
+  return hits[0]?.m || null;
 }
+
 function kalshiCell(list, game) {
-  const hit = typeof game === "string" ? (list || []).find((m) => (m.title || "").toLowerCase().includes(game.toLowerCase())) : kalshiMatch(list, game || {});
+  const hit = typeof game === "string"
+    ? (list || []).find((m) => (m.title || "").toLowerCase().includes(game.toLowerCase()))
+    : kalshiMatch(list, game || {});
   if (!hit) return `<span class="muted">—</span>`;
   const px = hit.implied != null ? `${hit.implied}¢` : "—";
-  const vol = hit.volume != null ? ` · ${Math.round(hit.volume)}` : "";
-  return `<div class="price">${px}${vol}</div><div class="line-note">${escapeHtml((hit.title || "").slice(0, 42))}</div>`;
+  const cash = moneyShort(hit.dollar);
+  const share = hit.pct_event != null ? `${hit.pct_event}% game` : "";
+  const slate = hit.pct_slate != null ? `${hit.pct_slate}% slate` : "";
+  const tip = [cash, share, slate].filter(Boolean).join(" · ");
+  return `<div class="price">${px}${cash ? ` · ${cash}` : ""}</div>
+    <div class="line-note">${escapeHtml(tip || (hit.title || "").slice(0, 42))}</div>`;
 }
 function bookImplied(price) {
   if (price == null) return null;
@@ -742,6 +759,21 @@ function renderGames() {
     const edge = gameBestEdge(g, k);
     return { ...g, edge };
   }).sort((a, b) => (b.edge ?? -999) - (a.edge ?? -999));
+  const hot = [...(k.ml || []), ...(k.spread || []), ...(k.total || [])]
+    .filter((m) => (m.dollar || 0) > 0)
+    .sort((a, b) => (b.dollar || 0) - (a.dollar || 0))
+    .slice(0, 8);
+  const slateCash = hot[0]?.slate_dollar;
+  const hotHtml = hot.length ? `<div class="ticker" style="margin-bottom:10px">${hot.map((m) =>
+    `<span class="tick"><b>kalshi</b> ${escapeHtml((m.title || "").slice(0, 36))} ${m.implied != null ? m.implied + "¢" : ""} ${moneyShort(m.dollar)}${m.pct_slate != null ? ` · ${m.pct_slate}% slate` : ""}</span>`
+  ).join("")}${slateCash ? `<span class="tick"><b>slate</b> ${moneyShort(slateCash)}</span>` : ""}</div>` : "";
+  wrap.querySelector(".kalshi-hot")?.remove();
+  if (hotHtml) {
+    const div = document.createElement("div");
+    div.className = "kalshi-hot";
+    div.innerHTML = hotHtml;
+    wrap.insertBefore(div, wrap.firstChild);
+  }
   $("gamesBody").innerHTML = ranked.map((g) => {
     const edge = g.edge;
     return `<tr>
@@ -1158,7 +1190,27 @@ function previewGameMarkets(sample) {
       }).join("")}
     </div>
     <div class="corr-why">${hasBooks ? "Each market is a column. Left / right inside it are the two sides. Green = lean." : "Run Update NFL Props so per-book game odds are written into the JSON."}</div>
+    ${previewKalshi(sample)}
   </div>`;
+}
+
+function previewKalshi(sample) {
+  const k = state.data?.kalshi || {};
+  const cells = [
+    ["ML", kalshiMatch(k.ml, sample)],
+    ["Spread", kalshiMatch(k.spread, sample)],
+    ["Total", kalshiMatch(k.total, sample)],
+  ].filter((x) => x[1]);
+  if (!cells.length) return "";
+  return `<div class="gm-board" style="margin-top:10px">${cells.map(([lab, m]) => `
+    <div class="gm-col">
+      <div class="gm-lab">Kalshi ${lab}</div>
+      <div class="gm-side">
+        <div class="gm-line">${m.implied != null ? m.implied + "¢" : "—"}</div>
+        <div class="gm-book">${moneyShort(m.dollar) || "—"}${m.pct_event != null ? ` · ${m.pct_event}% of game` : ""}${m.pct_slate != null ? ` · ${m.pct_slate}% of slate` : ""}</div>
+        <div class="line-note">${escapeHtml((m.title || "").slice(0, 48))}${m.volume_24h ? ` · 24h ${moneyShort(m.dollar_24h)}` : ""}</div>
+      </div>
+    </div>`).join("")}</div>`;
 }
 
 function previewNews(sample) {
