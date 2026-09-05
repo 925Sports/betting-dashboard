@@ -353,6 +353,8 @@ def load_ud(url: str):
             "broadcasts": (r.get("Broadcasts") or "").strip(),
             "venue_type": (r.get("Venue Type") or "").strip(),
             "venue_name": (r.get("Venue Name") or "").strip(),
+            "weather": (r.get("Weather Condition") or "").strip(),
+            "temp": (r.get("Weather Temperature") or "").strip(),
             "nv_over": pct_num(r.get("Average No-Vig Over %") or r.get("True Over Odds (No Vig)")),
             "nv_under": pct_num(r.get("Average No-Vig Under %") or r.get("True Under Odds (No Vig)")),
         })
@@ -560,6 +562,30 @@ def attach_pp(row, p):
         apply_strict_hit(row)
 
 
+def apply_ud(row, ud_list):
+    for u in ud_list or []:
+        if not same_stat(u.get("stat"), row.get("stat")):
+            continue
+        row["headshot"] = row.get("headshot") or u.get("headshot")
+        row.setdefault("dfs", {}).setdefault("underdog", {
+            "line": u.get("line"),
+            "price": u.get("over_price") if row.get("side") == "Over" else u.get("under_price"),
+            "multiplier": None,
+        })
+        if u.get("broadcasts") and not row.get("broadcasts"):
+            row["broadcasts"] = u["broadcasts"]
+        if u.get("venue_type"):
+            row["venue_type"] = row.get("venue_type") or u.get("venue_type")
+        if u.get("venue_name"):
+            row["venue_name"] = row.get("venue_name") or u.get("venue_name")
+        if u.get("weather"):
+            row["weather"] = row.get("weather") or u.get("weather")
+        if u.get("temp"):
+            row["temp"] = row.get("temp") or u.get("temp")
+        return True
+    return False
+
+
 def enrich_props(rows, pp_rows, ud_rows):
     pp_by = defaultdict(list)
     ud_by = defaultdict(list)
@@ -583,22 +609,7 @@ def enrich_props(rows, pp_rows, ud_rows):
                 best_diff, best_pp = diff, p
         if best_pp:
             attach_pp(row, best_pp)
-        for u in ud_by.get(key, []):
-            if not same_stat(u["stat"], row["stat"]):
-                continue
-            row["headshot"] = row.get("headshot") or u.get("headshot")
-            row.setdefault("dfs", {}).setdefault("underdog", {
-                "line": u.get("line"),
-                "price": u.get("over_price") if row.get("side") == "Over" else u.get("under_price"),
-                "multiplier": None,
-            })
-            if u.get("broadcasts") and not row.get("broadcasts"):
-                row["broadcasts"] = u["broadcasts"]
-            if u.get("venue_type"):
-                row["venue_type"] = row.get("venue_type") or u.get("venue_type")
-            if u.get("venue_name"):
-                row["venue_name"] = row.get("venue_name") or u.get("venue_name")
-            break
+        apply_ud(row, ud_by.get(key, []))
 
     extra = 0
     for p in pp_rows:
@@ -633,7 +644,13 @@ def enrich_props(rows, pp_rows, ud_rows):
             "sheet_only": True,
             "broadcasts": p.get("broadcasts") or "",
         })
+        apply_ud(rows[-1], ud_by.get(p["player_key"], []))
     print(f"Added {extra} extra PP stat rows (combo/fantasy/etc)")
+    # Second pass: UD lines on every row, including Fantasy Score extras.
+    for row in rows:
+        if (row.get("dfs") or {}).get("underdog"):
+            continue
+        apply_ud(row, ud_by.get(norm_name(row.get("player") or ""), []))
     mark_alternate_lines(rows)
     fill_player_context(rows)
     fill_headshots(rows, pp_rows, ud_rows)
@@ -875,6 +892,10 @@ def fill_player_context(rows):
                 r["venue_type"] = donor.get("venue_type") or ""
             if not r.get("venue_name"):
                 r["venue_name"] = donor.get("venue_name") or ""
+            if not r.get("weather"):
+                r["weather"] = donor.get("weather") or ""
+            if not r.get("temp"):
+                r["temp"] = donor.get("temp") or ""
             if not r.get("event_id") or str(r.get("event_id") or "").startswith("pp-"):
                 if donor.get("event_id") and not str(donor.get("event_id")).startswith("pp-"):
                     r["event_id"] = donor.get("event_id")
