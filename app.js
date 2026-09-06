@@ -1221,24 +1221,37 @@ function syncTabs() {
 }
 
 function gameKeyOf(row) {
-  return row.game || `${row.away_team || ""} @ ${row.home_team || ""}`.trim();
+  if (row?.away_team && row?.home_team) return `${abbr(row.away_team)} @ ${abbr(row.home_team)}`;
+  return String(row?.game || "").trim();
+}
+
+function richerGame(a, b) {
+  const score = (r) => [r.spread, r.total, r.ml_home, r.ml_away, r.player, r.books].filter((x) => x != null && x !== "").length;
+  return score(b) > score(a) ? b : a;
 }
 
 function upcomingGames() {
-  const all = state.data?.props || [];
   const map = new Map();
-  all.forEach((r) => {
-    if (hasStarted(r.commence_time)) return;
-    if (!matchesWhen(r.commence_time)) return;
+  const add = (r) => {
+    if (!r) return;
+    if (r.commence_time && hasStarted(r.commence_time)) return;
+    if (r.commence_time && !matchesWhen(r.commence_time)) return;
     const key = gameKeyOf(r);
-    if (!key || map.has(key)) return;
-    map.set(key, r);
-  });
+    if (!key || key === "@") return;
+    map.set(key, map.has(key) ? richerGame(map.get(key), r) : r);
+  };
+  (state.data?.games || []).forEach(add);
+  (state.data?.props || []).forEach(add);
   return [...map.values()].sort((a, b) => String(a.commence_time || "").localeCompare(String(b.commence_time || "")));
 }
 
 function rowsForGame(game) {
-  return (state.data?.props || []).filter((r) => gameKeyOf(r) === game && !hasStarted(r.commence_time));
+  const want = String(game || "");
+  return (state.data?.props || []).filter((r) => {
+    if (hasStarted(r.commence_time)) return false;
+    const key = gameKeyOf(r);
+    return key === want || r.game === want;
+  });
 }
 
 function previewBest(rows) {
@@ -1450,11 +1463,18 @@ function previewGameMarkets(sample) {
 function kalshiPropsForGame(sample) {
   const list = state.data?.kalshi?.props || [];
   if (!list.length || !sample) return [];
-  const blob = `${sample.away_team || ""} ${sample.home_team || ""} ${sample.game || ""}`.toLowerCase();
-  const bits = blob.split(/[^a-z0-9]+/).filter((w) => w.length > 3);
+  const homeTok = teamTokens(sample.home_team);
+  const awayTok = teamTokens(sample.away_team);
+  const players = rowsForGame(gameKeyOf(sample)).map((r) => nameKey(r.player)).filter(Boolean);
   return list.filter((m) => {
-    const t = `${m.title || ""} ${m.subtitle || ""}`.toLowerCase();
-    return bits.filter((w) => t.includes(w)).length >= 1;
+    const raw = `${m.title || ""} ${m.subtitle || ""}`;
+    const t = raw.toLowerCase();
+    const nk = nameKey(raw);
+    if (hasTeamToken(t, homeTok) || hasTeamToken(t, awayTok)) return true;
+    return players.some((p) => {
+      const last = p.split(" ").pop();
+      return p.length > 4 && (nk.includes(p) || (last && last.length > 3 && nk.includes(last)));
+    });
   }).sort((a, b) => (b.dollar || 0) - (a.dollar || 0));
 }
 
@@ -1471,7 +1491,10 @@ function kalshiPropsForPlayer(player) {
 
 function previewAction(sample, best) {
   const props = kalshiPropsForGame(sample);
-  if (!props.length) return "";
+  if (!props.length) {
+    return `<div class="preview-card"><h3>Where the prop action is</h3>
+      <div class="muted">No Kalshi player props matched this game yet. Open Volume → Props after a refresh that writes kalshi.props.</div></div>`;
+  }
   const total = props.reduce((s, m) => s + (m.dollar || 0), 0);
   const script = gameScript(sample);
   const hits = props.slice(0, 8).map((m) => {
