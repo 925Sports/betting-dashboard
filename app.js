@@ -101,6 +101,7 @@ const state = {
   slip: [],
   previewGame: "",
   minBooks: true,
+  volFilter: "game",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -963,7 +964,12 @@ function renderGames() {
 
 function allKalshiMarkets() {
   const k = state.data?.kalshi || {};
-  return [...(k.ml || []), ...(k.spread || []), ...(k.total || []), ...(k.props || [])];
+  return [
+    ...(k.ml || []).map((m) => ({ ...m, kind: m.kind || "ml", bucket: "game" })),
+    ...(k.spread || []).map((m) => ({ ...m, kind: m.kind || "spread", bucket: "game" })),
+    ...(k.total || []).map((m) => ({ ...m, kind: m.kind || "total", bucket: "game" })),
+    ...(k.props || []).map((m) => ({ ...m, bucket: "props" })),
+  ];
 }
 
 function renderVolume() {
@@ -971,8 +977,29 @@ function renderVolume() {
   if (!wrap) return;
   wrap.style.display = state.section === "volume" ? "block" : "none";
   if (state.section !== "volume") return;
+  const picks = $("volPicks");
+  if (picks) {
+    const opts = [
+      ["all", "All"],
+      ["game", "Game bets"],
+      ["ml", "Moneyline"],
+      ["spread", "Spread"],
+      ["total", "Totals"],
+      ["props", "Props"],
+    ];
+    picks.innerHTML = opts.map(([k, lab]) =>
+      `<button type="button" class="book-pick ${state.volFilter === k ? "on" : ""}" data-vol="${k}">${lab}</button>`
+    ).join("");
+  }
   const q = ($("q")?.value || "").trim().toLowerCase();
+  const filt = state.volFilter || "game";
   const rows = allKalshiMarkets()
+    .filter((m) => {
+      if (filt === "all") return true;
+      if (filt === "game") return m.bucket === "game";
+      if (filt === "props") return m.bucket === "props";
+      return m.kind === filt;
+    })
     .filter((m) => !q || `${m.title} ${m.subtitle} ${m.kind}`.toLowerCase().includes(q))
     .sort((a, b) => (b.dollar || 0) - (a.dollar || 0));
   const slate = rows[0]?.slate_dollar || rows.reduce((s, m) => s + (m.dollar || 0), 0);
@@ -1312,15 +1339,16 @@ function bestGameBook(books, market, side) {
   return best;
 }
 
-function marketSideCard(label, best, hot, kalshiM) {
+function marketSideCard(label, best, hot, kalshiM, share, marketWord) {
   const meta = best ? BOOK_BY_KEY[best.book] : null;
   const book = best
     ? `${meta ? `${bookMark(meta, "sm")} ` : ""}${escapeHtml(meta?.name || best.book)} <b>${american(best.price)}</b>`
     : `<span class="muted">No price</span>`;
   let kLine = "";
   if (kalshiM && kalshiM.implied != null) {
-    const cash = kalshiM.flipped ? "No on the SEA-win ticker" : (moneyShort(kalshiM.dollar) || "");
-    kLine = `<div class="line-note">Kalshi ${kalshiM.implied}¢${kalshiM.implied != null ? ` ${american(centsToAmerican(kalshiM.implied))}` : ""}${cash ? ` · ${cash}` : ""}</div>`;
+    const cash = kalshiM.flipped ? "other side" : (moneyShort(kalshiM.dollar) || "");
+    const pct = !kalshiM.flipped && share != null ? ` · ${share}% of ${marketWord} $` : "";
+    kLine = `<div class="line-note">Kalshi ${kalshiM.implied}¢ ${american(centsToAmerican(kalshiM.implied))}${cash ? ` · ${cash}` : ""}${pct}</div>`;
   }
   return `<div class="gm-side ${hot ? "hot" : ""}">
     <div class="gm-line">${escapeHtml(label)}</div>
@@ -1378,9 +1406,21 @@ function previewGameMarkets(sample) {
   const k = state.data?.kalshi || {};
   const kWin = kalshiSides(k.ml, listed, "win");
   const kCov = kalshiSides(k.spread, listed, "cover");
+  const winPair = (kWin.home?.dollar || 0) + (kWin.away?.dollar || 0);
+  const covPair = (kCov.home?.dollar || 0) + (kCov.away?.dollar || 0);
   rows.forEach((r) => {
-    if (r.market === "Moneyline") { r.ka = kWin.home; r.kb = kWin.away; }
-    if (r.market === "Spread") { r.ka = kCov.home; r.kb = kCov.away; }
+    if (r.market === "Moneyline") {
+      r.ka = kWin.home; r.kb = kWin.away;
+      r.sa = volShare(kWin.home?.dollar, winPair);
+      r.sb = volShare(kWin.away?.dollar, winPair);
+      r.kw = "ML";
+    }
+    if (r.market === "Spread") {
+      r.ka = kCov.home; r.kb = kCov.away;
+      r.sa = volShare(kCov.home?.dollar, covPair);
+      r.sb = volShare(kCov.away?.dollar, covPair);
+      r.kw = "spread";
+    }
   });
   if (!rows.length) return "";
   return `<div class="preview-card">
@@ -1396,8 +1436,8 @@ function previewGameMarkets(sample) {
         return `<div class="gm-col">
           <div class="gm-lab">${escapeHtml(r.market)}</div>
           <div class="gm-pair">
-            ${marketSideCard(r.a, r.oa, hotA, r.ka)}
-            ${marketSideCard(r.b, r.ob, hotB, r.kb)}
+            ${marketSideCard(r.a, r.oa, hotA, r.ka, r.sa, r.kw)}
+            ${marketSideCard(r.b, r.ob, hotB, r.kb, r.sb, r.kw)}
           </div>
         </div>`;
       }).join("")}
@@ -1427,6 +1467,44 @@ function kalshiPropsForPlayer(player) {
     const t = nameKey(`${m.title || ""} ${m.subtitle || ""}`);
     return t.includes(key) || (last && last.length > 3 && t.includes(last));
   }).sort((a, b) => (b.dollar || 0) - (a.dollar || 0));
+}
+
+function previewAction(sample, best) {
+  const props = kalshiPropsForGame(sample);
+  if (!props.length) return "";
+  const total = props.reduce((s, m) => s + (m.dollar || 0), 0);
+  const script = gameScript(sample);
+  const hits = props.slice(0, 8).map((m) => {
+    const title = nameKey(m.title);
+    const match = (best || []).find((x) => {
+      const n = nameKey(x.r.player);
+      return n && (title.includes(n) || title.includes(n.split(" ").pop()));
+    });
+    let why = "";
+    if (match) {
+      why = `Also in Best Props: ${match.r.player} ${match.r.side} ${match.r.line ?? ""} ${match.r.stat}`;
+    } else if (script) {
+      const t = `${m.title || ""} ${m.subtitle || ""}`.toLowerCase();
+      const fav = String(script.favName || "").toLowerCase();
+      const dog = String(script.dogName || "").toLowerCase();
+      if (/rush|carry/.test(t) && fav && t.includes(nameKey(script.favName).split(" ").pop())) {
+        why = `Fits the script: ${script.fav} favorite should run if they lead.`;
+      } else if (/(pass|rec|receiving|passing)/.test(t) && dog && t.includes(nameKey(script.dogName).split(" ").pop())) {
+        why = `Fits the script: ${script.dog} trailing and throwing.`;
+      }
+    }
+    return { m, match, why, share: volShare(m.dollar, total) };
+  });
+  return `<div class="preview-card">
+    <h3>Where the prop action is</h3>
+    ${hits.map(({ m, why, share }) => `<div class="preview-prop">
+      <div><b>${escapeHtml((m.title || "").slice(0, 72))}</b>
+        <div class="corr-why">${m.implied != null ? m.implied + "¢" : ""} · ${moneyShort(m.dollar) || "$0"}${share != null ? ` · ${share}% of this game's Kalshi prop $` : ""}</div>
+        ${why ? `<div class="corr-why">${escapeHtml(why)}</div>` : ""}
+      </div>
+      <span>${moneyShort(m.dollar) || "—"}</span>
+    </div>`).join("")}
+  </div>`;
 }
 
 function previewKalshi(sample) {
@@ -1543,6 +1621,7 @@ function renderPreview() {
       <div class="preview-lines">${lineBits || `<span class="muted">No consensus game line yet</span>`}</div>
     </div>
     ${previewGameMarkets(sample)}
+    ${previewAction(sample, best)}
     <div class="preview-grid">
       <div class="preview-card">
         <h3>Best props</h3>
@@ -1692,6 +1771,13 @@ document.querySelectorAll(".tab[data-section]").forEach((btn) => {
     if ($("section")) $("section").value = state.section;
     render(true);
   });
+});
+
+document.addEventListener("click", (e) => {
+  const vol = e.target.closest("#volPicks [data-vol]");
+  if (!vol) return;
+  state.volFilter = vol.dataset.vol;
+  renderVolume();
 });
 
 $("bookPicks").addEventListener("click", (e) => {
