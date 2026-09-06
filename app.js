@@ -793,6 +793,37 @@ function renderGames() {
   renderSlip();
 }
 
+function allKalshiMarkets() {
+  const k = state.data?.kalshi || {};
+  return [...(k.ml || []), ...(k.spread || []), ...(k.total || [])];
+}
+
+function renderVolume() {
+  const wrap = $("volumeWrap");
+  if (!wrap) return;
+  wrap.style.display = state.section === "volume" ? "block" : "none";
+  if (state.section !== "volume") return;
+  const q = ($("q")?.value || "").trim().toLowerCase();
+  const rows = allKalshiMarkets()
+    .filter((m) => !q || `${m.title} ${m.subtitle} ${m.kind}`.toLowerCase().includes(q))
+    .sort((a, b) => (b.dollar || 0) - (a.dollar || 0));
+  const slate = rows[0]?.slate_dollar || rows.reduce((s, m) => s + (m.dollar || 0), 0);
+  $("volumeBody").innerHTML = rows.slice(0, 200).map((m, i) => `<tr>
+    <td>${i + 1}</td>
+    <td><div class="player">${escapeHtml(m.title || m.ticker || "")}</div>
+      <div class="game">${escapeHtml((m.kind || "").toUpperCase())} · ${escapeHtml((m.subtitle || "").slice(0, 40))}</div></td>
+    <td class="price">${m.implied != null ? m.implied + "¢" : "—"}</td>
+    <td>${moneyShort(m.dollar) || "—"}</td>
+    <td>${m.pct_event != null ? m.pct_event + "%" : "—"}</td>
+    <td>${m.pct_slate != null ? m.pct_slate + "%" : "—"}</td>
+    <td>${moneyShort(m.dollar_24h) || "—"}</td>
+    <td>${m.oi != null ? Math.round(m.oi).toLocaleString() : "—"}</td>
+  </tr>`).join("");
+  $("volumeEmpty").style.display = rows.length ? "none" : "block";
+  $("count").textContent = `${rows.length} Kalshi markets · slate ${moneyShort(slate) || "$0"}`;
+  $("updated").textContent = `Updated ${fmtWhen(state.data?.updated)} · Kalshi volume`;
+}
+
 function renderTicker() {
   const bar = $("newsTicker");
   const track = $("tickerTrack");
@@ -1331,7 +1362,7 @@ function renderPreview() {
 
 function renderIntelSections() {
   const intel = ["news", "injuries", "logs"].includes(state.section);
-  const propsWrap = document.querySelector(".table-wrap:not(#gamesWrap):not(#newsWrap):not(#injWrap):not(#logsWrap)");
+  const propsWrap = $("propsWrap") || document.querySelector("#propsWrap");
   const books = document.querySelector(".books-bar");
   const filt = document.querySelector(".filters");
   if (propsWrap) propsWrap.style.display = (state.section === "props") ? "block" : "none";
@@ -1342,7 +1373,7 @@ function renderIntelSections() {
       el.style.display = intel || state.section === "stacks" ? "none" : "";
       return;
     }
-    el.style.display = intel || state.section === "games" || state.section === "stacks" || state.section === "preview" ? "none" : "";
+    el.style.display = intel || state.section === "games" || state.section === "stacks" || state.section === "preview" || state.section === "volume" ? "none" : "";
   });
   renderTicker();
   renderNews();
@@ -1356,9 +1387,10 @@ function renderIntelSections() {
 function render(full) {
   if (!state.data && !state.intel) return;
   syncTabs();
+  renderIntelSections();
+  renderGames();
+  renderVolume();
   if (full || !state.uiReady) {
-    renderIntelSections();
-    renderGames();
     const all = state.data?.props || [];
     fillWhen(all);
     if (state.data) {
@@ -1423,7 +1455,7 @@ document.querySelectorAll(".tab[data-section]").forEach((btn) => {
   btn.addEventListener("click", () => {
     state.section = btn.dataset.section;
     if ($("section")) $("section").value = state.section;
-    render();
+    render(true);
   });
 });
 
@@ -1549,10 +1581,17 @@ function betSummary(focus, recs, oppRow) {
   return rows.join("");
 }
 
+function nameKey(s) {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
 function openPlayerPopup(player, eventId, market, side) {
   const all = state.data?.props || [];
-  const mine = all.filter((r) => r.player === player);
-  let focus = mine.find((r) => r.event_id === eventId && r.market === market && r.side === side) || mine[0];
+  const key = nameKey(player);
+  const mine = all.filter((r) => r.player === player || nameKey(r.player) === key);
+  let focus = mine.find((r) => String(r.event_id || "") === String(eventId || "") && String(r.market || "") === String(market || "") && String(r.side || "") === String(side || ""))
+    || mine.find((r) => String(r.side || "") === String(side || "") && String(r.market || "") === String(market || ""))
+    || mine[0];
   if (!focus) {
     const meta = intelPlayer(player);
     const inj = (state.intel?.injuries || []).find((i) => i.name === player || i.gsis_id === meta?.gsis_id);
@@ -1568,7 +1607,7 @@ function openPlayerPopup(player, eventId, market, side) {
   }
   const edge = rowEdge(focus);
   const oppSide = focus.side === "Over" ? "Under" : focus.side === "Under" ? "Over" : focus.side === "Yes" ? "No" : focus.side === "No" ? "Yes" : "";
-  const oppRow = oppSide ? (mine.find((r) => r.stat === focus.stat && r.game === focus.game && r.side === oppSide)
+  let oppRow = oppSide ? (mine.find((r) => r.stat === focus.stat && r.game === focus.game && r.side === oppSide)
     || mine.find((r) => r.stat === focus.stat && r.side === oppSide)) : null;
   focus = { ...focus, books: mergeBooks(focus.books) };
   if (oppRow) oppRow = { ...oppRow, books: mergeBooks(oppRow.books) };
