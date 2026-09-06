@@ -1460,6 +1460,23 @@ function previewGameMarkets(sample) {
   </div>`;
 }
 
+function formatKalshiProp(m, side) {
+  const raw = String(m?.title || "").replace(/\s+/g, " ").trim();
+  const parts = raw.split(":");
+  const player = (parts[0] || "").trim();
+  let rest = (parts.slice(1).join(":") || raw).trim();
+  rest = rest.replace(/^(over|under)\s+/i, "");
+  rest = rest.replace(/\b([a-z])/g, (ch) => ch.toUpperCase());
+  const under = /under|no/i.test(String(side || "Over"));
+  const mark = under
+    ? `<span class="tag under" title="Under">↓</span>`
+    : `<span class="tag over" title="Over">↑</span>`;
+  if (player && rest && player.toLowerCase() !== rest.toLowerCase()) {
+    return `${escapeHtml(player)} ${mark} ${escapeHtml(rest)}`;
+  }
+  return `${mark} ${escapeHtml(raw)}`;
+}
+
 function kalshiPropsForGame(sample) {
   const list = state.data?.kalshi?.props || [];
   if (!list.length || !sample) return [];
@@ -1521,11 +1538,11 @@ function previewAction(sample, best) {
   return `<div class="preview-card">
     <h3>Where the prop action is</h3>
     ${hits.map(({ m, why, share }) => `<div class="preview-prop">
-      <div><b>${escapeHtml((m.title || "").slice(0, 72))}</b>
-        <div class="corr-why">${m.implied != null ? m.implied + "¢" : ""} · ${moneyShort(m.dollar) || "$0"}${share != null ? ` · ${share}% of this game's Kalshi prop $` : ""}</div>
+      <div><b>${formatKalshiProp(m, "Over")}</b>
+        <div class="corr-why">Yes ${m.implied != null ? m.implied + "¢" : ""} (${american(centsToAmerican(m.implied))}) · ${moneyShort(m.dollar) || "$0"}${share != null ? ` · ${share}% of this game's Kalshi prop $` : ""}</div>
         ${why ? `<div class="corr-why">${escapeHtml(why)}</div>` : ""}
       </div>
-      <span>${moneyShort(m.dollar) || "—"}</span>
+      <span>${share != null ? share + "%" : moneyShort(m.dollar) || "—"}</span>
     </div>`).join("")}
   </div>`;
 }
@@ -1570,13 +1587,18 @@ function previewKalshi(sample) {
     </tr>`).join("")}</tbody>
   </table>
   <div class="corr-why">Price ¢ = chance that bet hits. Share = this side’s $ vs the other side in the same market. A 13.5 alt is not the game spread.</div>` : "";
-  const propHtml = props.length ? `<div style="margin-top:10px"><b>Player props on Kalshi</b>
-    <table class="popup-table">${props.map((m) => `<tr>
-      <td>${escapeHtml((m.title || "").slice(0, 72))}</td>
+  const propPool = props.reduce((s, m) => s + (m.dollar || 0), 0);
+  const propHtml = props.length ? `<div style="margin-top:10px"><b>Player props on Kalshi · Over / Yes</b>
+    <table class="popup-table">
+      <thead><tr><th>Over bet</th><th>Yes ¢</th><th>American</th><th>$ traded</th><th>% of game prop $</th></tr></thead>
+      <tbody>${props.map((m) => `<tr>
+      <td>${formatKalshiProp(m, "Over")}</td>
       <td>${m.implied != null ? m.implied + "¢" : ""}</td>
       <td>${american(centsToAmerican(m.implied))}</td>
       <td>${moneyShort(m.dollar) || "—"}</td>
-    </tr>`).join("")}</table></div>` : "";
+      <td>${volShare(m.dollar, propPool) != null ? volShare(m.dollar, propPool) + "%" : "—"}</td>
+    </tr>`).join("")}</tbody></table>
+    <div class="corr-why">Each row is the Over (Yes on that threshold). Under is No on the same ticker. % is this contract’s $ vs all Kalshi player-prop $ on this game.</div></div>` : "";
   return `<div class="preview-card" style="margin-top:10px"><h3>Kalshi</h3>${table}${propHtml}</div>`;
 }
 
