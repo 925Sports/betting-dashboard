@@ -35,6 +35,7 @@
       <button class="tab" data-view="ev" type="button">+EV Only</button>
       <button class="tab" data-view="all" type="button">All Props</button>
       <button class="tab" data-section="preview" type="button">Game Preview</button>
+      <button class="tab" data-section="volume" type="button">Volume</button>
     </nav>
     <div class="meta" id="updated">Loading…</div>
   </header>
@@ -56,6 +57,7 @@
         <option value="props">Player props</option>
         <option value="preview">Game preview</option>
         <option value="games">Game lines</option>
+        <option value="volume">Kalshi volume</option>
         <option value="news">NFL news</option>
         <option value="injuries">NFL injuries</option>
         <option value="logs">NFL player logs</option>
@@ -109,7 +111,7 @@
       <button type="button" class="tab" id="booksReset">Default books</button>
     </div>
 
-    <div class="table-wrap">
+    <div class="table-wrap" id="propsWrap">
       <table>
         <thead>
           <tr id="headrow"></tr>
@@ -206,6 +208,24 @@
       <div class="empty" id="stacksEmpty" style="display:none">No NFL stack games yet.</div>
     </div>
 
+    <div class="table-wrap" id="volumeWrap" style="display:none">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Market</th>
+            <th>Yes ¢</th>
+            <th>$ Volume</th>
+            <th>% Game</th>
+            <th>% Slate</th>
+            <th>24h $</th>
+            <th>OI</th>
+          </tr>
+        </thead>
+        <tbody id="volumeBody"></tbody>
+      </table>
+      <div class="empty" id="volumeEmpty" style="display:none">No Kalshi volume yet. Run the Action after pushing the volume fields.</div>
+    </div>
     <div class="table-wrap" id="gamesWrap" style="display:none">
       <table>
         <thead>
