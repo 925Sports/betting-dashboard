@@ -530,3 +530,10 @@ th[data-key="line"], td.line-cell, td.line-stack {
   opacity: 0.85;
   cursor: default;
 }
+.preview-fold summary {
+  cursor: pointer;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.preview-fold summary::before { content: "▸ "; color: var(--muted); }
+.preview-fold[open] summary::before { content: "▾ "; }
