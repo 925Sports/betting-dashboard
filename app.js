@@ -744,7 +744,22 @@ function moneyShort(n) {
 }
 
 function teamTokens(name) {
-  return String(name || "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !["the", "pro", "football", "team"].includes(w));
+  const raw = String(name || "").trim();
+  const skip = new Set(["the", "pro", "football", "team", "game"]);
+  const out = new Set();
+  const add = (s) => String(s || "").toLowerCase().split(/[^a-z0-9]+/).forEach((w) => {
+    if (w.length >= 2 && !skip.has(w)) out.add(w);
+  });
+  add(raw);
+  const up = raw.toUpperCase();
+  Object.entries(TEAM_ABBR).forEach(([full, ab]) => {
+    if (up === ab || raw.toLowerCase() === full.toLowerCase()) add(full);
+  });
+  return [...out];
+}
+
+function hasTeamToken(text, tokens) {
+  return tokens.filter((tok) => tok.length >= 3 && new RegExp(`(?:^|[^a-z0-9])${tok}(?:[^a-z0-9]|$)`).test(text)).length;
 }
 
 function kalshiMatch(list, game) {
@@ -752,20 +767,68 @@ function kalshiMatch(list, game) {
   return sides.home || sides.away || null;
 }
 
-function kalshiSides(list, game) {
+function outcomeClause(m) {
+  const raw = `${m.subtitle || ""} ${m.title || ""}`;
+  const parts = raw.split(":");
+  return parts[parts.length - 1].toLowerCase();
+}
+
+function parseKalshiPts(m) {
+  const t = `${m.title || ""} ${m.subtitle || ""}`;
+  const hit = t.match(/over\s+(\d+(?:\.\d+)?)/i) || t.match(/by\s+(\d+(?:\.\d+)?)/i);
+  return hit ? Number(hit[1]) : null;
+}
+
+function kalshiSides(list, game, kind) {
+  kind = kind || "win";
   const homeTok = teamTokens(game.home_team);
   const awayTok = teamTokens(game.away_team);
-  const pick = (want, other) => {
-    const hits = (list || []).filter((m) => {
-      const t = `${m.title || ""} ${m.subtitle || ""}`.toLowerCase();
-      const w = want.filter((x) => t.includes(x)).length;
-      const o = other.filter((x) => t.includes(x)).length;
-      return w > 0 && w >= o;
-    });
-    hits.sort((a, b) => (b.dollar || 0) - (a.dollar || 0));
-    return hits[0] || null;
+  const spread = Math.abs(Number(game.spread));
+  const scored = (list || []).map((m) => {
+    const clause = outcomeClause(m);
+    const full = `${m.title || ""} ${m.subtitle || ""}`.toLowerCase();
+    const isSpread = /wins by|cover|over \d/.test(`${clause} ${full}`);
+    if (kind === "win" && isSpread) return null;
+    if (kind === "cover" && !isSpread) return null;
+    if (kind === "total" && !/over|under|total/.test(full)) return null;
+    const text = clause.length > 6 ? clause : full;
+    const h = hasTeamToken(text, homeTok);
+    const a = hasTeamToken(text, awayTok);
+    let side = null;
+    if (h > a) side = "home";
+    else if (a > h) side = "away";
+    return { m, side, pts: parseKalshiPts(m), dollar: m.dollar || 0 };
+  }).filter(Boolean);
+
+  const pickSide = (side) => {
+    let pool = scored.filter((x) => x.side === side);
+    if (kind === "cover" && Number.isFinite(spread)) {
+      pool = [...pool].sort((a, b) => {
+        const da = a.pts == null ? 99 : Math.abs(a.pts - spread);
+        const db = b.pts == null ? 99 : Math.abs(b.pts - spread);
+        return da - db || b.dollar - a.dollar;
+      });
+    } else {
+      pool.sort((a, b) => b.dollar - a.dollar);
+    }
+    return pool[0]?.m || null;
   };
-  return { home: pick(homeTok, awayTok), away: pick(awayTok, homeTok) };
+  let homeM = pickSide("home");
+  let awayM = pickSide("away");
+  if (homeM && !awayM) awayM = flipKalshi(homeM);
+  else if (awayM && !homeM) homeM = flipKalshi(awayM);
+  return { home: homeM, away: awayM };
+}
+
+function flipKalshi(m) {
+  if (!m || m.implied == null) return null;
+  return {
+    ...m,
+    implied: +(100 - Number(m.implied)).toFixed(1),
+    title: `${m.title || ""} (No side)`,
+    dollar: null,
+    flipped: true,
+  };
 }
 
 function volShare(part, total) {
@@ -784,14 +847,14 @@ function kalshiPairBlock(m, label, pairCash, marketWord) {
   </div>`;
 }
 
-function kalshiCell(list, game) {
+function kalshiCell(list, game, kind) {
   if (typeof game === "string") {
     const hit = (list || []).find((m) => (m.title || "").toLowerCase().includes(game.toLowerCase()));
     if (!hit) return `<span class="muted">—</span>`;
     return `<div class="price">${hit.implied != null ? hit.implied + "¢ price" : "—"}</div>
       <div class="line-note">${moneyShort(hit.dollar) || ""}</div>`;
   }
-  const sides = kalshiSides(list, game || {});
+  const sides = kalshiSides(list, game || {}, kind || "win");
   if (!sides.home && !sides.away) return `<span class="muted">—</span>`;
   const pair = (sides.away?.dollar || 0) + (sides.home?.dollar || 0);
   return `${kalshiPairBlock(sides.away, abbr(game.away_team) || "Away", pair, "this market")}
@@ -887,9 +950,9 @@ function renderGames() {
       <td class="line-stack"><div class="line-num">${g.total ?? "—"}</div>${g.total_proj != null ? `<div class="line-note">proj ${g.total_proj}</div>` : ""}</td>
       <td class="price">${american(g.ml_away)}<div class="line-note">${bookImplied(g.ml_away) != null ? bookImplied(g.ml_away).toFixed(1) + "%" : ""}</div></td>
       <td class="price">${american(g.ml_home)}<div class="line-note">${bookImplied(g.ml_home) != null ? bookImplied(g.ml_home).toFixed(1) + "%" : ""}</div></td>
-      <td>${kalshiCell(k.ml, g)}</td>
-      <td>${kalshiCell(k.spread, g)}</td>
-      <td>${kalshiCell(k.total, g)}</td>
+      <td>${kalshiCell(k.ml, g, "win")}</td>
+      <td>${kalshiCell(k.spread, g, "cover")}</td>
+      <td>${kalshiCell(k.total, g, "total")}</td>
       <td class="${edge != null && edge >= 0 ? "" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</td>
     </tr>`;
   }).join("");
@@ -1249,14 +1312,20 @@ function bestGameBook(books, market, side) {
   return best;
 }
 
-function marketSideCard(label, best, hot) {
+function marketSideCard(label, best, hot, kalshiM) {
   const meta = best ? BOOK_BY_KEY[best.book] : null;
   const book = best
     ? `${meta ? `${bookMark(meta, "sm")} ` : ""}${escapeHtml(meta?.name || best.book)} <b>${american(best.price)}</b>`
     : `<span class="muted">No price</span>`;
+  let kLine = "";
+  if (kalshiM && kalshiM.implied != null) {
+    const cash = kalshiM.flipped ? "No on the SEA-win ticker" : (moneyShort(kalshiM.dollar) || "");
+    kLine = `<div class="line-note">Kalshi ${kalshiM.implied}¢${kalshiM.implied != null ? ` ${american(centsToAmerican(kalshiM.implied))}` : ""}${cash ? ` · ${cash}` : ""}</div>`;
+  }
   return `<div class="gm-side ${hot ? "hot" : ""}">
     <div class="gm-line">${escapeHtml(label)}</div>
     <div class="gm-book">${book}</div>
+    ${kLine}
   </div>`;
 }
 
@@ -1281,6 +1350,7 @@ function previewGameMarkets(sample) {
       oa: bestGameBook(books, "spread", "home"),
       ob: bestGameBook(books, "spread", "away"),
       leanA: listed.spread_proj != null && n != null ? Number(listed.spread_proj) < n : null,
+      ka: null, kb: null, kkind: "cover",
     });
   }
   if (t != null || bestGameBook(books, "total", "over") || bestGameBook(books, "total", "under")) {
@@ -1305,6 +1375,13 @@ function previewGameMarkets(sample) {
       leanA: listed.ml_home != null && listed.ml_away != null ? Number(listed.ml_home) < Number(listed.ml_away) : null,
     });
   }
+  const k = state.data?.kalshi || {};
+  const kWin = kalshiSides(k.ml, listed, "win");
+  const kCov = kalshiSides(k.spread, listed, "cover");
+  rows.forEach((r) => {
+    if (r.market === "Moneyline") { r.ka = kWin.home; r.kb = kWin.away; }
+    if (r.market === "Spread") { r.ka = kCov.home; r.kb = kCov.away; }
+  });
   if (!rows.length) return "";
   return `<div class="preview-card">
     <h3>Game markets · best book</h3>
@@ -1319,8 +1396,8 @@ function previewGameMarkets(sample) {
         return `<div class="gm-col">
           <div class="gm-lab">${escapeHtml(r.market)}</div>
           <div class="gm-pair">
-            ${marketSideCard(r.a, r.oa, hotA)}
-            ${marketSideCard(r.b, r.ob, hotB)}
+            ${marketSideCard(r.a, r.oa, hotA, r.ka)}
+            ${marketSideCard(r.b, r.ob, hotB, r.kb)}
           </div>
         </div>`;
       }).join("")}
@@ -1354,49 +1431,52 @@ function kalshiPropsForPlayer(player) {
 
 function previewKalshi(sample) {
   const k = state.data?.kalshi || {};
+  const away = abbr(sample.away_team) || "Away";
+  const home = abbr(sample.home_team) || "Home";
   const blocks = [
-    ["Moneyline · who wins", k.ml, "win"],
-    ["Spread · who covers", k.spread, "cover"],
-    ["Total", k.total, "total"],
+    ["Win", k.ml, "win"],
+    ["Cover", k.spread, "cover"],
   ];
+  const rows = [];
+  blocks.forEach(([lab, list, kind]) => {
+    const sides = kalshiSides(list, sample, kind);
+    const pair = (sides.away?.dollar || 0) + (sides.home?.dollar || 0);
+    [["away", away, sides.away], ["home", home, sides.home]].forEach(([, name, m]) => {
+      if (!m) return;
+      rows.push({
+        market: lab,
+        name,
+        verb: kind === "cover" ? "covers" : "wins",
+        cents: m.implied,
+        amer: centsToAmerican(m.implied),
+        dollar: m.flipped ? null : m.dollar,
+        share: m.flipped ? null : volShare(m.dollar, pair),
+        pts: parseKalshiPts(m),
+        flipped: !!m.flipped,
+      });
+    });
+  });
   const props = kalshiPropsForGame(sample).slice(0, 6);
-  const away = abbr(sample.away_team) || sample.away_team || "Away";
-  const home = abbr(sample.home_team) || sample.home_team || "Home";
-  const hasSides = blocks.some(([, list]) => kalshiSides(list, sample).home || kalshiSides(list, sample).away);
-  if (!hasSides && !props.length) return "";
-  const board = `<div class="gm-board" style="margin-top:10px">${blocks.map(([lab, list, kind]) => {
-    const sides = kalshiSides(list, sample);
-    if (!sides.home && !sides.away) return "";
-    const pairCash = (sides.away?.dollar || 0) + (sides.home?.dollar || 0);
-    const marketWord = kind === "cover" ? "spread" : kind === "total" ? "total" : "moneyline";
-    const row = (m, name, verb) => {
-      if (!m) return `<div class="gm-side"><div class="gm-line">${escapeHtml(name)}</div><div class="muted">no Kalshi contract</div></div>`;
-      const share = volShare(m.dollar, pairCash);
-      return `<div class="gm-side">
-        <div class="gm-line">${escapeHtml(name)} ${kind === "total" ? "" : verb}</div>
-        <div class="gm-book">${m.implied != null ? `<b>${m.implied}¢</b> price (chance Yes pays)` : "—"}</div>
-        <div class="gm-book">${moneyShort(m.dollar) || "$0"} traded${share != null ? ` · <b>${share}%</b> of ${marketWord} $` : ""}</div>
-        <div class="line-note">${escapeHtml((m.title || "").slice(0, 70))}</div>
-      </div>`;
-    };
-    return `<div class="gm-col">
-      <div class="gm-lab">Kalshi ${lab}</div>
-      <div class="gm-pair">
-        ${row(sides.away, away, kind === "cover" ? "covers" : "wins")}
-        ${row(sides.home, home, kind === "cover" ? "covers" : "wins")}
-      </div>
-    </div>`;
-  }).join("")}</div>
-  <div class="corr-why">¢ = implied chance that side wins. $ = dollars traded on that contract. % = this side’s share of moneyline/spread/total dollars — not the same number as the ¢ price.</div>`;
-  const propHtml = props.length ? `<div class="preview-card" style="margin-top:10px"><h3>Kalshi player props · volume</h3>
-    ${props.map((m) => `<div class="preview-prop">
-      <div><b>${escapeHtml((m.title || "").slice(0, 80))}</b>
-        <div class="corr-why">${m.implied != null ? m.implied + "¢ Yes" : ""} · ${moneyShort(m.dollar) || "$0"} traded${m.pct_event != null ? ` · ${m.pct_event}% of game $` : ""}</div>
-      </div>
-      <span>${moneyShort(m.dollar) || "—"}</span>
-    </div>`).join("")}
-  </div>` : "";
-  return board + propHtml;
+  if (!rows.length && !props.length) return "";
+  const table = rows.length ? `<table class="popup-table" style="margin-top:8px">
+    <thead><tr><th>Bet</th><th>Price</th><th>American</th><th>$ traded</th><th>Share of that market</th></tr></thead>
+    <tbody>${rows.map((r) => `<tr>
+      <td><b>${escapeHtml(r.name)} ${r.verb}</b>${r.pts != null && r.market === "Cover" ? ` ${r.pts}` : ""}</td>
+      <td>${r.cents != null ? r.cents + "¢" : "—"}</td>
+      <td>${american(r.amer)}</td>
+      <td>${r.flipped ? "same contract" : (moneyShort(r.dollar) || "—")}</td>
+      <td>${r.flipped ? "No side" : (r.share != null ? r.share + "%" : "—")}</td>
+    </tr>`).join("")}</tbody>
+  </table>
+  <div class="corr-why">Price ¢ = chance that bet hits. Share = this side’s $ vs the other side in the same market. A 13.5 alt is not the game spread.</div>` : "";
+  const propHtml = props.length ? `<div style="margin-top:10px"><b>Player props on Kalshi</b>
+    <table class="popup-table">${props.map((m) => `<tr>
+      <td>${escapeHtml((m.title || "").slice(0, 72))}</td>
+      <td>${m.implied != null ? m.implied + "¢" : ""}</td>
+      <td>${american(centsToAmerican(m.implied))}</td>
+      <td>${moneyShort(m.dollar) || "—"}</td>
+    </tr>`).join("")}</table></div>` : "";
+  return `<div class="preview-card" style="margin-top:10px"><h3>Kalshi</h3>${table}${propHtml}</div>`;
 }
 
 function previewNews(sample) {
