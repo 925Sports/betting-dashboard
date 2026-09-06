@@ -1033,7 +1033,15 @@ def load_kalshi(sport: str):
     series = {
         "CFB": {"ml": "KXNCAAFGAME", "spread": "KXNCAAFSPREAD", "total": "KXNCAAFTOTAL"},
         "MLB": {"ml": "KXMLBGAME", "spread": "KXMLBSPREAD", "total": "KXMLBTOTAL"},
-        "NFL": {"ml": "KXNFLGAME", "spread": "KXNFLSPREAD", "total": "KXNFLTOTAL"},
+        "NFL": {
+            "ml": "KXNFLGAME", "spread": "KXNFLSPREAD", "total": "KXNFLTOTAL",
+            "pass_yds": "KXNFLPASSYDS", "pass_td": "KXNFLPASSTDS",
+            "pass_att": "KXNFLPASSATT", "pass_comp": "KXNFLPASSCOMP",
+            "rush_yds": "KXNFLRSHYDS", "rush_att": "KXNFLRSHATT",
+            "rec": "KXNFLREC", "rec_yds": "KXNFLRECYDS", "rush_rec_yds": "KXNFLRRYDS",
+            "td": "KXNFLTD", "any_td": "KXNFLANYTD",
+            "sacks": "KXNFLSACK", "tackles": "KXNFLTKL",
+        },
         "NBA": {"ml": "KXNBAGAME", "spread": "KXNBASPREAD", "total": "KXNBATOTAL"},
         "WNBA": {"ml": "KXWNBAGAME", "spread": "KXWNBASPREAD", "total": "KXWNBATOTAL"},
         "NHL": {"ml": "KXNHLGAME", "spread": "KXNHLSPREAD", "total": "KXNHLTOTAL"},
@@ -1043,7 +1051,17 @@ def load_kalshi(sport: str):
     out = {}
     pages = 2 if sport in {"NBA", "WNBA", "NHL"} else 6
     for kind, ticker in series.items():
-        out[kind] = [kalshi_price(m) for m in fetch_kalshi_series(ticker, pages=pages)]
+        kind_pages = 2 if kind not in {"ml", "spread", "total"} else pages
+        out[kind] = [kalshi_price(m) for m in fetch_kalshi_series(ticker, pages=kind_pages)]
+    # Flatten player-prop series into one list for the UI.
+    props = []
+    for kind, rows in list(out.items()):
+        if kind in {"ml", "spread", "total"}:
+            continue
+        for r in rows:
+            r["kind"] = kind
+            props.append(r)
+    out["props"] = props
     return attach_kalshi_share(out)
 
 
