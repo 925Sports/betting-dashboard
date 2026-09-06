@@ -482,10 +482,13 @@ function kalshiThreshold(title) {
 }
 
 function kalshiOffer(row) {
-  const list = state.data?.kalshi?.props || [];
-  if (!list.length || !row?.player) return null;
+  if (!state.booksOn.has("kalshi")) return null;
   const player = nameKey(row.player);
   const last = player.split(" ").pop();
+  const list = state.kalshiByFull?.get(player)
+    || ((last && (state.kalshiByLast?.get(last) || []).length === 1) ? state.kalshiByLast.get(last) : [])
+    || [];
+  if (!list.length || !row?.player) return null;
   const kind = kalshiKind(row.stat);
   const line = Number(row.line);
   const under = String(row.side || "").toLowerCase() === "under";
@@ -1506,12 +1509,28 @@ function kalshiPropsForPlayer(player) {
   }).sort((a, b) => (b.dollar || 0) - (a.dollar || 0));
 }
 
+function kalshiActionNote(m, best, sample) {
+  const title = nameKey(m.title);
+  const match = (best || []).find((x) => {
+    const n = nameKey(x.r.player);
+    return n && (title.includes(n) || title.includes(n.split(" ").pop()));
+  });
+  if (match) return `Best prop: ${match.r.player} ${match.r.side} ${match.r.line ?? ""} ${match.r.stat}`;
+  const script = gameScript(sample);
+  if (!script) return "";
+  const t = `${m.title || ""} ${m.subtitle || ""}`.toLowerCase();
+  if (/rush|carry/.test(t) && nameKey(script.favName).split(" ").pop() && t.includes(nameKey(script.favName).split(" ").pop())) {
+    return `Script: ${script.fav} favorite run`;
+  }
+  if (/(pass|rec|receiving|passing)/.test(t) && nameKey(script.dogName).split(" ").pop() && t.includes(nameKey(script.dogName).split(" ").pop())) {
+    return `Script: ${script.dog} trailing pass`;
+  }
+  return "";
+}
+
 function previewAction(sample, best) {
   const props = kalshiPropsForGame(sample);
-  if (!props.length) {
-    return `<div class="preview-card"><h3>Where the prop action is</h3>
-      <div class="muted">No Kalshi player props matched this game yet. Open Volume → Props after a refresh that writes kalshi.props.</div></div>`;
-  }
+  if (!props.length) return "";
   const total = props.reduce((s, m) => s + (m.dollar || 0), 0);
   const script = gameScript(sample);
   const hits = props.slice(0, 8).map((m) => {
@@ -1521,29 +1540,28 @@ function previewAction(sample, best) {
       return n && (title.includes(n) || title.includes(n.split(" ").pop()));
     });
     let why = "";
-    if (match) {
-      why = `Also in Best Props: ${match.r.player} ${match.r.side} ${match.r.line ?? ""} ${match.r.stat}`;
-    } else if (script) {
+    if (match) why = `Also in Best Props: ${match.r.player} ${match.r.side} ${match.r.line ?? ""} ${match.r.stat}`;
+    else if (script) {
       const t = `${m.title || ""} ${m.subtitle || ""}`.toLowerCase();
-      const fav = String(script.favName || "").toLowerCase();
-      const dog = String(script.dogName || "").toLowerCase();
-      if (/rush|carry/.test(t) && fav && t.includes(nameKey(script.favName).split(" ").pop())) {
+      if (/rush|carry/.test(t) && nameKey(script.favName).split(" ").pop() && t.includes(nameKey(script.favName).split(" ").pop())) {
         why = `Fits the script: ${script.fav} favorite should run if they lead.`;
-      } else if (/(pass|rec|receiving|passing)/.test(t) && dog && t.includes(nameKey(script.dogName).split(" ").pop())) {
+      } else if (/(pass|rec|receiving|passing)/.test(t) && nameKey(script.dogName).split(" ").pop() && t.includes(nameKey(script.dogName).split(" ").pop())) {
         why = `Fits the script: ${script.dog} trailing and throwing.`;
       }
     }
-    return { m, match, why, share: volShare(m.dollar, total) };
+    return { m, why, share: volShare(m.dollar, total) };
   });
   return `<div class="preview-card">
-    <h3>Where the prop action is</h3>
-    ${hits.map(({ m, why, share }) => `<div class="preview-prop">
-      <div><b>${formatKalshiProp(m, "Over")}</b>
-        <div class="corr-why">Yes ${m.implied != null ? m.implied + "¢" : ""} (${american(centsToAmerican(m.implied))}) · ${moneyShort(m.dollar) || "$0"}${share != null ? ` · ${share}% of this game's Kalshi prop $` : ""}</div>
-        ${why ? `<div class="corr-why">${escapeHtml(why)}</div>` : ""}
-      </div>
-      <span>${share != null ? share + "%" : moneyShort(m.dollar) || "—"}</span>
-    </div>`).join("")}
+    <details class="preview-fold">
+      <summary>Where the prop action is <span class="muted">${hits.length}</span></summary>
+      ${hits.map(({ m, why, share }) => `<div class="preview-prop">
+        <div><b>${formatKalshiProp(m, "Over")}</b>
+          <div class="corr-why">Yes ${m.implied != null ? m.implied + "¢" : ""} (${american(centsToAmerican(m.implied))}) · ${moneyShort(m.dollar) || "$0"}${share != null ? ` · ${share}% of this game's Kalshi prop $` : ""}</div>
+          ${why ? `<div class="corr-why">${escapeHtml(why)}</div>` : ""}
+        </div>
+        <span>${share != null ? share + "%" : "—"}</span>
+      </div>`).join("")}
+    </details>
   </div>`;
 }
 
@@ -1574,7 +1592,9 @@ function previewKalshi(sample) {
       });
     });
   });
-  const props = kalshiPropsForGame(sample).slice(0, 6);
+  const best = previewBest(rowsForGame(gameKeyOf(sample)));
+  const allProps = kalshiPropsForGame(sample);
+  const props = allProps.slice(0, 10);
   if (!rows.length && !props.length) return "";
   const table = rows.length ? `<table class="popup-table" style="margin-top:8px">
     <thead><tr><th>Bet</th><th>Price</th><th>American</th><th>$ traded</th><th>Share of that market</th></tr></thead>
@@ -1587,18 +1607,19 @@ function previewKalshi(sample) {
     </tr>`).join("")}</tbody>
   </table>
   <div class="corr-why">Price ¢ = chance that bet hits. Share = this side’s $ vs the other side in the same market. A 13.5 alt is not the game spread.</div>` : "";
-  const propPool = props.reduce((s, m) => s + (m.dollar || 0), 0);
+  const propPool = allProps.reduce((s, m) => s + (m.dollar || 0), 0);
   const propHtml = props.length ? `<div style="margin-top:10px"><b>Player props on Kalshi · Over / Yes</b>
     <table class="popup-table">
-      <thead><tr><th>Over bet</th><th>Yes ¢</th><th>American</th><th>$ traded</th><th>% of game prop $</th></tr></thead>
+      <thead><tr><th>Over bet</th><th>Yes ¢</th><th>American</th><th>$ traded</th><th>% of game prop $</th><th>Action</th></tr></thead>
       <tbody>${props.map((m) => `<tr>
       <td>${formatKalshiProp(m, "Over")}</td>
       <td>${m.implied != null ? m.implied + "¢" : ""}</td>
       <td>${american(centsToAmerican(m.implied))}</td>
       <td>${moneyShort(m.dollar) || "—"}</td>
       <td>${volShare(m.dollar, propPool) != null ? volShare(m.dollar, propPool) + "%" : "—"}</td>
+      <td class="corr-why">${escapeHtml(kalshiActionNote(m, best, sample) || "—")}</td>
     </tr>`).join("")}</tbody></table>
-    <div class="corr-why">Each row is the Over (Yes on that threshold). Under is No on the same ticker. % is this contract’s $ vs all Kalshi player-prop $ on this game.</div></div>` : "";
+    <div class="corr-why">Each row is the Over (Yes). Under is No on the same ticker. Action flags overlap with Best Props or the game script. % is this contract vs Kalshi player-prop $ on this game.</div></div>` : "";
   return `<div class="preview-card" style="margin-top:10px"><h3>Kalshi</h3>${table}${propHtml}</div>`;
 }
 
@@ -1719,12 +1740,12 @@ function renderPreview() {
   $("updated").textContent = `Updated ${fmtWhen(state.data?.updated)} · BE ${breakEven()}%`;
 }
 
-function renderIntelSections() {
+function showSectionWraps() {
   const intel = ["news", "injuries", "logs"].includes(state.section);
-  const propsWrap = $("propsWrap") || document.querySelector("#propsWrap");
+  const propsWrap = $("propsWrap");
   const books = document.querySelector(".books-bar");
   const filt = document.querySelector(".filters");
-  if (propsWrap) propsWrap.style.display = (state.section === "props") ? "block" : "none";
+  if (propsWrap) propsWrap.style.display = state.section === "props" ? "block" : "none";
   if (books) books.style.display = state.section === "props" ? "flex" : "none";
   if (filt) [...filt.querySelectorAll("select, label, input")].forEach((el) => {
     if (el.id === "sport" || el.id === "section" || el.id === "q") return;
@@ -1732,23 +1753,31 @@ function renderIntelSections() {
       el.style.display = intel || state.section === "stacks" ? "none" : "";
       return;
     }
-    el.style.display = intel || state.section === "games" || state.section === "stacks" || state.section === "preview" || state.section === "volume" ? "none" : "";
+    el.style.display = intel || ["games", "stacks", "preview", "volume"].includes(state.section) ? "none" : "";
   });
-  renderTicker();
-  renderNews();
-  renderInjuries();
-  renderLogs();
-  renderStacks();
-  renderPreview();
-  return intel;
+}
+
+function indexKalshi() {
+  const byFull = new Map();
+  const byLast = new Map();
+  (state.data?.kalshi?.props || []).forEach((m) => {
+    const playerPart = nameKey((m.title || "").split(":")[0]);
+    if (!playerPart) return;
+    if (!byFull.has(playerPart)) byFull.set(playerPart, []);
+    byFull.get(playerPart).push(m);
+    const last = playerPart.split(" ").pop();
+    if (!last) return;
+    if (!byLast.has(last)) byLast.set(last, []);
+    byLast.get(last).push(m);
+  });
+  state.kalshiByFull = byFull;
+  state.kalshiByLast = byLast;
 }
 
 function render(full) {
   if (!state.data && !state.intel) return;
   syncTabs();
-  renderIntelSections();
-  renderGames();
-  renderVolume();
+  showSectionWraps();
   if (full || !state.uiReady) {
     const all = state.data?.props || [];
     fillWhen(all);
@@ -1761,9 +1790,19 @@ function render(full) {
     }
     renderBookPicks();
     renderHead();
+    indexKalshi();
+    renderTicker();
     state.uiReady = true;
   }
-  if (state.section !== "props") return;
+  const sec = state.section;
+  if (sec === "preview") { renderPreview(); return; }
+  if (sec === "games") { renderGames(); return; }
+  if (sec === "volume") { renderVolume(); return; }
+  if (sec === "news") { renderNews(); return; }
+  if (sec === "injuries") { renderInjuries(); return; }
+  if (sec === "logs") { renderLogs(); return; }
+  if (sec === "stacks") { renderStacks(); return; }
+  if (sec !== "props") return;
   if (!state.data) return;
   const all = state.liveProps || state.data.props || [];
   const rows = sortRows(applyFilters(all));
@@ -1807,7 +1846,7 @@ document.querySelectorAll(".tab[data-view]").forEach((btn) => {
       state.section = "props";
       if ($("section")) $("section").value = "props";
     }
-    render(true);
+    render();
   });
 });
 document.querySelectorAll(".tab[data-section]").forEach((btn) => {
@@ -1835,6 +1874,7 @@ $("bookPicks").addEventListener("click", (e) => {
   } else {
     state.booksOn.add(key);
   }
+  renderHead();
   render();
 });
 
