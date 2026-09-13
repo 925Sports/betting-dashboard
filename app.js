@@ -1351,11 +1351,11 @@ function upcomingGames() {
 }
 
 function rowsForGame(game) {
-  const want = String(game || "");
+  const want = gameKeyOf({ game }) || String(game || "");
+  if (!want) return [];
   return (state.data?.props || []).filter((r) => {
     if (hasStarted(r.commence_time)) return false;
-    const key = gameKeyOf(r);
-    return key === want || r.game === want;
+    return gameKeyOf(r) === want;
   });
 }
 
@@ -1585,18 +1585,24 @@ function formatKalshiProp(m, side) {
 function kalshiPropsForGame(sample) {
   const list = state.data?.kalshi?.props || [];
   if (!list.length || !sample) return [];
-  const homeTok = teamTokens(sample.home_team);
-  const awayTok = teamTokens(sample.away_team);
-  const players = rowsForGame(gameKeyOf(sample)).map((r) => nameKey(r.player)).filter(Boolean);
+  const home = abbr(sample.home_team);
+  const away = abbr(sample.away_team);
+  const roster = new Set();
+  rowsForGame(gameKeyOf(sample)).forEach((r) => {
+    const team = abbr(rowTeam(r));
+    if (home && away && team && team !== home && team !== away) return;
+    const n = nameKey(r.player);
+    if (n) roster.add(n);
+  });
+  if (!roster.size) return [];
+  const names = [...roster];
   return list.filter((m) => {
-    const raw = `${m.title || ""} ${m.subtitle || ""}`;
-    const t = raw.toLowerCase();
-    const nk = nameKey(raw);
-    if (hasTeamToken(t, homeTok) || hasTeamToken(t, awayTok)) return true;
-    return players.some((p) => {
-      const last = p.split(" ").pop();
-      return p.length > 4 && (nk.includes(p) || (last && last.length > 3 && nk.includes(last)));
-    });
+    const playerPart = nameKey((m.title || "").split(":")[0]);
+    if (!playerPart) return false;
+    if (roster.has(playerPart)) return true;
+    const last = playerPart.split(" ").pop();
+    const hits = names.filter((n) => n.split(" ").pop() === last);
+    return hits.length === 1 && (playerPart === hits[0] || playerPart === last);
   }).sort((a, b) => (b.dollar || 0) - (a.dollar || 0));
 }
 
@@ -1615,7 +1621,7 @@ function kalshiActionNote(m, best, sample) {
   const title = nameKey(m.title);
   const match = (best || []).find((x) => {
     const n = nameKey(x.r.player);
-    return n && (title.includes(n) || title.includes(n.split(" ").pop()));
+    return n && title.includes(n);
   });
   if (match) return `Best prop: ${match.r.player} ${match.r.side} ${match.r.line ?? ""} ${match.r.stat}`;
   const script = gameScript(sample);
