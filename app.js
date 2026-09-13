@@ -1582,27 +1582,46 @@ function formatKalshiProp(m, side) {
   return `${mark} ${escapeHtml(raw)}`;
 }
 
+function gameTeams(sample) {
+  return new Set([abbr(sample?.home_team), abbr(sample?.away_team)].filter(Boolean));
+}
+
+function gameRosterNames(sample) {
+  const teams = gameTeams(sample);
+  const names = new Set();
+  const add = (name, team) => {
+    const n = nameKey(name);
+    if (!n) return;
+    const t = abbr(team);
+    if (teams.size && t !== undefined) {
+      if (!t || !teams.has(t)) return;
+    }
+    names.add(n);
+  };
+  rowsForGame(gameKeyOf(sample)).forEach((r) => add(r.player, rowTeam(r)));
+  Object.values(state.intel?.players || {}).forEach((p) => {
+    add(p.full_name || p.name || p.display_name, p.team);
+  });
+  return names;
+}
+
 function kalshiPropsForGame(sample) {
   const list = state.data?.kalshi?.props || [];
   if (!list.length || !sample) return [];
-  const home = abbr(sample.home_team);
-  const away = abbr(sample.away_team);
-  const roster = new Set();
-  rowsForGame(gameKeyOf(sample)).forEach((r) => {
-    const team = abbr(rowTeam(r));
-    if (home && away && team && team !== home && team !== away) return;
-    const n = nameKey(r.player);
-    if (n) roster.add(n);
-  });
+  const roster = gameRosterNames(sample);
   if (!roster.size) return [];
   const names = [...roster];
+  const lastCount = {};
+  names.forEach((n) => {
+    const last = n.split(" ").pop();
+    lastCount[last] = (lastCount[last] || 0) + 1;
+  });
   return list.filter((m) => {
     const playerPart = nameKey((m.title || "").split(":")[0]);
     if (!playerPart) return false;
     if (roster.has(playerPart)) return true;
     const last = playerPart.split(" ").pop();
-    const hits = names.filter((n) => n.split(" ").pop() === last);
-    return hits.length === 1 && (playerPart === hits[0] || playerPart === last);
+    return last && lastCount[last] === 1 && names.some((n) => n.split(" ").pop() === last);
   }).sort((a, b) => (b.dollar || 0) - (a.dollar || 0));
 }
 
@@ -1716,18 +1735,23 @@ function previewKalshi(sample) {
   </table>
   <div class="corr-why">Price ¢ = chance that bet hits. Share = this side’s $ vs the other side in the same market. A 13.5 alt is not the game spread.</div>` : "";
   const propPool = allProps.reduce((s, m) => s + (m.dollar || 0), 0);
-  const propHtml = props.length ? `<div style="margin-top:10px"><b>Player props on Kalshi · Over / Yes</b>
-    <table class="popup-table">
-      <thead><tr><th>Over bet</th><th>Yes ¢</th><th>American</th><th>$ traded</th><th>% of game prop $</th><th>Action</th></tr></thead>
-      <tbody>${props.map((m) => `<tr>
-      <td>${formatKalshiProp(m, "Over")}</td>
-      <td>${m.implied != null ? m.implied + "¢" : ""}</td>
-      <td>${american(centsToAmerican(m.implied))}</td>
-      <td>${moneyShort(m.dollar) || "—"}</td>
-      <td>${volShare(m.dollar, propPool) != null ? volShare(m.dollar, propPool) + "%" : "—"}</td>
-      <td class="corr-why">${escapeHtml(kalshiActionNote(m, best, sample) || "—")}</td>
-    </tr>`).join("")}</tbody></table>
-    <div class="corr-why">Each row is the Over (Yes). Under is No on the same ticker. Action flags overlap with Best Props or the game script. % is this contract vs Kalshi player-prop $ on this game.</div></div>` : "";
+  const who = escapeHtml(matchup(sample) || gameKeyOf(sample) || "this game");
+  const propHtml = props.length
+    ? `<div style="margin-top:10px"><b>Player props on Kalshi · Over / Yes</b>
+      <div class="corr-why">${who} only · ${allProps.length} matched</div>
+      <table class="popup-table">
+        <thead><tr><th>Over bet</th><th>Yes ¢</th><th>American</th><th>$ traded</th><th>% of game prop $</th><th>Action</th></tr></thead>
+        <tbody>${props.map((m) => `<tr>
+        <td>${formatKalshiProp(m, "Over")}</td>
+        <td>${m.implied != null ? m.implied + "¢" : ""}</td>
+        <td>${american(centsToAmerican(m.implied))}</td>
+        <td>${moneyShort(m.dollar) || "—"}</td>
+        <td>${volShare(m.dollar, propPool) != null ? volShare(m.dollar, propPool) + "%" : "—"}</td>
+        <td class="corr-why">${escapeHtml(kalshiActionNote(m, best, sample) || "—")}</td>
+      </tr>`).join("")}</tbody></table>
+      <div class="corr-why">Only players on this roster. Each row is the Over (Yes).</div></div>`
+    : `<div style="margin-top:10px"><b>Player props on Kalshi</b>
+      <div class="muted">No Kalshi player props matched the ${who} roster.</div></div>`;
   return `<div class="preview-card" style="margin-top:10px"><h3>Kalshi</h3>${table}${propHtml}</div>`;
 }
 
