@@ -57,6 +57,16 @@ const TEAM_ABBR = {
   "Tennessee Titans": "TEN", "Washington Commanders": "WAS",
 };
 
+const TEAM_NICK = {};
+Object.entries(TEAM_ABBR).forEach(([full, ab]) => {
+  TEAM_NICK[full.toLowerCase()] = ab;
+  TEAM_NICK[ab.toLowerCase()] = ab;
+  const nick = full.split(" ").pop();
+  if (nick && !["York", "Angeles", "Bay", "England", "Orleans", "City"].includes(nick)) {
+    TEAM_NICK[nick.toLowerCase()] = ab;
+  }
+});
+
 const STADIUMS = {
   ARI: "State Farm Stadium · Glendale, AZ", ATL: "Mercedes-Benz Stadium · Atlanta, GA",
   BAL: "M&T Bank Stadium · Baltimore, MD", BUF: "Highmark Stadium · Orchard Park, NY",
@@ -271,11 +281,27 @@ function sportsbookCount(row) {
   return Object.values(mergeBooks(row.books)).filter((b) => b && b.price != null).length;
 }
 
-function abbr(team) { return TEAM_ABBR[team] || team || ""; }
+const TEAM_CODE_NICK = {};
+Object.entries(TEAM_ABBR).forEach(([full, ab]) => {
+  TEAM_CODE_NICK[ab] = full.split(" ").pop();
+});
+
+function abbr(team) {
+  const raw = String(team || "").trim();
+  if (!raw) return "";
+  return TEAM_NICK[raw.toLowerCase()] || TEAM_ABBR[raw] || raw;
+}
+
+function teamLabel(team) {
+  const code = abbr(team);
+  if (!code) return "";
+  const nick = TEAM_CODE_NICK[code];
+  return nick && nick.toLowerCase() !== code.toLowerCase() ? `${code} ${nick}` : code;
+}
 
 function matchup(row) {
-  const away = abbr(row.away_team);
-  const home = abbr(row.home_team);
+  const away = teamLabel(row.away_team) || teamLabel(String(row.game || "").split("@")[0]);
+  const home = teamLabel(row.home_team) || teamLabel(String(row.game || "").split("@")[1]);
   if (!away && !home) return row.game || "";
   return `${away} @ ${home}`;
 }
@@ -1290,8 +1316,18 @@ function syncTabs() {
 }
 
 function gameKeyOf(row) {
-  if (row?.away_team && row?.home_team) return `${abbr(row.away_team)} @ ${abbr(row.home_team)}`;
-  return String(row?.game || "").trim();
+  let away = row?.away_team;
+  let home = row?.home_team;
+  const g = String(row?.game || "");
+  if ((!away || !home) && g.includes("@")) {
+    const parts = g.split("@");
+    away = away || parts[0].trim();
+    home = home || parts.slice(1).join("@").trim();
+  }
+  const a = abbr(away);
+  const h = abbr(home);
+  if (a && h) return `${a} @ ${h}`;
+  return g.trim();
 }
 
 function richerGame(a, b) {
