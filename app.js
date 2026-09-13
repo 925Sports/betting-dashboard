@@ -114,10 +114,21 @@ function american(price) {
 }
 
 function pickSize() { return Number($("picks").value || 5); }
-function breakEven() { return PP_BE[pickSize()] || 54.93; }
+function breakEven() {
+  if (state.view === "prophetx" || state.view === "novig") return 50;
+  return PP_BE[pickSize()] || 54.93;
+}
 
 function hitPct(row) {
   if (state.view === "ud" && row.pct_ud != null) return row.pct_ud;
+  if (state.view === "prophetx") {
+    const p = bookImplied(row.books?.prophetx?.price);
+    return p != null ? +p.toFixed(1) : row.pct_to_hit;
+  }
+  if (state.view === "novig") {
+    const p = bookImplied(row.books?.novig?.price);
+    return p != null ? +p.toFixed(1) : row.pct_to_hit;
+  }
   return row.pct_to_hit;
 }
 
@@ -534,11 +545,27 @@ function bookOffer(row, key) {
   return books[key] || row.books?.[key] || null;
 }
 
+function isYesNoLongshot(r) {
+  const line = Number(r.dfs?.underdog?.line ?? r.books?.prophetx?.line ?? r.books?.novig?.line ?? r.line);
+  if (line !== 0.5 && line !== 0) return false;
+  return /home run|stolen|touchdown|^hr$|hits|goals?(?!ie)/i.test(String(r.stat || ""));
+}
+
 function isStandardUd(r) {
   const u = r.dfs?.underdog;
   if (!u || u.line == null) return false;
   if (u.source !== "filter") return false;
   if (r.is_alternate) return false;
+  if (isYesNoLongshot(r)) return false;
+  return true;
+}
+
+function isStandardExchange(r, key) {
+  const b = r.books?.[key];
+  if (!b || b.price == null) return false;
+  if (r.is_alternate) return false;
+  if (Math.abs(Number(b.price)) >= 350) return false;
+  if (isYesNoLongshot(r) && Math.abs(Number(b.price)) >= 180) return false;
   return true;
 }
 
@@ -555,8 +582,8 @@ function applyFilters(rows) {
     if (state.view === "pp" && !r.dfs?.prizepicks) return false;
     if (state.view === "ud" && !isStandardUd(r)) return false;
     if (state.view === "pick6" && !r.dfs?.pick6) return false;
-    if (state.view === "prophetx" && !r.books?.prophetx) return false;
-    if (state.view === "novig" && !r.books?.novig) return false;
+    if (state.view === "prophetx" && !isStandardExchange(r, "prophetx")) return false;
+    if (state.view === "novig" && !isStandardExchange(r, "novig")) return false;
     if (state.view === "ev" && !(r.pct_to_hit >= be)) return false;
     if (state.view === "pp" || state.view === "ud" || state.view === "pick6" || state.view === "ev") {
       if (tier === "standard" && ((r.pp_tier && r.pp_tier !== "Standard") || r.is_alternate)) return false;
@@ -567,7 +594,7 @@ function applyFilters(rows) {
     if (hasStarted(r.commence_time)) return false;
     if (!matchesWhen(r.commence_time)) return false;
     if (state.minBooks && !isFantasyStat(r.stat) && sportsbookCount(r) < 2) return false;
-    if (game && r.game !== game) return false;
+    if (game && gameKeyOf(r) !== game && r.game !== game) return false;
     if (stat && r.stat !== stat) return false;
     if (side === "ou" && r.side !== "Over" && r.side !== "Under") return false;
     if (side && side !== "ou" && side !== "all" && r.side !== side) return false;
@@ -601,21 +628,60 @@ function displayLine(row) {
   return row.line;
 }
 
+function recTrue(row) {
+  const f = row.fantasy_cmp || {};
+  if (f.recs != null && f.recs !== "") return Number(f.recs);
+  const meta = intelPlayer(row.player);
+  const avg = avgLogs(intelLogs(row.gsis_id || meta?.gsis_id), "rec");
+  if (avg != null) return avg;
+  const key = nameKey(row.player);
+  const g = gameKeyOf(row);
+  const hit = (state.liveProps || state.data?.props || []).find((p) =>
+    nameKey(p.player) === key && gameKeyOf(p) === g && /reception/i.test(p.stat || "")
+  );
+  if (!hit) return null;
+  const n = Number(hit.avg_line ?? hit.book_line ?? hit.line);
+  return Number.isFinite(n) ? n : null;
+}
+
+function fantasyCmp(row) {
+  if (!isFantasyStat(row.stat)) return null;
+  const f = { ...(row.fantasy_cmp || {}) };
+  const pp = f.pp ?? row.dfs?.prizepicks?.line ?? null;
+  const ud = f.ud ?? row.dfs?.underdog?.line ?? null;
+  const sport = String(row.sport || "").toUpperCase();
+  const qb = /QB/i.test(row.pos || row.position || "");
+  const recs = recTrue(row);
+  let udAsPp = f.ud_as_pp;
+  let ppAsUd = f.pp_as_ud;
+  let mode = f.mode || "same";
+  if ((sport === "NFL" || sport === "CFB") && !qb) {
+    mode = recs != null ? "ppr_vs_half" : "ppr_vs_half_no_recs";
+    if (recs != null) {
+      if (ud != null) udAsPp = +(Number(ud) + 0.5 * recs).toFixed(2);
+      if (pp != null) ppAsUd = +(Number(pp) - 0.5 * recs).toFixed(2);
+    }
+  }
+  return { ...f, pp, ud, recs, ud_as_pp: udAsPp, pp_as_ud: ppAsUd, mode };
+}
+
 function fantasyNote(row) {
-  const f = row.fantasy_cmp;
-  if (!f || !/fantasy/i.test(row.stat || "")) return "";
+  const f = fantasyCmp(row);
+  if (!f) return "";
   const bits = [];
   if (f.recs != null) bits.push(`${f.recs} rec`);
   if (f.walks != null) bits.push(`${f.walks} bb`);
   if (f.doubles != null) bits.push(`${f.doubles} 2b`);
   if (f.steals != null) bits.push(`${f.steals} sb`);
   const extra = bits.length ? ` · ${bits.join(" / ")}` : "";
-  if (state.view === "pp" && f.ud != null && f.ud_as_pp != null) {
-    const txt = Number(f.ud) === Number(f.ud_as_pp) ? `UD ${f.ud}` : `UD ${f.ud} → ${f.ud_as_pp} PP`;
+  if (state.view === "pp" && f.ud != null) {
+    const shown = f.ud_as_pp != null ? f.ud_as_pp : f.ud;
+    const txt = Number(f.ud) === Number(shown) ? `UD ${f.ud}` : `UD ${f.ud} → ${shown} PP`;
     return `<div class="line-note">${txt}${extra}</div>`;
   }
-  if (state.view === "ud" && f.pp != null && f.pp_as_ud != null) {
-    const txt = Number(f.pp) === Number(f.pp_as_ud) ? `PP ${f.pp}` : `PP ${f.pp} → ${f.pp_as_ud} UD`;
+  if (state.view === "ud" && f.pp != null) {
+    const shown = f.pp_as_ud != null ? f.pp_as_ud : f.pp;
+    const txt = Number(f.pp) === Number(shown) ? `PP ${f.pp}` : `PP ${f.pp} → ${shown} UD`;
     return `<div class="line-note">${txt}${extra}</div>`;
   }
   return "";
@@ -625,9 +691,9 @@ function bookCell(row, key) {
   const src = bookOffer(row, key);
   if (!src) return `<td class="muted">—</td>`;
   const shown = displayLine(row);
-  const cmp = row.fantasy_cmp;
+  const cmp = fantasyCmp(row);
   let offerLine = src.line;
-  if (cmp && /fantasy/i.test(row.stat || "")) {
+  if (cmp) {
     if (state.view === "pp" && key === "underdog" && cmp.ud_as_pp != null) offerLine = cmp.ud_as_pp;
     if (state.view === "ud" && key === "prizepicks" && cmp.pp_as_ud != null) offerLine = cmp.pp_as_ud;
   }
@@ -1670,7 +1736,10 @@ function renderPreview() {
     gameKeyOf(g) === gameKeyOf(sample) || (g.home_team === sample.home_team && g.away_team === sample.away_team)
   ) || sample;
   const homeAbbr = abbr(sample.home_team);
-  const loc = STADIUMS[homeAbbr] || (sample.broadcasts ? String(sample.broadcasts) : `${sample.home_team || "Home"} stadium`);
+  const wxRow = rows.find((r) => r.weather || r.venue_name || r.venue_type) || sample;
+  const loc = STADIUMS[homeAbbr] || wxRow.venue_name || `${sample.home_team || "Home"} stadium`;
+  const wx = [wxRow.venue_type, wxRow.weather, wxRow.temp != null ? `${wxRow.temp}°` : ""].filter(Boolean).join(" · ");
+  const sportKey = String(sample.sport || "").toLowerCase();
   const lineBits = [
     sample.spread != null ? `<div class="preview-chip"><b>Spread</b>${escapeHtml(scriptLine(sample).split(" · ")[0] || String(sample.spread))}</div>` : "",
     sample.total != null ? `<div class="preview-chip"><b>Total</b>O/U ${Number(sample.total)}</div>` : "",
@@ -1679,11 +1748,11 @@ function renderPreview() {
     sample.total_proj != null ? `<div class="preview-chip"><b>Total proj</b>${sample.total_proj}</div>` : "",
   ].join("");
   main.innerHTML = `
-    <div class="preview-hero">
+    <div class="preview-hero" data-sport="${escapeHtml(sportKey)}">
       <div class="sport-tag">${escapeHtml(sample.sport || "")}</div>
       <h2>${escapeHtml(matchup(sample) || state.previewGame)}</h2>
       <div class="game">${escapeHtml(fmtWhen(sample.commence_time))}${sample.broadcasts ? ` · ${escapeHtml(sample.broadcasts)}` : ""}</div>
-      <div class="script">${escapeHtml(loc)}</div>
+      <div class="script">${venueIcon(wxRow)} ${escapeHtml(loc)}${wx ? ` · ${weatherIcon(wxRow)} ${escapeHtml(wx)}` : ""}</div>
       <div class="preview-lines">${lineBits || `<span class="muted">No consensus game line yet</span>`}</div>
     </div>
     ${previewGameMarkets(sample)}
@@ -1783,7 +1852,7 @@ function render(full) {
     fillWhen(all);
     if (state.data) {
       $("updated").textContent = `Updated ${fmtWhen(state.data.updated)} · BE ${breakEven()}%`;
-      fillSelect($("game"), unique(all.map((r) => r.game)).sort(), "All games");
+      fillSelect($("game"), unique(all.map((r) => gameKeyOf(r)).filter(Boolean)).sort(), "All games");
       const stats = unique(all.map((r) => r.stat));
       const coreFirst = [...stats.filter((s) => CORE_STATS.has(s)).sort(), ...stats.filter((s) => !CORE_STATS.has(s)).sort()];
       fillSelect($("stat"), coreFirst, "All props");
