@@ -811,10 +811,11 @@ def attach_fantasy_compare(rows):
     """
     groups = defaultdict(list)
     for r in rows:
-        groups[(norm_name(r.get("player")), r.get("game") or "")].append(r)
+        gkey = base.game_key(r.get("away_team"), r.get("home_team")) or (r.get("game") or "")
+        groups[(norm_name(r.get("player")), gkey)].append(r)
     n = 0
     for group in groups.values():
-        recs = stat_true(group, ["Receptions"])
+        recs = stat_true(group, ["Receptions", "Rec", "REC", "Reception", "Catches"])
         walks = stat_true(group, ["Walks", "Batter Walks", "BB", "HBP", "Walks + HBP"])
         doubles = stat_true(group, ["Doubles"])
         steals = stat_true(group, ["Stolen Bases", "SB"])
@@ -860,6 +861,8 @@ def attach_fantasy_compare(rows):
                         pp_as_ud = round(float(pp_line) - 0.5 * recs, 2)
                 else:
                     mode = "ppr_vs_half_no_recs"
+                    ud_as_pp = ud_line
+                    pp_as_ud = pp_line
             elif sport == "MLB" and "pitcher" not in str(r.get("stat") or "").lower():
                 mode = "mlb_hitter"
                 bb, two_b, sb = walks or 0.0, doubles or 0.0, steals or 0.0
