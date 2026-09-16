@@ -539,13 +539,14 @@ function renderSplitChart(focus, recs) {
     if (v == null) cls = "void";
     else if (ln == null) cls = "void";
     else if (v === ln) cls = "push";
-    else if (over ? v > ln : v < ln) cls = "hit";
+    else if (v > ln) cls = "hit";
+    else cls = "miss";
     return { g, v, cls, lab: logBarLabel(g) };
   });
   const maxV = Math.max(...bars.map((b) => b.v || 0), ln || 0, 1);
   const linePct = ln == null ? 0 : Math.round((ln / maxV) * 100);
   return `<h4 style="margin:16px 0 8px">Recent vs ${escapeHtml(focus.side || "")} ${focus.line ?? ""} ${escapeHtml(focus.stat || "")}</h4>
-    <div class="split-note">${state.intel?.has_2026_logs ? "" : "2025 logs until Week 1 · "}green cashed · red missed · gray push</div>
+    <div class="split-note">${state.intel?.has_2026_logs ? "" : "2025 logs until Week 1 · "}green = over the line · red = under · gray = push</div>
     <div class="log-bars">
       ${bars.map((b) => {
         const h = b.v == null ? 4 : Math.max(6, Math.round((b.v / maxV) * 100));
@@ -728,7 +729,7 @@ function applyFilters(rows) {
     if (state.view === "polymarket" && !r.books?.polymarket) return false;
     if (state.view === "ev" && !(r.pct_to_hit >= be)) return false;
     if (state.view === "pp" || state.view === "ud" || state.view === "pick6" || state.view === "ev") {
-      if (tier === "standard" && ((r.pp_tier && r.pp_tier !== "Standard") || r.is_alternate)) return false;
+      if (tier === "standard" && !isFantasyStat(r.stat) && ((r.pp_tier && r.pp_tier !== "Standard") || r.is_alternate)) return false;
       if (tier === "demon" && r.pp_tier !== "Demon") return false;
       if (tier === "goblin" && r.pp_tier !== "Goblin") return false;
       if (tier === "alternate" && r.pp_tier !== "Alternate" && !r.is_alternate) return false;
@@ -2237,6 +2238,26 @@ function nameKey(s) {
   return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+function standardishLines(rows) {
+  const best = new Map();
+  (rows || []).forEach((r) => {
+    if (!r?.stat) return;
+    if (r.pp_tier && !["Standard", "Goblin"].includes(r.pp_tier) && !isFantasyStat(r.stat)) return;
+    if (r.is_alternate && !isFantasyStat(r.stat)) return;
+    const key = `${nameKey(r.player)}|${r.stat}|${gameKeyOf(r)}`;
+    const ref = r.avg_line ?? r.book_line;
+    const dist = (r.line != null && ref != null) ? Math.abs(Number(r.line) - Number(ref)) : 0;
+    const score = (isFantasyStat(r.stat) ? 8 : 0)
+      + (r.dfs?.prizepicks ? 4 : 0)
+      + (r.pp_tier === "Standard" || !r.pp_tier ? 3 : 0)
+      + (r.dfs?.underdog ? 1 : 0)
+      - dist;
+    const prev = best.get(key);
+    if (!prev || score > prev.score) best.set(key, { r, score });
+  });
+  return [...best.values()].map((x) => x.r).sort((a, b) => String(a.stat).localeCompare(String(b.stat)));
+}
+
 function openPlayerPopup(player, eventId, market, side) {
   const all = state.data?.props || [];
   const key = nameKey(player);
@@ -2266,9 +2287,7 @@ function openPlayerPopup(player, eventId, market, side) {
   const bookKeys = unique([...Object.keys(focus.books || {}), ...Object.keys(oppRow?.books || {})]).sort();
   const dfs = Object.entries(focus.dfs || {});
   const oppDfs = Object.entries(oppRow?.dfs || {});
-  const others = mine
-    .filter((r) => !(r.event_id === focus.event_id && r.market === focus.market && r.side === focus.side))
-    .sort((a, b) => String(a.stat).localeCompare(String(b.stat)));
+  const others = standardishLines(mine.filter((r) => !(r.event_id === focus.event_id && r.stat === focus.stat && r.side === focus.side)));
   const meta = intelPlayer(player);
   const gsis = focus.gsis_id || meta?.gsis_id;
   const recs = intelLogs(gsis);
@@ -2383,7 +2402,6 @@ function openPlayerPopup(player, eventId, market, side) {
       <button type="button" class="tab on" id="popupSlip">Add to PP slip</button>
       <a class="tab" href="${ppSlipLink(focus)}" target="_blank" rel="noopener">Open this pick in PrizePicks</a>
     </div>
-    ${others.length ? `<h4 style="margin:16px 0 8px">Other ${escapeHtml(player)} props</h4>
     ${kProps.length ? `<h4 style="margin:16px 0 8px">Kalshi volume</h4>
       <table class="popup-table">
         <thead><tr><th>Market</th><th>Yes ¢</th><th>$ Vol</th><th>% game</th></tr></thead>
@@ -2394,10 +2412,12 @@ function openPlayerPopup(player, eventId, market, side) {
           <td>${m.pct_event != null ? m.pct_event + "%" : "—"}</td>
         </tr>`).join("")}</tbody>
       </table>` : ""}
+    ${others.length ? `<h4 style="margin:16px 0 8px">Other standard-ish lines</h4>
+    <div class="corr-why">Click a row to open that bet.</div>
     <table class="popup-table">
       <thead><tr><th>Stat</th><th>Side</th><th>Line</th><th>% to hit</th></tr></thead>
       <tbody>
-        ${others.slice(0, 24).map((r) => `<tr>
+        ${others.slice(0, 20).map((r) => `<tr class="popup-line" role="button" data-player="${escapeHtml(r.player)}" data-event="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || r.stat || "")}" data-side="${escapeHtml(r.side || "")}">
           <td>${escapeHtml(r.stat)}</td><td>${escapeHtml(r.side)}</td>
           <td>${r.line ?? "—"}</td><td>${r.pct_to_hit != null ? r.pct_to_hit.toFixed(1) + "%" : "—"}</td>
         </tr>`).join("")}
@@ -2411,6 +2431,11 @@ function openPlayerPopup(player, eventId, market, side) {
 }
 
 document.addEventListener("click", (e) => {
+  const line = e.target.closest("tr.popup-line");
+  if (line) {
+    openPlayerPopup(line.dataset.player, line.dataset.event, line.dataset.market, line.dataset.side);
+    return;
+  }
   const injHead = e.target.closest(".preview-inj-head");
   if (injHead) {
     const body = injHead.parentElement?.querySelector(".preview-inj-body");
