@@ -487,6 +487,18 @@ def cash_from_half(side, L, half, p_over_half):
     return sane_pct(cash), sane_pct(push), round(lam, 3)
 
 
+def over_half_pct(row, half, raw):
+    """P(stat > half) as a 0–100. Book no-vig on this row is THIS side, not always Over."""
+    side = str(row.get("side") or "").title()
+    nv = half_line_nv(row, half) if half is not None else None
+    src = nv if nv is not None else raw
+    if src is None:
+        return None
+    if side == "Under":
+        return 100.0 - float(src)
+    return float(src)
+
+
 def apply_strict_hit(row):
     if "fantasy" in str(row.get("stat") or "").lower():
         return
@@ -495,8 +507,7 @@ def apply_strict_hit(row):
     L = int(round(float(row["line"])))
     half = consensus_half_line(row)
     raw = row.get("pct_to_hit")
-    nv = half_line_nv(row, half) if half is not None else None
-    src = nv if nv is not None else raw
+    src = over_half_pct(row, half, raw)
     if half is None or src is None:
         return
     out = cash_from_half(row.get("side"), L, half, src)
