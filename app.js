@@ -125,7 +125,7 @@ function american(price) {
 
 function pickSize() { return Number($("picks").value || 5); }
 function breakEven() {
-  if (state.view === "ud" || state.view === "prophetx" || state.view === "novig") return 50;
+  if (["ud", "prophetx", "novig", "kalshi", "polymarket"].includes(state.view)) return 50;
   return PP_BE[pickSize()] || 54.93;
 }
 
@@ -173,13 +173,27 @@ function hitPct(row) {
     const p = bookImplied(row.books?.novig?.price);
     return p != null ? +p.toFixed(1) : row.pct_to_hit;
   }
+  if (state.view === "kalshi") {
+    const nv = bookNoVig(row);
+    if (nv != null) return nv;
+    return row.pct_to_hit;
+  }
+  if (state.view === "polymarket") {
+    const nv = bookNoVig(row);
+    if (nv != null) return nv;
+    return bookImplied(row.books?.polymarket?.price) ?? row.pct_to_hit;
+  }
   return row.pct_to_hit;
 }
 
 function rowEdge(row) {
-  if (state.view === "ud" || state.view === "prophetx" || state.view === "novig") {
+  if (["ud", "prophetx", "novig", "kalshi", "polymarket"].includes(state.view)) {
     const fair = bookNoVig(row) ?? hitPct(row);
-    const offer = offerImplied(row);
+    const offer = state.view === "kalshi"
+      ? bookImplied(kalshiOffer(row)?.price)
+      : state.view === "polymarket"
+        ? bookImplied(row.books?.polymarket?.price)
+        : offerImplied(row);
     if (fair == null || offer == null) return null;
     return +(fair - offer).toFixed(1);
   }
@@ -677,6 +691,24 @@ function isStandardExchange(r, key) {
   return true;
 }
 
+function isHalfLine(n) {
+  const x = Number(n);
+  return Number.isFinite(x) && Math.abs((x * 2) % 2 - 1) < 0.05;
+}
+
+function leanSide(row) {
+  if (state.view !== "pp" && state.view !== "ev") return row;
+  if (!isHalfLine(row.line)) return row;
+  const p = row.pct_to_hit;
+  if (p == null || p >= 50) return row;
+  return {
+    ...row,
+    side: row.side === "Under" ? "Over" : "Under",
+    pct_to_hit: +(100 - p).toFixed(1),
+    flipped_from: row.side,
+  };
+}
+
 function applyFilters(rows) {
   const game = $("game").value;
   const stat = $("stat").value;
@@ -686,12 +718,14 @@ function applyFilters(rows) {
   const q = $("q").value.trim().toLowerCase();
   const be = breakEven();
 
-  return rows.filter((r) => {
+  return rows.map(leanSide).filter((r) => {
     if (state.view === "pp" && !r.dfs?.prizepicks) return false;
     if (state.view === "ud" && !isStandardUd(r)) return false;
     if (state.view === "pick6" && !r.dfs?.pick6) return false;
     if (state.view === "prophetx" && !isStandardExchange(r, "prophetx")) return false;
     if (state.view === "novig" && !isStandardExchange(r, "novig")) return false;
+    if (state.view === "kalshi" && !kalshiOffer(r)) return false;
+    if (state.view === "polymarket" && !r.books?.polymarket) return false;
     if (state.view === "ev" && !(r.pct_to_hit >= be)) return false;
     if (state.view === "pp" || state.view === "ud" || state.view === "pick6" || state.view === "ev") {
       if (tier === "standard" && ((r.pp_tier && r.pp_tier !== "Standard") || r.is_alternate)) return false;
@@ -701,12 +735,12 @@ function applyFilters(rows) {
     }
     if (hasStarted(r.commence_time)) return false;
     if (!matchesWhen(r.commence_time)) return false;
-    if (state.minBooks && !isFantasyStat(r.stat) && sportsbookCount(r) < 2) return false;
+    if (!q && state.minBooks && !isFantasyStat(r.stat) && sportsbookCount(r) < 2) return false;
     if (game && gameKeyOf(r) !== game && r.game !== game) return false;
     if (stat && r.stat !== stat) return false;
     if (side === "ou" && r.side !== "Over" && r.side !== "Under") return false;
     if (side && side !== "ou" && side !== "all" && r.side !== side) return false;
-    if (hitPct(r) != null && hitPct(r) < minPct) return false;
+    if (!q && hitPct(r) != null && hitPct(r) < minPct) return false;
     if (q && !`${r.player} ${r.stat} ${r.game} ${r.side}`.toLowerCase().includes(q)) return false;
     return true;
   });
