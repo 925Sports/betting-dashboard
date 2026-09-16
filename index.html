@@ -18,6 +18,7 @@
     <div class="loader-sub" id="loaderText">Warming up the slate…</div>
     <div class="loader-bar"><span></span></div>
   </div>
+
   <header class="bar">
     <div class="brand">
       <div>
@@ -31,6 +32,8 @@
       <button class="tab" data-view="pick6" type="button">Pick6</button>
       <button class="tab" data-view="prophetx" type="button">ProphetX</button>
       <button class="tab" data-view="novig" type="button">Novig</button>
+      <button class="tab" data-view="kalshi" type="button">Kalshi</button>
+      <button class="tab" data-view="polymarket" type="button">Polymarket</button>
       <button class="tab" data-view="ev" type="button">+EV Only</button>
       <button class="tab" data-view="all" type="button">All Props</button>
       <button class="tab" data-section="preview" type="button">Game Preview</button>
@@ -38,6 +41,7 @@
     </nav>
     <div class="meta" id="updated">Loading…</div>
   </header>
+
   <div class="wrap">
     <div class="filters">
       <select id="sport">
@@ -97,15 +101,18 @@
       <input type="search" id="q" placeholder="Search players…" />
       <div class="count" id="count"></div>
     </div>
+
     <div class="ticker" id="newsTicker" hidden>
       <div class="ticker-label">NFL</div>
       <div class="ticker-track" id="tickerTrack"></div>
     </div>
+
     <div class="books-bar">
       <div class="books-label">Books</div>
       <div class="books-picks" id="bookPicks"></div>
       <button type="button" class="tab" id="booksReset">Default books</button>
     </div>
+
     <div class="table-wrap" id="propsWrap">
       <table>
         <thead>
@@ -115,12 +122,14 @@
       </table>
       <div class="empty" id="empty" style="display:none">No rows match these filters.</div>
     </div>
+
     <div class="slip-bar" id="slipBar" hidden>
       <div class="slip-label">PP slip <span id="slipCount">0</span></div>
       <div class="slip-picks" id="slipPicks"></div>
       <a class="tab on" id="slipOpen" href="https://app.prizepicks.com/" target="_blank" rel="noopener">Open in PrizePicks</a>
       <button type="button" class="tab" id="slipClear">Clear</button>
     </div>
+
     <div class="table-wrap intel-wrap" id="newsWrap" style="display:none">
       <table>
         <thead>
@@ -135,6 +144,7 @@
       </table>
       <div class="empty" id="newsEmpty" style="display:none">No NFL news yet. Run the Action.</div>
     </div>
+
     <div class="table-wrap intel-wrap" id="injWrap" style="display:none">
       <table>
         <thead>
@@ -152,6 +162,7 @@
       </table>
       <div class="empty" id="injEmpty" style="display:none">No injury rows yet.</div>
     </div>
+
     <div class="table-wrap intel-wrap" id="logsWrap" style="display:none">
       <table>
         <thead>
@@ -172,6 +183,7 @@
       </table>
       <div class="empty" id="logsEmpty" style="display:none">No player logs yet.</div>
     </div>
+
     <div class="intel-wrap" id="previewWrap" style="display:none">
       <div class="preview-layout">
         <aside class="preview-list" id="previewList"></aside>
@@ -180,6 +192,7 @@
         </section>
       </div>
     </div>
+
     <div class="intel-wrap" id="stacksWrap" style="display:none">
       <div class="stack-intro">
         <div>
@@ -196,6 +209,7 @@
       <div id="stacksBody"></div>
       <div class="empty" id="stacksEmpty" style="display:none">No NFL stack games yet.</div>
     </div>
+
     <div class="table-wrap" id="volumeWrap" style="display:none">
       <div class="books-bar" style="margin:0 0 10px">
         <div class="books-label">Volume</div>
@@ -243,34 +257,5 @@
   </div>
   <div id="flagTip" class="flag-tip" hidden></div>
   <script src="./app.js"></script>
-<script>
-(function () {
-  var params = new URLSearchParams(window.location.search);
-  var token = params.get("access");
-  var endpoint =
-    "https://www.ninetofivesports.com/_functions/checkAccess?token=" +
-    encodeURIComponent(token || "");
-
-  function deny() {
-    document.body.innerHTML =
-      '<div style="font-family:Inter,system-ui,sans-serif;background:#070b14;color:#e7ecf5;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center">' +
-      "<div><h1 style='margin:0 0 8px'>NineToFive Paid Members Only</h1>" +
-      "<p style='color:#8b93a7'>This builder is for active 925 members.</p>" +
-      "<p><a href='https://www.ninetofivesports.com/plans-pricing' style='color:#2E8DA1'>Become a Member</a></p></div></div>";
-  }
-
-  if (!token) {
-    deny();
-    return;
-  }
-
-  fetch(endpoint)
-    .then(function (r) { return r.json(); })
-    .then(function (data) {
-      if (!data || data.ok !== true) deny();
-    })
-    .catch(function () { deny(); });
-})();
-</script>
 </body>
 </html>
