@@ -406,6 +406,33 @@ th[data-key="line"], td.line-cell, td.line-stack {
   font-size: 10px; font-style: normal; font-weight: 700;
   color: #e8eef8;
 }
+.log-bars {
+  display: flex; align-items: stretch; gap: 4px;
+  height: 180px; margin: 8px 0 10px; overflow-x: auto;
+}
+.log-col { flex: 1 0 28px; display: flex; flex-direction: column; align-items: center; min-width: 26px; }
+.log-val { font-size: 9px; font-weight: 700; color: #d5e2f5; margin-bottom: 4px; }
+.log-track {
+  position: relative; flex: 1; width: 100%;
+  background: #121a28; border-radius: 6px 6px 2px 2px; overflow: hidden;
+}
+.log-bar {
+  position: absolute; left: 15%; right: 15%; bottom: 0;
+  border-radius: 4px 4px 0 0;
+}
+.log-bar.hit { background: #19c37d; }
+.log-bar.miss { background: #e45858; }
+.log-bar.push, .log-bar.void { background: #4b5a70; }
+.log-line {
+  position: absolute; left: 0; right: 0; height: 1px;
+  background: rgba(255,255,255,.35); z-index: 1;
+}
+.log-lab { font-size: 8px; color: var(--muted); margin-top: 4px; transform: rotate(-35deg); transform-origin: top left; white-space: nowrap; }
+.log-hits {
+  display: flex; justify-content: space-between; gap: 8px;
+  font-size: 12px; color: var(--muted); margin-bottom: 12px;
+}
+.log-hits b { color: var(--text); }
 .stack-intro {
   display: flex; justify-content: space-between; gap: 12px; align-items: center;
   margin-bottom: 12px; flex-wrap: wrap;
@@ -444,6 +471,17 @@ th[data-key="line"], td.line-cell, td.line-stack {
   background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px;
 }
 .preview-hero h2 { margin: 4px 0 6px; font-size: 22px; }
+.preview-hero {
+  background:
+    linear-gradient(180deg, rgba(8,14,26,.76), rgba(8,14,26,.92)),
+    var(--stadium, url("https://images.unsplash.com/photo-1461896836934-ffe607ba6851?auto=format&fit=crop&w=1600&q=50")) center/cover;
+}
+.preview-hero[data-sport="mlb"] { --stadium: url("https://images.unsplash.com/photo-1566577739112-5180d4ba8167?auto=format&fit=crop&w=1600&q=50"); }
+.preview-hero[data-sport="nba"],
+.preview-hero[data-sport="wnba"],
+.preview-hero[data-sport="cbb"] { --stadium: url("https://images.unsplash.com/photo-1504450758481-7338eba7524a?auto=format&fit=crop&w=1600&q=50"); }
+.preview-hero[data-sport="soccer"] { --stadium: url("https://images.unsplash.com/photo-1522778119026-d647f0596c20?auto=format&fit=crop&w=1600&q=50"); }
+.preview-hero[data-sport="nhl"] { --stadium: url("https://images.unsplash.com/photo-1515709379418-6288c2d1f4c3?auto=format&fit=crop&w=1600&q=50"); }
 .preview-lines { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
 .preview-chip {
   background: #101827; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-width: 90px;
