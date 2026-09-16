@@ -918,6 +918,8 @@ def mark_alternate_lines(rows):
             row["is_alternate"] = True
         if not (row.get("dfs") or {}).get("prizepicks"):
             continue
+        if "fantasy" in str(row.get("stat") or "").lower():
+            continue
         if (row.get("pp_tier") or "Standard") != "Standard":
             continue
         key = (norm_name(row.get("player") or ""), row.get("stat"), row.get("game") or row.get("event_id"))
