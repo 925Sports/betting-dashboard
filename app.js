@@ -125,17 +125,51 @@ function american(price) {
 
 function pickSize() { return Number($("picks").value || 5); }
 function breakEven() {
-  if (state.view === "prophetx" || state.view === "novig") return 50;
+  if (state.view === "ud" || state.view === "prophetx" || state.view === "novig") return 50;
   return PP_BE[pickSize()] || 54.93;
 }
 
+function bookNoVig(row) {
+  const vals = Object.values(mergeBooks(row.books) || {})
+    .map((b) => Number(b?.no_vig))
+    .filter((n) => Number.isFinite(n));
+  if (!vals.length) return null;
+  vals.sort((a, b) => a - b);
+  return +vals[Math.floor(vals.length / 2)].toFixed(1);
+}
+
+function offerImplied(row) {
+  if (state.view === "ud") {
+    const u = row.dfs?.underdog || {};
+    if (u.multiplier != null && Number(u.multiplier) > 0) {
+      const m = Number(u.multiplier);
+      return +((100 / (m >= 1 ? m : 1 + m))).toFixed(1);
+    }
+    if (u.price != null && Number(u.price) !== -112) return bookImplied(u.price);
+  }
+  if (state.view === "prophetx") return bookImplied(row.books?.prophetx?.price);
+  if (state.view === "novig") return bookImplied(row.books?.novig?.price);
+  const prices = Object.values(mergeBooks(row.books) || {}).map((b) => b?.price).filter((p) => p != null);
+  const impl = prices.map(bookImplied).filter((n) => n != null);
+  if (!impl.length) return null;
+  return +Math.min(...impl).toFixed(1);
+}
+
 function hitPct(row) {
-  if (state.view === "ud" && row.pct_ud != null) return row.pct_ud;
+  if (state.view === "ud") {
+    if (row.pct_ud != null) return row.pct_ud;
+    const nv = bookNoVig(row);
+    if (nv != null) return nv;
+  }
   if (state.view === "prophetx") {
+    const nv = bookNoVig(row);
+    if (nv != null) return nv;
     const p = bookImplied(row.books?.prophetx?.price);
     return p != null ? +p.toFixed(1) : row.pct_to_hit;
   }
   if (state.view === "novig") {
+    const nv = bookNoVig(row);
+    if (nv != null) return nv;
     const p = bookImplied(row.books?.novig?.price);
     return p != null ? +p.toFixed(1) : row.pct_to_hit;
   }
@@ -143,6 +177,12 @@ function hitPct(row) {
 }
 
 function rowEdge(row) {
+  if (state.view === "ud" || state.view === "prophetx" || state.view === "novig") {
+    const fair = bookNoVig(row) ?? hitPct(row);
+    const offer = offerImplied(row);
+    if (fair == null || offer == null) return null;
+    return +(fair - offer).toFixed(1);
+  }
   const pct = hitPct(row);
   if (pct == null) return null;
   return +(pct - breakEven()).toFixed(1);
@@ -289,7 +329,14 @@ Object.entries(TEAM_ABBR).forEach(([full, ab]) => {
 function abbr(team) {
   const raw = String(team || "").trim();
   if (!raw) return "";
-  return TEAM_NICK[raw.toLowerCase()] || TEAM_ABBR[raw] || raw;
+  const low = raw.toLowerCase();
+  if (TEAM_NICK[low]) return TEAM_NICK[low];
+  if (TEAM_ABBR[raw]) return TEAM_ABBR[raw];
+  const parts = raw.split(/[\s/@-]+/).filter(Boolean);
+  for (const p of parts) {
+    if (TEAM_NICK[p.toLowerCase()]) return TEAM_NICK[p.toLowerCase()];
+  }
+  return raw;
 }
 
 function teamLabel(team) {
@@ -431,7 +478,10 @@ function splitStats(games, stat, line, side) {
   const last = (n) => pack(`L${n}`, vals.slice(-n));
   const home = pack("Home", vals.filter((x) => x.g.home === true));
   const away = pack("Away", vals.filter((x) => x.g.home === false));
-  return { L5: last(5), L10: last(10), L15: last(15), L20: last(20), home, away, all: pack("Avg", vals) };
+  return {
+    L4: last(4), L8: last(8), L12: last(12), L16: last(16), L20: last(20),
+    home, away, all: pack("Avg", vals),
+  };
 }
 
 function vsOppSplit(games, stat, line, side, opp) {
@@ -451,27 +501,59 @@ function upcomingOpp(focus) {
   return "";
 }
 
+function logBarLabel(g) {
+  if (g?.date) {
+    const d = new Date(g.date);
+    if (!Number.isNaN(+d)) {
+      return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    }
+    return String(g.date).slice(5, 10) || String(g.date);
+  }
+  return g?.week != null ? `W${g.week}` : "";
+}
+
 function renderSplitChart(focus, recs) {
   if (!recs.length || !focus?.stat) return "";
   const splits = splitStats(recs, focus.stat, focus.line, focus.side);
   if (!splits) return "";
-  const opp = vsOppSplit(recs, focus.stat, focus.line, focus.side, upcomingOpp(focus));
-  const rows = [splits.L5, splits.L10, splits.L15, splits.L20, splits.home, splits.away, opp, splits.all].filter(Boolean);
-  const maxAvg = Math.max(...rows.map((r) => r.avg || 0), Number(focus.line) || 0, 1);
-  return `<h4 style="margin:16px 0 8px">Trend vs ${escapeHtml(focus.side || "")} ${focus.line ?? ""} ${escapeHtml(focus.stat || "")}</h4>
-    <div class="split-note">${state.intel?.has_2026_logs ? "" : "2025 logs until Week 1 · "}hit rate ignores pushes</div>
-    <div class="split-chart">
-      ${rows.map((r) => {
-        const w = r.avg == null ? 0 : Math.max(4, Math.round((r.avg / maxAvg) * 100));
-        const hw = r.hit == null ? 0 : r.hit;
-        return `<div class="split-row">
-          <div class="split-lab">${escapeHtml(r.label)}<span>${r.n}g</span></div>
-          <div class="split-bars">
-            <div class="split-bar"><i style="width:${w}%"></i><em>avg ${r.avg ?? "—"}</em></div>
-            <div class="split-bar hit"><i style="width:${hw}%"></i><em>hit ${r.hit == null ? "—" : r.hit + "%"}</em></div>
+  const oppSplit = vsOppSplit(recs, focus.stat, focus.line, focus.side, upcomingOpp(focus));
+  const ln = focus.line == null ? null : Number(focus.line);
+  const over = String(focus.side || "Over").toLowerCase() !== "under";
+  const bars = recs.slice(-20).map((g) => {
+    const v = logValue(g, focus.stat);
+    let cls = "miss";
+    if (v == null) cls = "void";
+    else if (ln == null) cls = "void";
+    else if (v === ln) cls = "push";
+    else if (over ? v > ln : v < ln) cls = "hit";
+    return { g, v, cls, lab: logBarLabel(g) };
+  });
+  const maxV = Math.max(...bars.map((b) => b.v || 0), ln || 0, 1);
+  const linePct = ln == null ? 0 : Math.round((ln / maxV) * 100);
+  return `<h4 style="margin:16px 0 8px">Recent vs ${escapeHtml(focus.side || "")} ${focus.line ?? ""} ${escapeHtml(focus.stat || "")}</h4>
+    <div class="split-note">${state.intel?.has_2026_logs ? "" : "2025 logs until Week 1 · "}green cashed · red missed · gray push</div>
+    <div class="log-bars">
+      ${bars.map((b) => {
+        const h = b.v == null ? 4 : Math.max(6, Math.round((b.v / maxV) * 100));
+        return `<div class="log-col" title="${escapeHtml(b.lab)} vs ${escapeHtml(b.g.opp || "")}: ${b.v ?? "—"}">
+          <div class="log-val">${b.v == null ? "—" : b.v}</div>
+          <div class="log-track">
+            ${ln != null ? `<i class="log-line" style="bottom:${linePct}%"></i>` : ""}
+            <b class="log-bar ${b.cls}" style="height:${h}%"></b>
           </div>
+          <div class="log-lab">${escapeHtml(b.lab)}</div>
         </div>`;
       }).join("")}
+    </div>
+    <div class="log-hits">
+      ${[splits.L4, splits.L8, splits.L12, splits.L16, splits.L20].map((s) =>
+        `<span>${s.label}: <b class="${pctClass(s.hit)}">${s.hit ?? "—"}%</b> <em>${s.n}g</em></span>`
+      ).join("")}
+    </div>
+    <div class="log-hits">
+      <span>Home: <b class="${pctClass(splits.home.hit)}">${splits.home.hit ?? "—"}%</b> <em>${splits.home.n}g · avg ${splits.home.avg ?? "—"}</em></span>
+      <span>Away: <b class="${pctClass(splits.away.hit)}">${splits.away.hit ?? "—"}%</b> <em>${splits.away.n}g · avg ${splits.away.avg ?? "—"}</em></span>
+      ${oppSplit ? `<span>vs ${escapeHtml(oppSplit.label.replace(/^vs /, ""))}: <b class="${pctClass(oppSplit.hit)}">${oppSplit.hit ?? "—"}%</b> <em>${oppSplit.n}g · avg ${oppSplit.avg ?? "—"}</em></span>` : `<span class="muted">No prior vs this opponent in logs</span>`}
     </div>`;
 }
 
@@ -1583,19 +1665,26 @@ function formatKalshiProp(m, side) {
 }
 
 function gameTeams(sample) {
-  return new Set([abbr(sample?.home_team), abbr(sample?.away_team)].filter(Boolean));
+  const set = new Set();
+  const bump = (t) => {
+    const a = abbr(t);
+    if (a && TEAM_CODE_NICK[a]) set.add(a);
+  };
+  bump(sample?.home_team);
+  bump(sample?.away_team);
+  String(sample?.game || "").split("@").forEach(bump);
+  String(gameKeyOf(sample) || "").split("@").forEach(bump);
+  return set;
 }
 
 function gameRosterNames(sample) {
   const teams = gameTeams(sample);
+  if (teams.size < 2) return new Set();
   const names = new Set();
   const add = (name, team) => {
     const n = nameKey(name);
-    if (!n) return;
     const t = abbr(team);
-    if (teams.size && t !== undefined) {
-      if (!t || !teams.has(t)) return;
-    }
+    if (!n || !t || !teams.has(t)) return;
     names.add(n);
   };
   rowsForGame(gameKeyOf(sample)).forEach((r) => add(r.player, rowTeam(r)));
@@ -1610,19 +1699,7 @@ function kalshiPropsForGame(sample) {
   if (!list.length || !sample) return [];
   const roster = gameRosterNames(sample);
   if (!roster.size) return [];
-  const names = [...roster];
-  const lastCount = {};
-  names.forEach((n) => {
-    const last = n.split(" ").pop();
-    lastCount[last] = (lastCount[last] || 0) + 1;
-  });
-  return list.filter((m) => {
-    const playerPart = nameKey((m.title || "").split(":")[0]);
-    if (!playerPart) return false;
-    if (roster.has(playerPart)) return true;
-    const last = playerPart.split(" ").pop();
-    return last && lastCount[last] === 1 && names.some((n) => n.split(" ").pop() === last);
-  }).sort((a, b) => (b.dollar || 0) - (a.dollar || 0));
+  return list.filter((m) => roster.has(nameKey((m.title || "").split(":")[0]))).sort((a, b) => (b.dollar || 0) - (a.dollar || 0));
 }
 
 function kalshiPropsForPlayer(player) {
