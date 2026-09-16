@@ -729,7 +729,8 @@ function applyFilters(rows) {
     if (state.view === "polymarket" && !r.books?.polymarket) return false;
     if (state.view === "ev" && !(r.pct_to_hit >= be)) return false;
     if (state.view === "pp" || state.view === "ud" || state.view === "pick6" || state.view === "ev") {
-      if (tier === "standard" && !isFantasyStat(r.stat) && ((r.pp_tier && r.pp_tier !== "Standard") || r.is_alternate)) return false;
+      if (tier === "standard" && r.pp_tier && r.pp_tier !== "Standard") return false;
+      if (tier === "standard" && r.is_alternate && !isFantasyStat(r.stat)) return false;
       if (tier === "demon" && r.pp_tier !== "Demon") return false;
       if (tier === "goblin" && r.pp_tier !== "Goblin") return false;
       if (tier === "alternate" && r.pp_tier !== "Alternate" && !r.is_alternate) return false;
@@ -2242,7 +2243,7 @@ function standardishLines(rows) {
   const best = new Map();
   (rows || []).forEach((r) => {
     if (!r?.stat) return;
-    if (r.pp_tier && !["Standard", "Goblin"].includes(r.pp_tier) && !isFantasyStat(r.stat)) return;
+    if (r.pp_tier && r.pp_tier !== "Standard") return;
     if (r.is_alternate && !isFantasyStat(r.stat)) return;
     const key = `${nameKey(r.player)}|${r.stat}|${gameKeyOf(r)}`;
     const ref = r.avg_line ?? r.book_line;
