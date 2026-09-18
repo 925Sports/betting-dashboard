@@ -70,6 +70,9 @@ select, input[type="search"], input[type="number"] {
   padding: 8px 12px; font-size: 13px; outline: none;
 }
 input[type="search"] { min-width: 200px; flex: 1; }
+.pick-combo { display: flex; flex-direction: column; gap: 4px; min-width: 240px; }
+.pick-combo input[type="search"] { min-width: 0; flex: none; width: 100%; }
+.pick-combo select { width: 100%; }
 input[type="number"] { width: 72px; }
 label.chk { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
 .count { margin-left: auto; color: var(--muted); font-size: 12px; }
@@ -281,6 +284,8 @@ tr:hover td { background: rgba(255,255,255,0.025); }
 .popup-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .popup-table th, .popup-table td { padding: 7px 8px; border-bottom: 1px solid #1c2a3f; text-align: left; }
 .popup-table th { color: #8b9bb4; font-size: 11px; text-transform: uppercase; }
+.popup-line { cursor: pointer; }
+.popup-line:hover td { background: #1a2740; }
 
 .player-row { display: flex; align-items: center; gap: 8px; }
 .headshot { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; background: #182236; flex: 0 0 28px; }
