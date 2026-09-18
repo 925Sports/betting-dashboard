@@ -155,7 +155,93 @@ function offerImplied(row) {
   return +Math.min(...impl).toFixed(1);
 }
 
+function isWholeLine(n) {
+  const x = Number(n);
+  return Number.isFinite(x) && Math.abs(x - Math.round(x)) < 1e-6;
+}
+
+function poissonPmf(k, lam) {
+  if (k < 0 || lam <= 0) return 0;
+  let x = Math.exp(-lam);
+  for (let i = 1; i <= k; i += 1) x *= lam / i;
+  return x;
+}
+
+function poissonCdf(k, lam) {
+  let s = 0;
+  for (let i = 0; i <= k; i += 1) s += poissonPmf(i, lam);
+  return s;
+}
+
+function lambdaFromCdf(k, p) {
+  p = Math.min(0.97, Math.max(0.03, p));
+  let lo = 0.01, hi = 80;
+  for (let i = 0; i < 40; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (poissonCdf(k, mid) > p) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+function nearestHalfLine(row) {
+  const L = Number(row.line);
+  const nums = Object.values(mergeBooks(row.books) || {})
+    .map((b) => Number(b?.line))
+    .filter((n) => Number.isFinite(n) && Math.abs((n * 2) % 2 - 1) < 0.05);
+  if (row.book_line != null) nums.push(Number(row.book_line));
+  if (row.avg_line != null) nums.push(Number(row.avg_line));
+  const near = nums.filter((n) => Math.abs(n - L) <= 0.6);
+  const pool = near.length ? near : nums.filter((n) => Math.abs(n - L) <= 1.1);
+  if (!pool.length) return null;
+  pool.sort((a, b) => Math.abs(a - L) - Math.abs(b - L));
+  return pool[0];
+}
+
+function nvAtHalf(row, half) {
+  const vals = [];
+  Object.values(mergeBooks(row.books) || {}).forEach((b) => {
+    if (!b || Math.abs(Number(b.line) - half) > 0.2) return;
+    if (b.no_vig != null) vals.push(Number(b.no_vig));
+    else if (b.price != null) {
+      const ip = bookImplied(b.price);
+      if (ip != null) vals.push(ip);
+    }
+  });
+  if (!vals.length) return null;
+  vals.sort((a, b) => a - b);
+  return vals[Math.floor(vals.length / 2)];
+}
+
+function ppCashPct(row) {
+  if (isFantasyStat(row.stat)) return null;
+  if (row.hit_model === "cash_no_push" && row.pct_to_hit != null) return row.pct_to_hit;
+  if (!isWholeLine(row.line)) return null;
+  const L = Math.round(Number(row.line));
+  const half = nearestHalfLine(row);
+  if (half == null) return null;
+  const nv = nvAtHalf(row, half) ?? row.pct_to_hit;
+  if (nv == null) return null;
+  const under = String(row.side || "").toLowerCase() === "under";
+  const pOver = (under ? 100 - nv : nv) / 100;
+  if (Math.abs(half - (L - 0.5)) <= 0.2) {
+    if (under) return +Number(nv).toFixed(1);
+    const lam = lambdaFromCdf(L - 1, Math.min(0.97, Math.max(0.03, 1 - pOver)));
+    return +((1 - poissonCdf(L, lam)) * 100).toFixed(1);
+  }
+  if (Math.abs(half - (L + 0.5)) <= 0.2) {
+    if (!under) return +Number(nv).toFixed(1);
+    const lam = lambdaFromCdf(L, Math.min(0.97, Math.max(0.03, nv / 100)));
+    return +(poissonCdf(L - 1, lam) * 100).toFixed(1);
+  }
+  return null;
+}
+
 function hitPct(row) {
+  if (state.view === "pp" || state.view === "ev") {
+    const cash = ppCashPct(row);
+    if (cash != null) return cash;
+  }
   if (state.view === "ud") {
     if (row.pct_ud != null) return row.pct_ud;
     const nv = bookNoVig(row);
@@ -340,29 +426,38 @@ Object.entries(TEAM_ABBR).forEach(([full, ab]) => {
   TEAM_CODE_NICK[ab] = full.split(" ").pop();
 });
 
-function abbr(team) {
+function sportOf(row) {
+  return String(row?.sport || row?.league || "").toUpperCase();
+}
+
+function isNflContext(row) {
+  const s = sportOf(row);
+  return !s || s === "NFL";
+}
+
+function abbr(team, row) {
   const raw = String(team || "").trim();
   if (!raw) return "";
+  if (row && !isNflContext(row)) return raw.replace(/\s+/g, " ");
   const low = raw.toLowerCase();
   if (TEAM_NICK[low]) return TEAM_NICK[low];
   if (TEAM_ABBR[raw]) return TEAM_ABBR[raw];
   const parts = raw.split(/[\s/@-]+/).filter(Boolean);
-  for (const p of parts) {
-    if (TEAM_NICK[p.toLowerCase()]) return TEAM_NICK[p.toLowerCase()];
-  }
+  if (parts.length >= 2 && TEAM_NICK[parts[0].toLowerCase()]) return TEAM_NICK[parts[0].toLowerCase()];
   return raw;
 }
 
-function teamLabel(team) {
-  const code = abbr(team);
+function teamLabel(team, row) {
+  if (row && !isNflContext(row)) return String(team || "").replace(/\s+/g, " ").trim();
+  const code = abbr(team, row);
   if (!code) return "";
   const nick = TEAM_CODE_NICK[code];
   return nick && nick.toLowerCase() !== code.toLowerCase() ? `${code} ${nick}` : code;
 }
 
 function matchup(row) {
-  const away = teamLabel(row.away_team) || teamLabel(String(row.game || "").split("@")[0]);
-  const home = teamLabel(row.home_team) || teamLabel(String(row.game || "").split("@")[1]);
+  const away = teamLabel(row.away_team, row) || teamLabel(String(row.game || "").split("@")[0], row);
+  const home = teamLabel(row.home_team, row) || teamLabel(String(row.game || "").split("@")[1], row);
   if (!away && !home) return row.game || "";
   return `${away} @ ${home}`;
 }
@@ -508,8 +603,8 @@ function vsOppSplit(games, stat, line, side, opp) {
 
 function upcomingOpp(focus) {
   const team = focus.nfl_team || intelPlayer(focus.player)?.team || "";
-  const home = abbr(focus.home_team);
-  const away = abbr(focus.away_team);
+  const home = abbr(focus.home_team, focus);
+  const away = abbr(focus.away_team, focus);
   if (team && home && team === home) return away;
   if (team && away && team === away) return home;
   return "";
@@ -533,7 +628,7 @@ function renderSplitChart(focus, recs) {
   const oppSplit = vsOppSplit(recs, focus.stat, focus.line, focus.side, upcomingOpp(focus));
   const ln = focus.line == null ? null : Number(focus.line);
   const over = String(focus.side || "Over").toLowerCase() !== "under";
-  const bars = recs.slice(-20).map((g) => {
+  const bars = recs.slice(-20).reverse().map((g) => {
     const v = logValue(g, focus.stat);
     let cls = "miss";
     if (v == null) cls = "void";
@@ -712,6 +807,7 @@ function leanSide(row) {
 
 function applyFilters(rows) {
   const game = $("game").value;
+  const team = $("team")?.value || "";
   const stat = $("stat").value;
   const side = $("side").value;
   const tier = $("tier").value;
@@ -738,6 +834,7 @@ function applyFilters(rows) {
     if (hasStarted(r.commence_time)) return false;
     if (!matchesWhen(r.commence_time)) return false;
     if (!q && state.minBooks && !isFantasyStat(r.stat) && sportsbookCount(r) < 2) return false;
+    if (team && !rowHasTeam(r, team)) return false;
     if (game && gameKeyOf(r) !== game && r.game !== game) return false;
     if (stat && r.stat !== stat) return false;
     if (side === "ou" && r.side !== "Over" && r.side !== "Under") return false;
@@ -868,6 +965,32 @@ function fillSelect(sel, values, allLabel) {
   sel.innerHTML = `<option value="">${allLabel}</option>` +
     values.map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
   if ([...sel.options].some((o) => o.value === current)) sel.value = current;
+}
+
+function teamNames(row) {
+  return unique([
+    row.away_team,
+    row.home_team,
+    teamLabel(row.away_team, row),
+    teamLabel(row.home_team, row),
+  ].map((t) => String(t || "").replace(/\s+/g, " ").trim()).filter((t) => t.length > 1));
+}
+
+function rowHasTeam(row, team) {
+  if (!team) return true;
+  const needle = String(team).toLowerCase();
+  return `${row.away_team || ""} ${row.home_team || ""} ${row.game || ""} ${gameKeyOf(row)} ${matchup(row)}`.toLowerCase().includes(needle);
+}
+
+function fillGameAndTeam(pool) {
+  const teams = unique((pool || []).flatMap(teamNames)).sort((a, b) => a.localeCompare(b));
+  if ($("team")) fillSelect($("team"), teams, "All teams");
+  const team = $("team")?.value || "";
+  const q = ($("gameQ")?.value || "").trim().toLowerCase();
+  let games = unique((pool || []).filter((r) => rowHasTeam(r, team)).map((r) => gameKeyOf(r)).filter(Boolean))
+    .sort((a, b) => a.localeCompare(b));
+  if (q) games = games.filter((g) => g.toLowerCase().includes(q));
+  if ($("game")) fillSelect($("game"), games, games.length ? "All games" : "No matching games");
 }
 
 function visibleBooks() {
@@ -1442,8 +1565,8 @@ function gameKeyOf(row) {
     away = away || parts[0].trim();
     home = home || parts.slice(1).join("@").trim();
   }
-  const a = abbr(away);
-  const h = abbr(home);
+  const a = abbr(away, row);
+  const h = abbr(home, row);
   if (a && h) return `${a} @ ${h}`;
   return g.trim();
 }
@@ -2031,7 +2154,9 @@ function render(full) {
     fillWhen(all);
     if (state.data) {
       $("updated").textContent = `Updated ${fmtWhen(state.data.updated)} · BE ${breakEven()}%`;
-      fillSelect($("game"), unique(all.map((r) => gameKeyOf(r)).filter(Boolean)).sort(), "All games");
+      const sport = ($("sport")?.value || state.sport || "all").toLowerCase();
+      const pool = sport === "all" ? all : all.filter((r) => String(r.sport || "").toLowerCase() === sport);
+      fillGameAndTeam(pool);
       const stats = unique(all.map((r) => r.stat));
       const coreFirst = [...stats.filter((s) => CORE_STATS.has(s)).sort(), ...stats.filter((s) => !CORE_STATS.has(s)).sort()];
       fillSelect($("stat"), coreFirst, "All props");
@@ -2153,12 +2278,30 @@ $("minBooks")?.addEventListener("change", () => {
   render();
 });
 let qTimer = null;
-["game", "stat", "side", "tier", "picks", "minPct", "when"].forEach((id) => {
-  $(id)?.addEventListener("change", () => render());
+["game", "stat", "side", "tier", "picks", "minPct", "when", "team"].forEach((id) => {
+  $(id)?.addEventListener("change", () => {
+    if (id === "team") {
+      const all = state.data?.props || [];
+      const sport = ($("sport")?.value || state.sport || "all").toLowerCase();
+      const pool = sport === "all" ? all : all.filter((r) => String(r.sport || "").toLowerCase() === sport);
+      fillGameAndTeam(pool);
+    }
+    render();
+  });
 });
 $("q")?.addEventListener("input", () => {
   clearTimeout(qTimer);
   qTimer = setTimeout(() => render(), 180);
+});
+$("gameQ")?.addEventListener("input", () => {
+  clearTimeout(qTimer);
+  qTimer = setTimeout(() => {
+    const all = state.data?.props || [];
+    const sport = ($("sport")?.value || state.sport || "all").toLowerCase();
+    const pool = sport === "all" ? all : all.filter((r) => String(r.sport || "").toLowerCase() === sport);
+    fillGameAndTeam(pool);
+    render();
+  }, 120);
 });
 
 
