@@ -257,8 +257,8 @@ tr:hover td { background: rgba(255,255,255,0.025); }
 }
 .popup[hidden] { display: none; }
 .popup-card {
-  width: min(760px, 100%);
-  max-height: min(84vh, 820px);
+  width: min(820px, 100%);
+  max-height: min(88vh, 900px);
   overflow: auto;
   background: #101827;
   border: 1px solid #1c2a3f;
@@ -286,6 +286,8 @@ tr:hover td { background: rgba(255,255,255,0.025); }
 .popup-table th { color: #8b9bb4; font-size: 11px; text-transform: uppercase; }
 .popup-line { cursor: pointer; }
 .popup-line:hover td { background: #1a2740; }
+.popup-h { margin: 16px 0 8px; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: #8b9bb4; }
+.usage-grid { margin-bottom: 10px; }
 
 .player-row { display: flex; align-items: center; gap: 8px; }
 .headshot { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; background: #182236; flex: 0 0 28px; }
