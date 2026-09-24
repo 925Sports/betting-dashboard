@@ -22,6 +22,7 @@ DATA_DIR = ROOT / "data"
 
 PLAYERS_URL = "https://raw.githubusercontent.com/925Sports/NFL-Player-Log/main/data/players.csv"
 LOGS_URL = "https://raw.githubusercontent.com/925Sports/NFL-Player-Log/main/data/gamelogs.csv"
+LOGS_2026_URL = "https://raw.githubusercontent.com/925Sports/NFL-Player-Log/main/data/gamelogs_2026.csv"
 INJ_URL = "https://raw.githubusercontent.com/925Sports/NFL-Player-Log/main/data/injuries.csv"
 NEWS_URL = "https://raw.githubusercontent.com/925Sports/NFL-Player-Log/main/data/news_all.csv"
 SNAPS_URL = "https://raw.githubusercontent.com/925Sports/NFL-Player-Log/main/data/snap_counts.csv"
@@ -29,6 +30,7 @@ ROUTES_URL = "https://raw.githubusercontent.com/925Sports/NFL-Player-Log/main/da
 
 SKILL = {"QB", "RB", "WR", "TE", "K", "FB", "HB"}
 LOG_KEEP = 20
+CURRENT_SEASON = 2026
 NAME_SKIP = {"jr", "sr", "ii", "iii", "iv", "v"}
 
 
@@ -151,17 +153,19 @@ def load_players(text: str):
 def load_injuries(text: str):
     rows = parse_csv(text)
     latest = {}
-    max_season, max_week = 0, 0
+    max_season, max_week = CURRENT_SEASON, 0
     for r in rows:
         season = to_int(r.get("season")) or 0
         week = to_int(r.get("week")) or 0
-        if season > max_season or (season == max_season and week > max_week):
-            max_season, max_week = season, week
+        if season != CURRENT_SEASON:
+            continue
+        if week > max_week:
+            max_week = week
         gsis = (r.get("gsis_id") or "").strip()
         if not gsis:
             continue
         prev = latest.get(gsis)
-        if prev and (prev["season"], prev["week"]) > (season, week):
+        if prev and (prev["week"] or 0) > week:
             continue
         latest[gsis] = {
             "gsis_id": gsis,
@@ -177,8 +181,8 @@ def load_injuries(text: str):
             "practice_status": r.get("practice_status") or "",
             "practice_injury": r.get("practice_primary_injury") or "",
         }
-    print(f"injuries rows={len(rows)} players={len(latest)} latest={max_season}w{max_week}")
-    return latest, max_season, max_week
+    print(f"injuries rows={len(rows)} current={CURRENT_SEASON} players={len(latest)} latest=w{max_week}")
+    return latest, CURRENT_SEASON, max_week
 
 
 def is_home_game(r: dict) -> bool | None:
@@ -240,6 +244,8 @@ def load_snaps(text: str):
         key = (norm_name(r.get("player") or ""), to_int(r.get("season")), to_int(r.get("week")))
         if not key[0] or key[1] is None or key[2] is None:
             continue
+        if key[1] != CURRENT_SEASON:
+            continue
         out[key] = {
             "off_snaps": to_int(r.get("offense_snaps")),
             "off_pct": pct_100(r.get("offense_pct")),
@@ -253,6 +259,8 @@ def load_routes(text: str):
     for r in parse_csv(text):
         key = (norm_name(r.get("player") or ""), to_int(r.get("season")), to_int(r.get("week")))
         if not key[0] or key[1] is None or key[2] is None:
+            continue
+        if key[1] != CURRENT_SEASON:
             continue
         tgt = to_int(r.get("targets"))
         out[key] = {
@@ -280,8 +288,10 @@ def attach_usage(logs, by_gsis, snaps, routes):
                 g["off_pct"] = s.get("off_pct")
                 hit += 1
             if rt.get("routes") is not None:
-                g["routes"] = rt["routes"]
-                g["route_pct"] = rt.get("route_pct")
+                pos = (p.get("pos") or "").upper()
+                if pos in {"WR", "TE", "RB", "FB", "HB"}:
+                    g["routes"] = rt["routes"]
+                    g["route_pct"] = rt.get("route_pct")
                 hit += 1
             if rt.get("tgt") is not None and not g.get("tgt"):
                 g["tgt"] = rt["tgt"]
@@ -302,6 +312,8 @@ def load_logs(text: str, by_gsis: dict):
             continue
         season = to_int(r.get("season"))
         week = to_int(r.get("week"))
+        if season != CURRENT_SEASON:
+            continue
         if season:
             seasons.add(season)
             if week:
@@ -401,7 +413,7 @@ def enrich_props(by_name, by_lf, injuries, logs):
             row["headshot"] = rec["headshot"]
             shots += 1
         inj = injuries.get(rec.get("gsis_id") or "")
-        if inj and (inj.get("report_status") or inj.get("practice_status")):
+        if inj and inj.get("season") == CURRENT_SEASON and (inj.get("report_status") or inj.get("practice_status")):
             row["injury"] = {
                 "week": inj.get("week"),
                 "season": inj.get("season"),
@@ -438,7 +450,11 @@ def public_players(by_gsis, logs, inj_ids):
 
 def main():
     players_txt = download(PLAYERS_URL, "players")
-    logs_txt = download(LOGS_URL, "gamelogs")
+    try:
+        logs_txt = download(LOGS_2026_URL, "gamelogs_2026")
+    except Exception as exc:
+        print(f"gamelogs_2026 failed ({exc}); using combined file")
+        logs_txt = download(LOGS_URL, "gamelogs")
     inj_txt = download(INJ_URL, "injuries")
     news_txt = download(NEWS_URL, "news_all")
     snaps_txt = download(SNAPS_URL, "snap_counts")
@@ -453,24 +469,25 @@ def main():
     news, pulled = load_news(news_txt)
     tag_news(news, by_name, by_gsis)
 
-    # Current-looking injuries: latest week, plus any Out/Doubtful from that file set
+    # Only this season's current (or prior) week. Stale Out from last year stays off the board.
     inj_list = []
     for rec in injuries.values():
-        hot = rec.get("report_status") in {"Out", "Doubtful", "Questionable", "IR"}
-        current_week = rec.get("season") == inj_season and rec.get("week") == inj_week
-        if hot or current_week:
-            name_key = norm_name(rec.get("name") or "")
-            p = by_gsis.get(rec["gsis_id"]) or by_name.get(name_key)
-            if p:
-                rec = {
-                    **rec,
-                    "name": p.get("full_name") or rec.get("name"),
-                    "pos": rec.get("pos") or p.get("pos"),
-                    "team": rec.get("team") or p.get("team"),
-                    "headshot": p.get("headshot") or "",
-                    "status_roster": p.get("status") or "",
-                }
-            inj_list.append(rec)
+        if rec.get("season") != inj_season:
+            continue
+        if inj_week and (rec.get("week") or 0) < max(1, inj_week - 1):
+            continue
+        name_key = norm_name(rec.get("name") or "")
+        p = by_gsis.get(rec["gsis_id"]) or by_name.get(name_key)
+        if p:
+            rec = {
+                **rec,
+                "name": p.get("full_name") or rec.get("name"),
+                "pos": rec.get("pos") or p.get("pos"),
+                "team": p.get("team") or rec.get("team"),
+                "headshot": p.get("headshot") or "",
+                "status_roster": p.get("status") or "",
+            }
+        inj_list.append(rec)
     inj_list.sort(key=lambda r: (
         {"Out": 0, "IR": 1, "Doubtful": 2, "Questionable": 3}.get(r.get("report_status") or "", 9),
         r.get("team") or "",
