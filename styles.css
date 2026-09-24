@@ -257,9 +257,11 @@ tr:hover td { background: rgba(255,255,255,0.025); }
 }
 .popup[hidden] { display: none; }
 .popup-card {
-  width: min(820px, 100%);
-  max-height: min(88vh, 900px);
-  overflow: auto;
+  width: min(880px, 100%);
+  height: min(88vh, 900px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: #101827;
   border: 1px solid #1c2a3f;
   border-radius: 16px;
@@ -294,6 +296,11 @@ tr:hover td { background: rgba(255,255,255,0.025); }
   border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer;
 }
 .pop-tab.on { color: #fff; border-color: #3d6fd6; background: #173056; }
+.pop-body { flex: 1; min-height: 0; overflow: auto; }
+.popup-bet { margin-top: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; }
+.popup-bet .pct { min-width: 0; padding: 3px 7px; }
+.log-scroll { overflow-x: auto; }
+.dfs-log th { white-space: nowrap; }
 .snap-card { margin-top: 12px; }
 .snap-board + .snap-board { margin-top: 16px; }
 .snap-bar-wrap {
