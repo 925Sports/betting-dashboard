@@ -356,8 +356,8 @@ def load_ud(url: str):
             "weather": (r.get("Weather Condition") or "").strip(),
             "temp": (r.get("Weather Temperature") or "").strip(),
             "position": (r.get("Player Position Name") or "").strip(),
-            "nv_over": pct_num(r.get("Average No-Vig Over %") or r.get("True Over Odds (No Vig)")),
-            "nv_under": pct_num(r.get("Average No-Vig Under %") or r.get("True Under Odds (No Vig)")),
+            "nv_over": pct_num(r.get("Average No-Vig Over %") or r.get("True Over Odds (No Vig)") or r.get("No-Vig Over %") or r.get("NV Over")),
+            "nv_under": pct_num(r.get("Average No-Vig Under %") or r.get("True Under Odds (No Vig)") or r.get("No-Vig Under %") or r.get("NV Under")),
         })
     print(f"UD rows={len(out)}")
     return out
@@ -630,8 +630,8 @@ def apply_ud(row, ud_list):
             row["pct_ud"] = sane_pct(nv)
         elif "fantasy" in str(u.get("stat") or "").lower() and u.get("pp_edge") is not None:
             row["pct_ud"] = sane_pct(u.get("pp_edge"))
-        else:
-            row["pct_ud"] = 50.0
+        elif row.get("pct_to_hit") is not None:
+            row["pct_ud"] = sane_pct(row.get("pct_to_hit"))
         return True
     return False
 
@@ -720,8 +720,8 @@ def enrich_props(rows, pp_rows, ud_rows):
                 "game": game_title, "home_team": home, "away_team": away,
                 "commence_time": u.get("commence_time") or "",
                 "event_id": f"ud-{u['player_key']}-{u['stat']}-{u.get('line')}-{side}",
-                "pct_to_hit": sane_pct(nv) or (sane_pct(u.get("pp_edge")) if is_fan else 50.0),
-                "pct_ud": sane_pct(nv) or (sane_pct(u.get("pp_edge")) if is_fan else 50.0),
+                "pct_to_hit": sane_pct(nv) or (sane_pct(u.get("pp_edge")) if is_fan else None),
+                "pct_ud": sane_pct(nv) or (sane_pct(u.get("pp_edge")) if is_fan else None),
                 "ev": None, "pp_tier": "Standard",
                 "book_line": u.get("line"), "best": None,
                 "spread": u.get("spread"), "total": u.get("total"),
