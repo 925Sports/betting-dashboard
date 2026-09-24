@@ -687,43 +687,53 @@ function renderSplitChart(focus, recs) {
   if (!splits) return "";
   const oppSplit = vsOppSplit(recs, focus.stat, focus.line, focus.side, upcomingOpp(focus));
   const ln = focus.line == null ? null : Number(focus.line);
-  const over = String(focus.side || "Over").toLowerCase() !== "under";
   const bars = recs.slice(-20).reverse().map((g) => {
     const v = logValue(g, focus.stat);
-    let cls = "miss";
-    if (v == null) cls = "void";
-    else if (ln == null) cls = "void";
+    let cls = "void";
+    if (v == null || ln == null) cls = "void";
     else if (v === ln) cls = "push";
     else if (v > ln) cls = "hit";
     else cls = "miss";
     return { g, v, cls, lab: logBarLabel(g) };
   });
-  const maxV = Math.max(...bars.map((b) => b.v || 0), ln || 0, 1);
-  const linePct = ln == null ? 0 : Math.round((ln / maxV) * 100);
-  return `<h4 style="margin:16px 0 8px">Recent vs ${escapeHtml(focus.side || "")} ${focus.line ?? ""} ${escapeHtml(focus.stat || "")}</h4>
-    <div class="split-note">${state.intel?.has_2026_logs ? "" : "2025 logs until Week 1 · "}green = over the line · red = under · gray = push</div>
-    <div class="log-bars">
+  const maxV = Math.max(...bars.map((b) => Number(b.v) || 0), ln || 0, 1);
+  const linePct = ln == null ? 0 : Math.max(8, Math.min(92, Math.round((ln / maxV) * 100)));
+  const seenN = new Set();
+  const windows = [splits.L4, splits.L8, splits.L12, splits.L16, splits.L20]
+    .filter((s) => s && s.n)
+    .filter((s) => {
+      if (seenN.has(s.n)) return false;
+      seenN.add(s.n);
+      return true;
+    });
+  const card = (title, s, extra) => {
+    if (!s || !s.n) return `<div class="hit-card empty"><span>${escapeHtml(title)}</span><b>—</b><em>${escapeHtml(extra || "No games")}</em></div>`;
+    return `<div class="hit-card">
+      <span>${escapeHtml(title)}</span>
+      <b class="${s.hit == null ? "" : pctClass(s.hit)}">${s.hit == null ? "—" : `${s.hit}%`}</b>
+      <em>${s.n} game${s.n === 1 ? "" : "s"}${s.avg != null ? ` · avg ${s.avg}` : ""}</em>
+    </div>`;
+  };
+  return `<h4 class="popup-h">Recent vs ${escapeHtml(focus.side || "")} ${focus.line ?? ""} ${escapeHtml(focus.stat || "")}</h4>
+    <div class="split-note">Green cleared the line · red missed · gray push. Line marked across the bars.</div>
+    <div class="log-bars" style="--n:${Math.max(bars.length, 4)}">
       ${bars.map((b) => {
-        const h = b.v == null ? 4 : Math.max(6, Math.round((b.v / maxV) * 100));
+        const h = b.v == null ? 8 : Math.max(14, Math.round((Number(b.v) / maxV) * 100));
         return `<div class="log-col" title="${escapeHtml(b.lab)} vs ${escapeHtml(b.g.opp || "")}: ${b.v ?? "—"}">
-          <div class="log-val">${b.v == null ? "—" : b.v}</div>
           <div class="log-track">
             ${ln != null ? `<i class="log-line" style="bottom:${linePct}%"></i>` : ""}
-            <b class="log-bar ${b.cls}" style="height:${h}%"></b>
+            <b class="log-bar ${b.cls}" style="height:${h}%"><span>${b.v == null ? "—" : b.v}</span></b>
           </div>
           <div class="log-lab">${escapeHtml(b.lab)}</div>
+          <div class="log-opp">${escapeHtml(b.g.opp || "")}</div>
         </div>`;
       }).join("")}
     </div>
-    <div class="log-hits">
-      ${[splits.L4, splits.L8, splits.L12, splits.L16, splits.L20].map((s) =>
-        `<span>${s.label}: <b class="${pctClass(s.hit)}">${s.hit ?? "—"}%</b> <em>${s.n}g</em></span>`
-      ).join("")}
-    </div>
-    <div class="log-hits">
-      <span>Home: <b class="${pctClass(splits.home.hit)}">${splits.home.hit ?? "—"}%</b> <em>${splits.home.n}g · avg ${splits.home.avg ?? "—"}</em></span>
-      <span>Away: <b class="${pctClass(splits.away.hit)}">${splits.away.hit ?? "—"}%</b> <em>${splits.away.n}g · avg ${splits.away.avg ?? "—"}</em></span>
-      ${oppSplit ? `<span>vs ${escapeHtml(oppSplit.label.replace(/^vs /, ""))}: <b class="${pctClass(oppSplit.hit)}">${oppSplit.hit ?? "—"}%</b> <em>${oppSplit.n}g · avg ${oppSplit.avg ?? "—"}</em></span>` : `<span class="muted">No prior vs this opponent in logs</span>`}
+    <div class="hit-grid">
+      ${windows.map((s) => card(s.n >= recs.length ? `${currentSeason()} (${s.n})` : `Last ${s.n}`, s)).join("")}
+      ${card("Home", splits.home)}
+      ${card("Away", splits.away)}
+      ${oppSplit ? card(oppSplit.label, oppSplit) : card("vs opponent", null, "No prior meeting in these logs")}
     </div>`;
 }
 
@@ -2579,33 +2589,40 @@ function logFamily(stat) {
 
 function contextLog(recs, focus) {
   if (!recs.length) return `<div class="muted">No ${currentSeason()} game log yet.</div>`;
-  const fam = logFamily(focus?.stat);
   const pos = String(focus?.position || focus?.nfl_pos || intelPlayer(focus?.player)?.pos || "").toUpperCase();
-  const passOn = fam === "pass" || fam === "mix" || pos === "QB";
-  const rushOn = fam === "rush" || fam === "mix" || pos === "RB" || pos === "QB" || pos === "FB" || pos === "HB";
-  const recOn = fam === "rec" || fam === "mix" || pos === "WR" || pos === "TE" || pos === "RB";
-  const head = [`<th rowspan="2">Week</th><th rowspan="2">Matchup</th>`];
-  const sub = [];
-  if (passOn) { head.push(`<th colspan="5">Passing</th>`); sub.push("<th>Cmp</th><th>Att</th><th>Yds</th><th>TD</th><th>INT</th>"); }
-  if (rushOn) { head.push(`<th colspan="3">Rushing</th>`); sub.push("<th>Att</th><th>Yds</th><th>TD</th>"); }
-  if (recOn) { head.push(`<th colspan="4">Receiving</th>`); sub.push("<th>Rec</th><th>Tgt</th><th>Yds</th><th>TD</th>"); }
-  head.push(`<th colspan="2">Snaps</th>`);
+  const fam = logFamily(focus?.stat);
+  const passOn = fam === "pass" || pos === "QB";
+  const rushOn = true;
+  const recOn = fam === "rec" || fam === "mix" || ["WR", "TE", "RB", "FB", "HB"].includes(pos);
+  const catchPct = (g) => (g.tgt ? Math.round((Number(g.rec || 0) / g.tgt) * 100) : null);
+  const groups = [`<th class="grp" colspan="3">Fantasy / game</th>`];
+  const sub = ["<th>Week</th><th>Fpts</th><th>Matchup</th>"];
+  if (passOn) { groups.push(`<th class="grp" colspan="5">Passing</th>`); sub.push("<th>Cmp</th><th>Att</th><th>Yds</th><th>TD</th><th>INT</th>"); }
+  if (recOn) { groups.push(`<th class="grp" colspan="6">Receiving</th>`); sub.push("<th>Rec</th><th>Tar</th><th>Yds</th><th>TD</th><th>Catch%</th><th>Rte%</th>"); }
+  if (rushOn) { groups.push(`<th class="grp" colspan="4">Rushing</th>`); sub.push("<th>Att</th><th>Yds</th><th>Avg</th><th>TD</th>"); }
+  groups.push(`<th class="grp" colspan="2">Snaps</th>`);
   sub.push("<th>Snp</th><th>Snp%</th>");
   const row = (g) => {
+    const match = `${g.home === false ? "@" : "vs"} ${g.opp || ""}`;
+    const avg = g.car ? (Number(g.rush_yds || 0) / g.car).toFixed(1) : "—";
     const bits = [
-      `<td>${String(g.season || "").slice(2)} W${g.week}${g.home === true ? " vs" : g.home === false ? " @" : ""} ${escapeHtml(g.opp || "")}</td>`.replace("W", "W"),
+      `<td>${String(g.season || "").slice(2)} W${g.week}</td>`,
+      `<td>${g.ppr ?? g.fant ?? "—"}</td>`,
+      `<td class="match">${escapeHtml(match)}</td>`,
     ];
-    bits[0] = `<td>${String(g.season || "").slice(2)} W${g.week}</td><td>${g.home === false ? "@" : "vs"} ${escapeHtml(g.opp || "")}</td>`;
     if (passOn) bits.push(`<td>${g.cmp ?? 0}</td><td>${g.att ?? 0}</td><td>${g.pass_yds ?? 0}</td><td>${g.pass_td ?? 0}</td><td>${g.int ?? 0}</td>`);
-    if (rushOn) bits.push(`<td>${g.car ?? 0}</td><td>${g.rush_yds ?? 0}</td><td>${g.rush_td ?? 0}</td>`);
-    if (recOn) bits.push(`<td>${g.rec ?? 0}</td><td>${g.tgt ?? 0}</td><td>${g.rec_yds ?? 0}</td><td>${g.rec_td ?? 0}</td>`);
+    if (recOn) bits.push(`<td>${g.rec ?? 0}</td><td>${g.tgt ?? 0}</td><td>${g.rec_yds ?? 0}</td><td>${g.rec_td ?? 0}</td><td>${catchPct(g) != null ? `${catchPct(g)}%` : "—"}</td><td>${g.route_pct != null ? `${Math.round(g.route_pct)}%` : "—"}</td>`);
+    if (rushOn) bits.push(`<td>${g.car ?? 0}</td><td>${g.rush_yds ?? 0}</td><td>${avg}</td><td>${g.rush_td ?? 0}</td>`);
     bits.push(`<td>${g.off_snaps ?? "—"}</td><td>${g.off_pct != null ? `${Math.round(g.off_pct)}%` : "—"}</td>`);
     return `<tr>${bits.join("")}</tr>`;
   };
-  return `<div class="log-scroll"><table class="popup-table popup-logs dfs-log">
-    <thead><tr>${head.join("")}</tr><tr>${sub.join("")}</tr></thead>
-    <tbody>${[...recs].reverse().map(row).join("")}</tbody>
-  </table></div>`;
+  return `<div class="dfs-wrap">
+    <div class="popup-h">Recent games</div>
+    <div class="log-scroll"><table class="popup-table popup-logs dfs-log">
+      <thead><tr>${groups.join("")}</tr><tr>${sub.join("")}</tr></thead>
+      <tbody>${[...recs].reverse().map(row).join("")}</tbody>
+    </table></div>
+  </div>`;
 }
 
 function usageDetail(recs, pos, focus) {
