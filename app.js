@@ -243,9 +243,10 @@ function hitPct(row) {
     if (cash != null) return cash;
   }
   if (state.view === "ud") {
-    if (row.pct_ud != null) return row.pct_ud;
     const nv = bookNoVig(row);
+    if (row.pct_ud != null && !(Number(row.pct_ud) === 50 && nv != null)) return row.pct_ud;
     if (nv != null) return nv;
+    if (row.pct_to_hit != null && Number(row.pct_to_hit) !== 50) return row.pct_to_hit;
   }
   if (state.view === "prophetx") {
     const nv = bookNoVig(row);
@@ -532,6 +533,43 @@ function avgLogs(recs, key) {
   if (!list.length) return null;
   const sum = list.reduce((a, r) => a + (Number(r[key]) || 0), 0);
   return +(sum / list.length).toFixed(1);
+}
+
+function usagePack(recs) {
+  const last = (recs || []).slice(-5);
+  if (!last.length) return null;
+  const avg = (k) => {
+    const nums = last.map((g) => Number(g[k])).filter((n) => Number.isFinite(n));
+    if (!nums.length) return null;
+    return +(nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(1);
+  };
+  const lastG = last[last.length - 1] || {};
+  return {
+    n: last.length,
+    snap: avg("off_snaps"),
+    snapPct: avg("off_pct"),
+    routes: avg("routes"),
+    routePct: avg("route_pct"),
+    tgt: avg("tgt"),
+    lastSnap: lastG.off_snaps,
+    lastSnapPct: lastG.off_pct,
+    lastRoutes: lastG.routes,
+    lastTgt: lastG.tgt,
+    lastOpp: lastG.opp,
+    lastWeek: lastG.week,
+  };
+}
+
+function usageStrip(recs) {
+  const u = usagePack(recs);
+  if (!u || (u.snap == null && u.routes == null && u.tgt == null)) return "";
+  const cell = (lab, v, extra) => `<div class="popup-stat"><b>${lab}</b>${v == null ? "—" : v}${extra || ""}</div>`;
+  return `<div class="popup-grid usage-grid">
+    ${cell("L5 snaps", u.snap, u.snapPct != null ? ` <span class="muted">(${Math.round(u.snapPct)}%)</span>` : "")}
+    ${cell("L5 routes", u.routes, u.routePct != null ? ` <span class="muted">(${Math.round(u.routePct)}%)</span>` : "")}
+    ${cell("L5 targets", u.tgt)}
+    ${cell(`Last (w${u.lastWeek || "—"}${u.lastOpp ? ` vs ${u.lastOpp}` : ""})`, [u.lastSnap != null ? `${u.lastSnap} sn` : "", u.lastRoutes != null ? `${u.lastRoutes} rte` : "", u.lastTgt != null ? `${u.lastTgt} tgt` : ""].filter(Boolean).join(" · ") || "—")}
+  </div>`;
 }
 
 function playerByGsis(gsis) {
@@ -1671,8 +1709,10 @@ function previewCorrelates(rows, sample) {
 }
 
 function previewInjuries(sample) {
-  const teams = [abbr(sample.away_team), abbr(sample.home_team), sample.nfl_team].filter(Boolean);
-  const names = new Set(rowsForGame(gameKeyOf(sample)).map((r) => normName(r.player)));
+  const nfl = !sportOf(sample) || sportOf(sample) === "NFL";
+  if (!nfl) return [];
+  const teams = new Set([abbr(sample.away_team, sample), abbr(sample.home_team, sample)].filter((t) => TEAM_CODE_NICK[t]));
+  const roster = new Set(rowsForGame(gameKeyOf(sample)).map((r) => normName(r.player)));
   const rank = (s) => {
     const t = String(s || "").toLowerCase();
     if (t.includes("out") || t === "ir") return 0;
@@ -1681,9 +1721,42 @@ function previewInjuries(sample) {
     return 3;
   };
   return (state.intel?.injuries || []).filter((inj) => {
-    if (teams.includes(inj.team)) return true;
-    return names.has(normName(inj.name));
-  }).sort((a, b) => rank(a.report_status) - rank(b.report_status) || String(a.name).localeCompare(String(b.name))).slice(0, 20);
+    const t = abbr(inj.team);
+    if (teams.size && t && TEAM_CODE_NICK[t]) return teams.has(t);
+    return roster.has(normName(inj.name));
+  }).sort((a, b) => rank(a.report_status) - rank(b.report_status) || String(a.name).localeCompare(String(b.name))).slice(0, 24);
+}
+
+function previewUsage(sample) {
+  if (sportOf(sample) && sportOf(sample) !== "NFL") return "";
+  const teams = new Set([abbr(sample.away_team, sample), abbr(sample.home_team, sample)].filter(Boolean));
+  const seen = new Set();
+  const rows = [];
+  rowsForGame(gameKeyOf(sample)).forEach((r) => {
+    const key = nameKey(r.player);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    const meta = intelPlayer(r.player);
+    const recs = intelLogs(r.gsis_id || meta?.gsis_id);
+    const u = usagePack(recs);
+    if (!u || (u.snap == null && u.routes == null && u.tgt == null)) return;
+    rows.push({ r, meta, u, team: r.nfl_team || meta?.team || "" });
+  });
+  rows.sort((a, b) => (b.u.snapPct || 0) - (a.u.snapPct || 0) || String(a.r.player).localeCompare(b.r.player));
+  if (!rows.length) return "";
+  return `<div class="preview-card">
+    <h3>Snaps · Routes · Targets</h3>
+    <div class="corr-why">L5 averages from NFL-Player-Log. Click a row for the player card.</div>
+    <table class="popup-table">
+      <thead><tr><th>Player</th><th>Snaps</th><th>Routes</th><th>Tgt</th></tr></thead>
+      <tbody>${rows.slice(0, 18).map(({ r, meta, u }) => `<tr class="popup-line" data-player="${escapeHtml(r.player)}" data-event="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || r.stat || "")}" data-side="${escapeHtml(r.side || "")}">
+        <td>${headshotTag(r.headshot || meta?.headshot)} ${escapeHtml(r.player)} <span class="muted">${escapeHtml(meta?.pos || r.position || "")}</span></td>
+        <td>${u.snap ?? "—"}${u.snapPct != null ? ` <span class="muted">${Math.round(u.snapPct)}%</span>` : ""}</td>
+        <td>${u.routes ?? "—"}${u.routePct != null ? ` <span class="muted">${Math.round(u.routePct)}%</span>` : ""}</td>
+        <td>${u.tgt ?? "—"}</td>
+      </tr>`).join("")}</tbody>
+    </table>
+  </div>`;
 }
 
 function bestGameBook(books, market, side) {
@@ -2078,6 +2151,7 @@ function renderPreview() {
         </div>`).join("") : `<div class="muted">Not enough overlapping stats to build stacks yet.</div>`}
       </div>
     </div>
+    ${previewUsage(sample)}
     <div class="preview-grid">
       <div class="preview-card">
         <h3>Injuries / availability</h3>
@@ -2437,15 +2511,16 @@ function openPlayerPopup(player, eventId, market, side) {
   const recs = intelLogs(gsis);
   const relatedNews = (state.intel?.news || []).filter((n) => (n.players || []).includes(gsis) || (n.headline || "").toLowerCase().includes(String(player).toLowerCase()));
   const kProps = kalshiPropsForPlayer(player);
-  const logBlock = recs.length ? `<h4 style="margin:16px 0 8px">Recent games ${state.intel?.has_2026_logs ? "" : "(2025 until Week 1)"}</h4>
+  const logBlock = recs.length ? `<h4 class="popup-h">Game log</h4>
     <table class="popup-table popup-logs">
-      <thead><tr><th>Wk</th><th>Opp</th><th>Pass</th><th>Rush</th><th>Rec</th><th>PPR</th></tr></thead>
+      <thead><tr><th>Wk</th><th>Opp</th><th>Snap</th><th>Rte</th><th>Tgt</th><th>Rec</th><th>PPR</th></tr></thead>
       <tbody>${[...recs].reverse().map((g) => `<tr>
         <td>${g.season} w${g.week}${g.st === "POST" ? " P" : ""}</td>
         <td>${escapeHtml(g.opp || "")}</td>
-        <td>${g.att ? `${g.cmp}/${g.att}, ${g.pass_yds}y ${g.pass_td}TD` : "—"}</td>
-        <td>${g.car ? `${g.car}-${g.rush_yds}` : "—"}</td>
-        <td>${g.tgt || g.rec ? `${g.rec}/${g.tgt}, ${g.rec_yds}y` : "—"}</td>
+        <td>${g.off_snaps != null ? `${g.off_snaps}${g.off_pct != null ? ` (${Math.round(g.off_pct)}%)` : ""}` : "—"}</td>
+        <td>${g.routes != null ? `${g.routes}${g.route_pct != null ? ` (${Math.round(g.route_pct)}%)` : ""}` : "—"}</td>
+        <td>${g.tgt ?? "—"}</td>
+        <td>${g.tgt || g.rec ? `${g.rec}/${g.tgt}` : "—"}</td>
         <td>${g.ppr ?? "—"}</td>
       </tr>`).join("")}</tbody>
     </table>` : "";
@@ -2462,15 +2537,16 @@ function openPlayerPopup(player, eventId, market, side) {
       <button type="button" class="popup-x" id="popupClose">✕</button>
     </div>
     <div class="popup-grid">
-      <div class="popup-stat"><b>Stat</b>${escapeHtml(focus.stat)} ${escapeHtml(focus.side)} ${focus.line ?? ""}</div>
+      <div class="popup-stat"><b>The bet</b>${escapeHtml(focus.stat)} ${escapeHtml(focus.side)} ${focus.line ?? ""}</div>
       <div class="popup-stat"><b>Tier</b>${escapeHtml(focus.pp_tier || "—")}</div>
-      <div class="popup-stat"><b>% to hit</b>${focus.pct_to_hit != null ? focus.pct_to_hit.toFixed(1) + "%" : "—"}</div>
+      <div class="popup-stat"><b>% to hit</b>${hitPct(focus) != null ? hitPct(focus).toFixed(1) + "%" : "—"}</div>
       <div class="popup-stat"><b>Edge</b>${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</div>
     </div>
-    <div class="popup-stat sum-card" style="margin-bottom:12px"><b>Bet write-up</b>${betSummary(focus, recs, oppRow)}</div>
     ${focus.injury ? `<div class="popup-stat" style="margin-bottom:12px"><b>Injury</b>${injPill(focus.injury)} ${escapeHtml(focus.injury.injury || "")} · ${focus.injury.season || ""}w${focus.injury.week || ""}</div>` : ""}
-    ${logBlock}
+    ${usageStrip(recs)}
     ${renderSplitChart(focus, recs)}
+    <div class="popup-stat sum-card" style="margin-bottom:12px"><b>Bet write-up</b>${betSummary(focus, recs, oppRow)}</div>
+    ${logBlock}
     ${newsBlock}
     <div class="popup-stat" style="margin-bottom:12px">
       <b>DFS lines</b>
