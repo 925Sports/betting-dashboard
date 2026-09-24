@@ -24,6 +24,8 @@ PLAYERS_URL = "https://raw.githubusercontent.com/925Sports/NFL-Player-Log/main/d
 LOGS_URL = "https://raw.githubusercontent.com/925Sports/NFL-Player-Log/main/data/gamelogs.csv"
 INJ_URL = "https://raw.githubusercontent.com/925Sports/NFL-Player-Log/main/data/injuries.csv"
 NEWS_URL = "https://raw.githubusercontent.com/925Sports/NFL-Player-Log/main/data/news_all.csv"
+SNAPS_URL = "https://raw.githubusercontent.com/925Sports/NFL-Player-Log/main/data/snap_counts.csv"
+ROUTES_URL = "https://raw.githubusercontent.com/925Sports/NFL-Player-Log/main/data/routes.csv"
 
 SKILL = {"QB", "RB", "WR", "TE", "K", "FB", "HB"}
 LOG_KEEP = 20
@@ -216,7 +218,74 @@ def compact_log(r: dict) -> dict:
         "pat_att": to_int(r.get("pat_att")) or 0,
         "fant": round(nz(r.get("fantasy_points")), 1),
         "ppr": round(nz(r.get("fantasy_points_ppr")), 1),
+        "off_snaps": None,
+        "off_pct": None,
+        "routes": None,
+        "route_pct": None,
     }
+
+
+def pct_100(v):
+    n = to_float(v)
+    if n is None:
+        return None
+    if n <= 1.5:
+        n *= 100
+    return round(n, 1)
+
+
+def load_snaps(text: str):
+    out = {}
+    for r in parse_csv(text):
+        key = (norm_name(r.get("player") or ""), to_int(r.get("season")), to_int(r.get("week")))
+        if not key[0] or key[1] is None or key[2] is None:
+            continue
+        out[key] = {
+            "off_snaps": to_int(r.get("offense_snaps")),
+            "off_pct": pct_100(r.get("offense_pct")),
+        }
+    print(f"snap weeks={len(out)}")
+    return out
+
+
+def load_routes(text: str):
+    out = {}
+    for r in parse_csv(text):
+        key = (norm_name(r.get("player") or ""), to_int(r.get("season")), to_int(r.get("week")))
+        if not key[0] or key[1] is None or key[2] is None:
+            continue
+        tgt = to_int(r.get("targets"))
+        out[key] = {
+            "routes": to_float(r.get("routes")),
+            "route_pct": pct_100(r.get("route_pct")),
+            "tgt": tgt,
+        }
+    print(f"route weeks={len(out)}")
+    return out
+
+
+def attach_usage(logs, by_gsis, snaps, routes):
+    hit = 0
+    for gid, recs in logs.items():
+        p = by_gsis.get(gid) or {}
+        name = norm_name(p.get("full_name") or "")
+        if not name:
+            continue
+        for g in recs:
+            key = (name, g.get("season"), g.get("week"))
+            s = snaps.get(key) or {}
+            rt = routes.get(key) or {}
+            if s.get("off_snaps") is not None:
+                g["off_snaps"] = s["off_snaps"]
+                g["off_pct"] = s.get("off_pct")
+                hit += 1
+            if rt.get("routes") is not None:
+                g["routes"] = rt["routes"]
+                g["route_pct"] = rt.get("route_pct")
+                hit += 1
+            if rt.get("tgt") is not None and not g.get("tgt"):
+                g["tgt"] = rt["tgt"]
+    print(f"usage attached cells={hit}")
 
 
 def load_logs(text: str, by_gsis: dict):
@@ -372,10 +441,15 @@ def main():
     logs_txt = download(LOGS_URL, "gamelogs")
     inj_txt = download(INJ_URL, "injuries")
     news_txt = download(NEWS_URL, "news_all")
+    snaps_txt = download(SNAPS_URL, "snap_counts")
+    routes_txt = download(ROUTES_URL, "routes")
 
     by_gsis, by_name, by_lf = load_players(players_txt)
     injuries, inj_season, inj_week = load_injuries(inj_txt)
     logs, seasons, weeks, has_2026 = load_logs(logs_txt, by_gsis)
+    snaps = load_snaps(snaps_txt)
+    routes = load_routes(routes_txt)
+    attach_usage(logs, by_gsis, snaps, routes)
     news, pulled = load_news(news_txt)
     tag_news(news, by_name, by_gsis)
 
