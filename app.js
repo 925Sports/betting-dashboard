@@ -296,6 +296,19 @@ function pctClass(pct) {
   return "pct bad";
 }
 
+function edgeClass(edge) {
+  if (edge == null) return "pct";
+  if (edge >= 0) return "pct good";
+  if (edge >= -2) return "pct ok";
+  return "pct bad";
+}
+
+function sideTag(side) {
+  const s = String(side || "");
+  const cls = s === "Over" || s === "Yes" ? "over" : (s === "Under" || s === "No" ? "under" : "");
+  return `<span class="tag ${cls}">${escapeHtml(s || "—")}</span>`;
+}
+
 const TZ = "America/Chicago";
 
 function parseWhen(iso) {
@@ -483,9 +496,17 @@ function intelPlayer(name) {
   return intel.players[normName(name)] || null;
 }
 
+function currentSeason() {
+  if (state.intel?.injury_season) return Number(state.intel.injury_season);
+  if (state.intel?.has_2026_logs) return 2026;
+  const seasons = state.intel?.log_seasons || [];
+  return seasons.length ? Math.max(...seasons.map(Number)) : 2026;
+}
+
 function intelLogs(gsis) {
   if (!gsis) return [];
-  return state.intel?.logs?.[gsis] || [];
+  const season = currentSeason();
+  return (state.intel?.logs?.[gsis] || []).filter((g) => !g.season || Number(g.season) === season);
 }
 
 function injClass(status) {
@@ -560,15 +581,16 @@ function usagePack(recs) {
   };
 }
 
-function usageStrip(recs) {
+function usageStrip(recs, pos) {
   const u = usagePack(recs);
   if (!u || (u.snap == null && u.routes == null && u.tgt == null)) return "";
+  const qb = /^QB$/i.test(pos || "");
   const cell = (lab, v, extra) => `<div class="popup-stat"><b>${lab}</b>${v == null ? "—" : v}${extra || ""}</div>`;
   return `<div class="popup-grid usage-grid">
     ${cell("L5 snaps", u.snap, u.snapPct != null ? ` <span class="muted">(${Math.round(u.snapPct)}%)</span>` : "")}
-    ${cell("L5 routes", u.routes, u.routePct != null ? ` <span class="muted">(${Math.round(u.routePct)}%)</span>` : "")}
-    ${cell("L5 targets", u.tgt)}
-    ${cell(`Last (w${u.lastWeek || "—"}${u.lastOpp ? ` vs ${u.lastOpp}` : ""})`, [u.lastSnap != null ? `${u.lastSnap} sn` : "", u.lastRoutes != null ? `${u.lastRoutes} rte` : "", u.lastTgt != null ? `${u.lastTgt} tgt` : ""].filter(Boolean).join(" · ") || "—")}
+    ${qb ? "" : cell("L5 routes", u.routes, u.routePct != null ? ` <span class="muted">(${Math.round(u.routePct)}%)</span>` : "")}
+    ${qb ? "" : cell("L5 targets", u.tgt)}
+    ${cell(`Last (w${u.lastWeek || "—"}${u.lastOpp ? ` vs ${u.lastOpp}` : ""})`, [u.lastSnap != null ? `${u.lastSnap} sn` : "", !qb && u.lastRoutes != null ? `${u.lastRoutes} rte` : "", !qb && u.lastTgt != null ? `${u.lastTgt} tgt` : ""].filter(Boolean).join(" · ") || "—")}
   </div>`;
 }
 
@@ -1712,7 +1734,8 @@ function previewInjuries(sample) {
   const nfl = !sportOf(sample) || sportOf(sample) === "NFL";
   if (!nfl) return [];
   const teams = new Set([abbr(sample.away_team, sample), abbr(sample.home_team, sample)].filter((t) => TEAM_CODE_NICK[t]));
-  const roster = new Set(rowsForGame(gameKeyOf(sample)).map((r) => normName(r.player)));
+  const season = state.intel?.injury_season;
+  const week = state.intel?.injury_week;
   const rank = (s) => {
     const t = String(s || "").toLowerCase();
     if (t.includes("out") || t === "ir") return 0;
@@ -1721,41 +1744,92 @@ function previewInjuries(sample) {
     return 3;
   };
   return (state.intel?.injuries || []).filter((inj) => {
+    if (season && inj.season && inj.season !== season) return false;
+    if (week && inj.week && inj.week < week - 1) return false;
     const t = abbr(inj.team);
-    if (teams.size && t && TEAM_CODE_NICK[t]) return teams.has(t);
-    return roster.has(normName(inj.name));
+    return teams.size ? teams.has(t) : false;
   }).sort((a, b) => rank(a.report_status) - rank(b.report_status) || String(a.name).localeCompare(String(b.name))).slice(0, 24);
 }
 
 function previewUsage(sample) {
   if (sportOf(sample) && sportOf(sample) !== "NFL") return "";
-  const teams = new Set([abbr(sample.away_team, sample), abbr(sample.home_team, sample)].filter(Boolean));
+  const home = abbr(sample.home_team, sample);
+  const away = abbr(sample.away_team, sample);
+  const season = state.intel?.has_2026_logs ? 2026 : (state.intel?.log_seasons || []).slice(-1)[0] || 2026;
+  const weekSet = new Set();
+  const byTeam = { [away]: [], [home]: [] };
   const seen = new Set();
-  const rows = [];
-  rowsForGame(gameKeyOf(sample)).forEach((r) => {
-    const key = nameKey(r.player);
+  const addPlayer = (name, meta, recs, row) => {
+    const key = nameKey(name);
     if (!key || seen.has(key)) return;
     seen.add(key);
+    const team = abbr(meta?.team || row?.nfl_team || "");
+    if (team !== home && team !== away) return;
+    const pos = String(meta?.pos || row?.position || row?.nfl_pos || "").toUpperCase();
+    if (pos && !["QB", "RB", "WR", "TE", "FB", "HB"].includes(pos)) return;
+    const weeks = (recs || []).filter((g) => Number(g.season) === Number(season) && g.off_pct != null);
+    weeks.forEach((g) => weekSet.add(g.week));
+    const snapPcts = weeks.map((g) => Number(g.off_pct)).filter((n) => Number.isFinite(n));
+    const seasonPct = snapPcts.length ? snapPcts.reduce((a, b) => a + b, 0) / snapPcts.length : null;
+    if (seasonPct == null && !weeks.length) return;
+    byTeam[team].push({
+      name,
+      pos,
+      meta,
+      row,
+      recs,
+      seasonPct,
+      byWeek: Object.fromEntries(weeks.map((g) => [g.week, g.off_pct])),
+    });
+  };
+  rowsForGame(gameKeyOf(sample)).forEach((r) => {
     const meta = intelPlayer(r.player);
-    const recs = intelLogs(r.gsis_id || meta?.gsis_id);
-    const u = usagePack(recs);
-    if (!u || (u.snap == null && u.routes == null && u.tgt == null)) return;
-    rows.push({ r, meta, u, team: r.nfl_team || meta?.team || "" });
+    addPlayer(r.player, meta, intelLogs(r.gsis_id || meta?.gsis_id), r);
   });
-  rows.sort((a, b) => (b.u.snapPct || 0) - (a.u.snapPct || 0) || String(a.r.player).localeCompare(b.r.player));
-  if (!rows.length) return "";
-  return `<div class="preview-card">
-    <h3>Snaps · Routes · Targets</h3>
-    <div class="corr-why">L5 averages from NFL-Player-Log. Click a row for the player card.</div>
-    <table class="popup-table">
-      <thead><tr><th>Player</th><th>Snaps</th><th>Routes</th><th>Tgt</th></tr></thead>
-      <tbody>${rows.slice(0, 18).map(({ r, meta, u }) => `<tr class="popup-line" data-player="${escapeHtml(r.player)}" data-event="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || r.stat || "")}" data-side="${escapeHtml(r.side || "")}">
-        <td>${headshotTag(r.headshot || meta?.headshot)} ${escapeHtml(r.player)} <span class="muted">${escapeHtml(meta?.pos || r.position || "")}</span></td>
-        <td>${u.snap ?? "—"}${u.snapPct != null ? ` <span class="muted">${Math.round(u.snapPct)}%</span>` : ""}</td>
-        <td>${u.routes ?? "—"}${u.routePct != null ? ` <span class="muted">${Math.round(u.routePct)}%</span>` : ""}</td>
-        <td>${u.tgt ?? "—"}</td>
-      </tr>`).join("")}</tbody>
-    </table>
+  Object.values(state.intel?.players || {}).forEach((p) => {
+    const team = abbr(p.team);
+    if (team !== home && team !== away) return;
+    addPlayer(p.name, p, intelLogs(p.gsis_id), null);
+  });
+  const weeks = [...weekSet].filter(Boolean).sort((a, b) => a - b).slice(-6);
+  const tone = (n, avg) => {
+    if (n == null) return "snap-miss";
+    if (avg == null) return "";
+    if (n >= avg + 8) return "snap-up";
+    if (n <= avg - 8) return "snap-down";
+    return "snap-ok";
+  };
+  const table = (team, list) => {
+    if (!list.length) return "";
+    list.sort((a, b) => (b.seasonPct || 0) - (a.seasonPct || 0));
+    const label = TEAM_CODE_NICK[team] ? `${team} ${TEAM_CODE_NICK[team]}` : team;
+    return `<div class="snap-board">
+      <h3>${escapeHtml(label)}</h3>
+      <table class="popup-table snap-table">
+        <thead><tr><th>Player</th><th>Pos</th><th>Season snap %</th>${weeks.map((w) => `<th>W${w}</th>`).join("")}</tr></thead>
+        <tbody>${list.slice(0, 18).map((p) => {
+          const pct = p.seasonPct == null ? 0 : Math.round(p.seasonPct);
+          const row = p.row || { player: p.name, event_id: "", market: "", side: "", headshot: p.meta?.headshot };
+          return `<tr class="popup-line" data-player="${escapeHtml(p.name)}" data-event="${escapeHtml(row.event_id || "")}" data-market="${escapeHtml(row.market || row.stat || "")}" data-side="${escapeHtml(row.side || "")}">
+            <td>${headshotTag(row.headshot || p.meta?.headshot)} ${escapeHtml(p.name)}</td>
+            <td>${escapeHtml(p.pos || "")}</td>
+            <td><div class="snap-bar-wrap"><span class="snap-bar" style="width:${Math.min(100, pct)}%"></span><b>${p.seasonPct == null ? "—" : `${pct}%`}</b></div></td>
+            ${weeks.map((w) => {
+              const n = p.byWeek[w];
+              const v = n == null ? "—" : `${Math.round(n)}%`;
+              return `<td class="${tone(n, p.seasonPct)}">${v}</td>`;
+            }).join("")}
+          </tr>`;
+        }).join("")}</tbody>
+      </table>
+    </div>`;
+  };
+  const html = `${table(away, byTeam[away] || [])}${table(home, byTeam[home] || [])}`;
+  if (!html) return "";
+  return `<div class="preview-card snap-card">
+    <h3>Snaps by team</h3>
+    <div class="corr-why">${season} offensive snap %. Green / red is vs that player's own season average. QBs do not show routes.</div>
+    ${html}
   </div>`;
 }
 
@@ -2136,8 +2210,9 @@ function renderPreview() {
       <div class="preview-card">
         <h3>Best props</h3>
         ${best.length ? best.map(({ r, edge }) => `<div class="preview-prop">
-          <div class="player-row">${headshotTag(r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)} ${escapeHtml(r.side)} ${r.line ?? ""} ${escapeHtml(r.stat)}</button></div>
-          <span class="${pctClass(r.pct_to_hit)}">${r.pct_to_hit?.toFixed(1)}%${edge == null ? "" : ` · ${edge > 0 ? "+" : ""}${edge.toFixed(1)}`}</span>
+          <div class="player-row">${headshotTag(r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}</button>
+            ${sideTag(r.side)} <span class="line-num">${r.line ?? ""}</span> ${escapeHtml(r.stat)}</div>
+          <span class="${edgeClass(edge)}">${edge == null ? (hitPct(r) != null ? hitPct(r).toFixed(1) + "%" : "—") : `${edge > 0 ? "+" : ""}${edge.toFixed(1)}`}</span>
         </div>`).join("") : `<div class="muted">No standard PP props with a hit rate yet.</div>`}
       </div>
       <div class="preview-card">
@@ -2476,6 +2551,54 @@ function standardishLines(rows) {
   return [...best.values()].map((x) => x.r).sort((a, b) => String(a.stat).localeCompare(String(b.stat)));
 }
 
+function logFamily(stat) {
+  const s = String(stat || "").toLowerCase();
+  if (/pass\+rush|rush\+rec|fantasy|anytime td/.test(s)) return "mix";
+  if (/(pass yd|pass td|pass att|completion|int\b|passing)/.test(s)) return "pass";
+  if (/(rush yd|rush att|rush td|carries|rushing)/.test(s)) return "rush";
+  if (/(rec|tgt|target|catch|receiving|longest rec)/.test(s)) return "rec";
+  return "mix";
+}
+
+function contextLog(recs, focus) {
+  if (!recs.length) return "";
+  const fam = logFamily(focus?.stat);
+  const pos = String(focus?.position || focus?.nfl_pos || intelPlayer(focus?.player)?.pos || "").toUpperCase();
+  const showRoutes = ["WR", "TE", "RB", "FB", "HB"].includes(pos);
+  let heads = ["Wk", "Opp", "Snap%"];
+  if (fam === "pass") heads = ["Wk", "Opp", "Cmp/Att", "Pass Yds", "TD", "INT", "Snap%"];
+  else if (fam === "rush") heads = ["Wk", "Opp", "Att", "Rush Yds", "TD", "Snap%"];
+  else if (fam === "rec") heads = ["Wk", "Opp", "Rec/Tgt", "Rec Yds", "TD", showRoutes ? "Rte%" : "PPR", "Snap%"];
+  else heads = ["Wk", "Opp", "Pass", "Rush", "Rec/Tgt", "PPR", "Snap%"];
+  const cells = (g) => {
+    const snap = g.off_pct != null ? `${Math.round(g.off_pct)}%` : "—";
+    if (fam === "pass") return [g.att ? `${g.cmp}/${g.att}` : "—", g.pass_yds ?? "—", g.pass_td ?? "—", g.int ?? "—", snap];
+    if (fam === "rush") return [g.car ?? "—", g.rush_yds ?? "—", g.rush_td ?? "—", snap];
+    if (fam === "rec") return [
+      g.tgt || g.rec ? `${g.rec}/${g.tgt}` : "—",
+      g.rec_yds ?? "—",
+      g.rec_td ?? "—",
+      showRoutes ? (g.route_pct != null ? `${Math.round(g.route_pct)}%` : "—") : (g.ppr ?? "—"),
+      snap,
+    ];
+    return [
+      g.att ? `${g.cmp}/${g.att}, ${g.pass_yds}` : "—",
+      g.car ? `${g.car}-${g.rush_yds}` : "—",
+      g.tgt || g.rec ? `${g.rec}/${g.tgt}` : "—",
+      g.ppr ?? "—",
+      snap,
+    ];
+  };
+  return `<table class="popup-table popup-logs">
+    <thead><tr>${heads.map((h) => `<th>${h}</th>`).join("")}</tr></thead>
+    <tbody>${[...recs].reverse().map((g) => `<tr>
+      <td>${String(g.season || "").slice(2)} W${g.week}${g.st === "POST" ? " P" : ""}</td>
+      <td>${escapeHtml(g.opp || "")}</td>
+      ${cells(g).map((c) => `<td>${c}</td>`).join("")}
+    </tr>`).join("")}</tbody>
+  </table>`;
+}
+
 function openPlayerPopup(player, eventId, market, side) {
   const all = state.data?.props || [];
   const key = nameKey(player);
@@ -2507,23 +2630,12 @@ function openPlayerPopup(player, eventId, market, side) {
   const oppDfs = Object.entries(oppRow?.dfs || {});
   const others = standardishLines(mine.filter((r) => !(r.event_id === focus.event_id && r.stat === focus.stat && r.side === focus.side)));
   const meta = intelPlayer(player);
+  const pos = focus.position || focus.nfl_pos || meta?.pos || "";
   const gsis = focus.gsis_id || meta?.gsis_id;
   const recs = intelLogs(gsis);
   const relatedNews = (state.intel?.news || []).filter((n) => (n.players || []).includes(gsis) || (n.headline || "").toLowerCase().includes(String(player).toLowerCase()));
   const kProps = kalshiPropsForPlayer(player);
-  const logBlock = recs.length ? `<h4 class="popup-h">Game log</h4>
-    <table class="popup-table popup-logs">
-      <thead><tr><th>Wk</th><th>Opp</th><th>Snap</th><th>Rte</th><th>Tgt</th><th>Rec</th><th>PPR</th></tr></thead>
-      <tbody>${[...recs].reverse().map((g) => `<tr>
-        <td>${g.season} w${g.week}${g.st === "POST" ? " P" : ""}</td>
-        <td>${escapeHtml(g.opp || "")}</td>
-        <td>${g.off_snaps != null ? `${g.off_snaps}${g.off_pct != null ? ` (${Math.round(g.off_pct)}%)` : ""}` : "—"}</td>
-        <td>${g.routes != null ? `${g.routes}${g.route_pct != null ? ` (${Math.round(g.route_pct)}%)` : ""}` : "—"}</td>
-        <td>${g.tgt ?? "—"}</td>
-        <td>${g.tgt || g.rec ? `${g.rec}/${g.tgt}` : "—"}</td>
-        <td>${g.ppr ?? "—"}</td>
-      </tr>`).join("")}</tbody>
-    </table>` : "";
+  const logBlock = recs.length ? contextLog(recs, focus) : `<div class="muted">No game log yet.</div>`;
   const newsBlock = relatedNews.length ? `<h4 style="margin:16px 0 8px">News</h4>
     ${relatedNews.slice(0, 6).map((n) => `<div class="popup-stat" style="margin-bottom:8px"><b>${escapeHtml(n.source || "")} · ${escapeHtml(n.published || "")}</b>
       <a href="${escapeHtml(n.url || "#")}" target="_blank" rel="noopener">${escapeHtml(n.headline || "")}</a></div>`).join("")}` : "";
@@ -2536,6 +2648,13 @@ function openPlayerPopup(player, eventId, market, side) {
       </div>
       <button type="button" class="popup-x" id="popupClose">✕</button>
     </div>
+    <div class="pop-tabs">
+      <button type="button" class="pop-tab on" data-pop-tab="bet">Bet</button>
+      <button type="button" class="pop-tab" data-pop-tab="log">Game log</button>
+      <button type="button" class="pop-tab" data-pop-tab="usage">Usage</button>
+      <button type="button" class="pop-tab" data-pop-tab="lines">Lines</button>
+    </div>
+    <div class="pop-pane" data-pop-pane="bet">
     <div class="popup-grid">
       <div class="popup-stat"><b>The bet</b>${escapeHtml(focus.stat)} ${escapeHtml(focus.side)} ${focus.line ?? ""}</div>
       <div class="popup-stat"><b>Tier</b>${escapeHtml(focus.pp_tier || "—")}</div>
@@ -2543,10 +2662,16 @@ function openPlayerPopup(player, eventId, market, side) {
       <div class="popup-stat"><b>Edge</b>${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</div>
     </div>
     ${focus.injury ? `<div class="popup-stat" style="margin-bottom:12px"><b>Injury</b>${injPill(focus.injury)} ${escapeHtml(focus.injury.injury || "")} · ${focus.injury.season || ""}w${focus.injury.week || ""}</div>` : ""}
-    ${usageStrip(recs)}
-    ${renderSplitChart(focus, recs)}
     <div class="popup-stat sum-card" style="margin-bottom:12px"><b>Bet write-up</b>${betSummary(focus, recs, oppRow)}</div>
+    </div>
+    <div class="pop-pane" data-pop-pane="log" hidden>
+    ${renderSplitChart(focus, recs)}
     ${logBlock}
+    </div>
+    <div class="pop-pane" data-pop-pane="usage" hidden>
+    ${usageStrip(recs, pos || meta?.pos)}
+    </div>
+    <div class="pop-pane" data-pop-pane="lines" hidden>
     ${newsBlock}
     <div class="popup-stat" style="margin-bottom:12px">
       <b>DFS lines</b>
@@ -2643,6 +2768,7 @@ function openPlayerPopup(player, eventId, market, side) {
         </tr>`).join("")}
       </tbody>
     </table>` : ""}
+    </div>
   `;
   $("popup").hidden = false;
   $("popupClose").onclick = closePopup;
@@ -2696,6 +2822,11 @@ $("slipPicks")?.addEventListener("click", (e) => {
 $("slipClear")?.addEventListener("click", () => { state.slip = []; renderSlip(); });
 $("popup")?.addEventListener("click", (e) => {
   if (e.target.id === "popup") closePopup();
+  const tab = e.target.closest("[data-pop-tab]");
+  if (!tab) return;
+  const name = tab.dataset.popTab;
+  $("popupCard")?.querySelectorAll("[data-pop-tab]").forEach((b) => b.classList.toggle("on", b === tab));
+  $("popupCard")?.querySelectorAll("[data-pop-pane]").forEach((p) => { p.hidden = p.dataset.popPane !== name; });
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePopup(); });
 
