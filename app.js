@@ -1733,9 +1733,9 @@ function previewCorrelates(rows, sample) {
 function previewInjuries(sample) {
   const nfl = !sportOf(sample) || sportOf(sample) === "NFL";
   if (!nfl) return [];
-  const teams = new Set([abbr(sample.away_team, sample), abbr(sample.home_team, sample)].filter((t) => TEAM_CODE_NICK[t]));
-  const season = state.intel?.injury_season;
-  const week = state.intel?.injury_week;
+  const teams = new Set([abbr(sample.away_team, sample), abbr(sample.home_team, sample)].filter((t) => TEAM_CODE_NICK[t] || t));
+  const roster = new Set(rowsForGame(gameKeyOf(sample)).map((r) => nameKey(r.player)));
+  const season = currentSeason();
   const rank = (s) => {
     const t = String(s || "").toLowerCase();
     if (t.includes("out") || t === "ir") return 0;
@@ -1743,12 +1743,29 @@ function previewInjuries(sample) {
     if (t.includes("question")) return 2;
     return 3;
   };
-  return (state.intel?.injuries || []).filter((inj) => {
-    if (season && inj.season && inj.season !== season) return false;
-    if (week && inj.week && inj.week < week - 1) return false;
+  const fromIntel = (state.intel?.injuries || []).filter((inj) => {
+    if (inj.season && Number(inj.season) !== season) return false;
     const t = abbr(inj.team);
-    return teams.size ? teams.has(t) : false;
-  }).sort((a, b) => rank(a.report_status) - rank(b.report_status) || String(a.name).localeCompare(String(b.name))).slice(0, 24);
+    if (teams.size && t && teams.has(t)) return true;
+    return roster.has(nameKey(inj.name));
+  });
+  const seen = new Set(fromIntel.map((i) => nameKey(i.name)));
+  rowsForGame(gameKeyOf(sample)).forEach((r) => {
+    if (!r.injury?.status || seen.has(nameKey(r.player))) return;
+    if (r.injury.season && Number(r.injury.season) !== season) return;
+    seen.add(nameKey(r.player));
+    fromIntel.push({
+      name: r.player,
+      team: r.nfl_team || "",
+      pos: r.position || r.nfl_pos || "",
+      headshot: r.headshot,
+      report_status: r.injury.status,
+      report_injury: r.injury.injury,
+      season: r.injury.season,
+      week: r.injury.week,
+    });
+  });
+  return fromIntel.sort((a, b) => rank(a.report_status) - rank(b.report_status) || String(a.name).localeCompare(String(b.name))).slice(0, 24);
 }
 
 function previewUsage(sample) {
@@ -2561,42 +2578,87 @@ function logFamily(stat) {
 }
 
 function contextLog(recs, focus) {
-  if (!recs.length) return "";
+  if (!recs.length) return `<div class="muted">No ${currentSeason()} game log yet.</div>`;
   const fam = logFamily(focus?.stat);
   const pos = String(focus?.position || focus?.nfl_pos || intelPlayer(focus?.player)?.pos || "").toUpperCase();
-  const showRoutes = ["WR", "TE", "RB", "FB", "HB"].includes(pos);
-  let heads = ["Wk", "Opp", "Snap%"];
-  if (fam === "pass") heads = ["Wk", "Opp", "Cmp/Att", "Pass Yds", "TD", "INT", "Snap%"];
-  else if (fam === "rush") heads = ["Wk", "Opp", "Att", "Rush Yds", "TD", "Snap%"];
-  else if (fam === "rec") heads = ["Wk", "Opp", "Rec/Tgt", "Rec Yds", "TD", showRoutes ? "Rte%" : "PPR", "Snap%"];
-  else heads = ["Wk", "Opp", "Pass", "Rush", "Rec/Tgt", "PPR", "Snap%"];
-  const cells = (g) => {
-    const snap = g.off_pct != null ? `${Math.round(g.off_pct)}%` : "—";
-    if (fam === "pass") return [g.att ? `${g.cmp}/${g.att}` : "—", g.pass_yds ?? "—", g.pass_td ?? "—", g.int ?? "—", snap];
-    if (fam === "rush") return [g.car ?? "—", g.rush_yds ?? "—", g.rush_td ?? "—", snap];
-    if (fam === "rec") return [
-      g.tgt || g.rec ? `${g.rec}/${g.tgt}` : "—",
-      g.rec_yds ?? "—",
-      g.rec_td ?? "—",
-      showRoutes ? (g.route_pct != null ? `${Math.round(g.route_pct)}%` : "—") : (g.ppr ?? "—"),
-      snap,
+  const passOn = fam === "pass" || fam === "mix" || pos === "QB";
+  const rushOn = fam === "rush" || fam === "mix" || pos === "RB" || pos === "QB" || pos === "FB" || pos === "HB";
+  const recOn = fam === "rec" || fam === "mix" || pos === "WR" || pos === "TE" || pos === "RB";
+  const head = [`<th rowspan="2">Week</th><th rowspan="2">Matchup</th>`];
+  const sub = [];
+  if (passOn) { head.push(`<th colspan="5">Passing</th>`); sub.push("<th>Cmp</th><th>Att</th><th>Yds</th><th>TD</th><th>INT</th>"); }
+  if (rushOn) { head.push(`<th colspan="3">Rushing</th>`); sub.push("<th>Att</th><th>Yds</th><th>TD</th>"); }
+  if (recOn) { head.push(`<th colspan="4">Receiving</th>`); sub.push("<th>Rec</th><th>Tgt</th><th>Yds</th><th>TD</th>"); }
+  head.push(`<th colspan="2">Snaps</th>`);
+  sub.push("<th>Snp</th><th>Snp%</th>");
+  const row = (g) => {
+    const bits = [
+      `<td>${String(g.season || "").slice(2)} W${g.week}${g.home === true ? " vs" : g.home === false ? " @" : ""} ${escapeHtml(g.opp || "")}</td>`.replace("W", "W"),
     ];
-    return [
-      g.att ? `${g.cmp}/${g.att}, ${g.pass_yds}` : "—",
-      g.car ? `${g.car}-${g.rush_yds}` : "—",
-      g.tgt || g.rec ? `${g.rec}/${g.tgt}` : "—",
-      g.ppr ?? "—",
-      snap,
-    ];
+    bits[0] = `<td>${String(g.season || "").slice(2)} W${g.week}</td><td>${g.home === false ? "@" : "vs"} ${escapeHtml(g.opp || "")}</td>`;
+    if (passOn) bits.push(`<td>${g.cmp ?? 0}</td><td>${g.att ?? 0}</td><td>${g.pass_yds ?? 0}</td><td>${g.pass_td ?? 0}</td><td>${g.int ?? 0}</td>`);
+    if (rushOn) bits.push(`<td>${g.car ?? 0}</td><td>${g.rush_yds ?? 0}</td><td>${g.rush_td ?? 0}</td>`);
+    if (recOn) bits.push(`<td>${g.rec ?? 0}</td><td>${g.tgt ?? 0}</td><td>${g.rec_yds ?? 0}</td><td>${g.rec_td ?? 0}</td>`);
+    bits.push(`<td>${g.off_snaps ?? "—"}</td><td>${g.off_pct != null ? `${Math.round(g.off_pct)}%` : "—"}</td>`);
+    return `<tr>${bits.join("")}</tr>`;
   };
-  return `<table class="popup-table popup-logs">
-    <thead><tr>${heads.map((h) => `<th>${h}</th>`).join("")}</tr></thead>
-    <tbody>${[...recs].reverse().map((g) => `<tr>
-      <td>${String(g.season || "").slice(2)} W${g.week}${g.st === "POST" ? " P" : ""}</td>
-      <td>${escapeHtml(g.opp || "")}</td>
-      ${cells(g).map((c) => `<td>${c}</td>`).join("")}
-    </tr>`).join("")}</tbody>
-  </table>`;
+  return `<div class="log-scroll"><table class="popup-table popup-logs dfs-log">
+    <thead><tr>${head.join("")}</tr><tr>${sub.join("")}</tr></thead>
+    <tbody>${[...recs].reverse().map(row).join("")}</tbody>
+  </table></div>`;
+}
+
+function usageDetail(recs, pos, focus) {
+  if (!recs.length) return `<div class="muted">No ${currentSeason()} usage yet.</div>`;
+  const qb = /^QB$/i.test(pos || "");
+  const u = usagePack(recs);
+  const weekRows = [...recs].reverse().map((g) => `<tr>
+    <td>${String(g.season || "").slice(2)} W${g.week}</td>
+    <td>${g.home === false ? "@" : "vs"} ${escapeHtml(g.opp || "")}</td>
+    <td>${g.off_snaps ?? "—"}</td>
+    <td>${g.off_pct != null ? `${Math.round(g.off_pct)}%` : "—"}</td>
+    <td>${qb ? "—" : (g.routes ?? "—")}</td>
+    <td>${qb ? "—" : (g.route_pct != null ? `${Math.round(g.route_pct)}%` : "—")}</td>
+    <td>${g.tgt ?? "—"}</td>
+    <td>${g.rec ?? "—"}</td>
+    <td>${g.car ?? "—"}</td>
+  </tr>`).join("");
+  const stats = [
+    ["Targets", "tgt"],
+    ["Receptions", "rec"],
+    ["Rec Yds", "rec_yds"],
+    ["Rush Att", "car"],
+    ["Rush Yds", "rush_yds"],
+    ["Pass Yds", "pass_yds"],
+    ["Snaps", "off_snaps"],
+    ["Snap %", "off_pct"],
+  ];
+  if (!qb) stats.splice(2, 0, ["Routes", "routes"]);
+  const last = (n, key) => {
+    const list = recs.slice(-n).map((g) => Number(g[key])).filter((v) => Number.isFinite(v));
+    if (!list.length) return "—";
+    return +(list.reduce((a, b) => a + b, 0) / list.length).toFixed(1);
+  };
+  const line = focus?.line;
+  const statRows = stats.map(([lab, key]) => `<tr>
+    <td>${lab}</td>
+    <td>${recs.at(-1)?.[key] ?? "—"}</td>
+    <td>${last(2, key)}</td>
+    <td>${last(5, key)}</td>
+    <td>${last(recs.length, key)}</td>
+    <td>${key === LOG_STAT[focus?.stat] || lab === focus?.stat ? (line ?? "—") : "—"}</td>
+  </tr>`).join("");
+  return `${u ? usageStrip(recs, pos) : ""}
+    <h4 class="popup-h">By week</h4>
+    <div class="log-scroll"><table class="popup-table">
+      <thead><tr><th>Week</th><th>Opp</th><th>Snaps</th><th>Snap%</th><th>Routes</th><th>Rte%</th><th>Tgt</th><th>Rec</th><th>Rush att</th></tr></thead>
+      <tbody>${weekRows}</tbody>
+    </table></div>
+    <h4 class="popup-h">By stat</h4>
+    <div class="log-scroll"><table class="popup-table">
+      <thead><tr><th>Stat</th><th>Last</th><th>L2</th><th>L5</th><th>Season</th><th>This line</th></tr></thead>
+      <tbody>${statRows}</tbody>
+    </table></div>`;
 }
 
 function openPlayerPopup(player, eventId, market, side) {
@@ -2634,42 +2696,56 @@ function openPlayerPopup(player, eventId, market, side) {
   const gsis = focus.gsis_id || meta?.gsis_id;
   const recs = intelLogs(gsis);
   const relatedNews = (state.intel?.news || []).filter((n) => (n.players || []).includes(gsis) || (n.headline || "").toLowerCase().includes(String(player).toLowerCase()));
+  const liveInj = focus.injury?.status ? focus.injury : (() => {
+    const hit = (state.intel?.injuries || []).find((i) => i.gsis_id === gsis || nameKey(i.name) === nameKey(player));
+    if (!hit || (hit.season && Number(hit.season) !== currentSeason())) return null;
+    return { status: hit.report_status, injury: hit.report_injury, week: hit.week, season: hit.season };
+  })();
+  if (liveInj && !focus.injury) focus.injury = liveInj;
   const kProps = kalshiPropsForPlayer(player);
   const logBlock = recs.length ? contextLog(recs, focus) : `<div class="muted">No game log yet.</div>`;
-  const newsBlock = relatedNews.length ? `<h4 style="margin:16px 0 8px">News</h4>
+  const newsBlock = relatedNews.length ? `<h4 class="popup-h">News</h4>
     ${relatedNews.slice(0, 6).map((n) => `<div class="popup-stat" style="margin-bottom:8px"><b>${escapeHtml(n.source || "")} · ${escapeHtml(n.published || "")}</b>
       <a href="${escapeHtml(n.url || "#")}" target="_blank" rel="noopener">${escapeHtml(n.headline || "")}</a></div>`).join("")}` : "";
+  const injBlock = liveInj ? `<div class="popup-stat" style="margin-bottom:12px"><b>Injury</b>${injPill(liveInj)} ${escapeHtml(liveInj.injury || "")}${liveInj.week ? ` · ${liveInj.season || ""}w${liveInj.week}` : ""}</div>` : "";
+  const newsNote = relatedNews.length ? `<div class="popup-stat" style="margin-bottom:12px"><b>Injury / news</b>${relatedNews.slice(0, 3).map((n) => `<div><a href="${escapeHtml(n.url || "#")}" target="_blank" rel="noopener">${escapeHtml(n.headline || "")}</a><div class="corr-why">${escapeHtml(n.source || "")} · ${escapeHtml(n.published || "")}</div></div>`).join("")}</div>` : "";
 
   $("popupCard").innerHTML = `
     <div class="popup-top">
       <div>
-        <div class="popup-name">${headshotTag(focus.headshot)} ${escapeHtml(focus.player)}${posTag(focus)}</div>
-        <div class="popup-sub">${escapeHtml(matchup(focus))} · ${escapeHtml(fmtWhen(focus.commence_time))}<br>${escapeHtml(scriptLine(focus))}</div>
+        <div class="popup-name">${headshotTag(focus.headshot)} ${escapeHtml(focus.player)}${posTag(focus)}${liveInj ? injPill(liveInj) : ""}</div>
+        <div class="popup-sub">${escapeHtml(matchup(focus))} · ${escapeHtml(fmtWhen(focus.commence_time))}${scriptLine(focus) ? ` · ${escapeHtml(scriptLine(focus))}` : ""}</div>
+        <div class="popup-bet">${sideTag(focus.side)} <b>${focus.line ?? ""}</b> ${escapeHtml(focus.stat || "")}${hitPct(focus) != null ? ` · <span class="${pctClass(hitPct(focus))}">${hitPct(focus).toFixed(1)}%</span>` : ""}${edge != null ? ` · <span class="${edgeClass(edge)}">${edge > 0 ? "+" : ""}${edge.toFixed(1)}</span>` : ""}</div>
       </div>
       <button type="button" class="popup-x" id="popupClose">✕</button>
     </div>
     <div class="pop-tabs">
       <button type="button" class="pop-tab on" data-pop-tab="bet">Bet</button>
+      <button type="button" class="pop-tab" data-pop-tab="chart">Chart</button>
       <button type="button" class="pop-tab" data-pop-tab="log">Game log</button>
       <button type="button" class="pop-tab" data-pop-tab="usage">Usage</button>
       <button type="button" class="pop-tab" data-pop-tab="lines">Lines</button>
     </div>
+    <div class="pop-body">
     <div class="pop-pane" data-pop-pane="bet">
     <div class="popup-grid">
-      <div class="popup-stat"><b>The bet</b>${escapeHtml(focus.stat)} ${escapeHtml(focus.side)} ${focus.line ?? ""}</div>
+      <div class="popup-stat"><b>The bet</b>${escapeHtml(focus.stat || "")} ${escapeHtml(focus.side || "")} ${focus.line ?? ""}</div>
       <div class="popup-stat"><b>Tier</b>${escapeHtml(focus.pp_tier || "—")}</div>
       <div class="popup-stat"><b>% to hit</b>${hitPct(focus) != null ? hitPct(focus).toFixed(1) + "%" : "—"}</div>
       <div class="popup-stat"><b>Edge</b>${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</div>
     </div>
-    ${focus.injury ? `<div class="popup-stat" style="margin-bottom:12px"><b>Injury</b>${injPill(focus.injury)} ${escapeHtml(focus.injury.injury || "")} · ${focus.injury.season || ""}w${focus.injury.week || ""}</div>` : ""}
+    ${injBlock}
+    ${newsNote}
     <div class="popup-stat sum-card" style="margin-bottom:12px"><b>Bet write-up</b>${betSummary(focus, recs, oppRow)}</div>
     </div>
+    <div class="pop-pane" data-pop-pane="chart" hidden>
+    ${renderSplitChart(focus, recs) || `<div class="muted">No chart for this stat yet.</div>`}
+    </div>
     <div class="pop-pane" data-pop-pane="log" hidden>
-    ${renderSplitChart(focus, recs)}
     ${logBlock}
     </div>
     <div class="pop-pane" data-pop-pane="usage" hidden>
-    ${usageStrip(recs, pos || meta?.pos)}
+    ${usageDetail(recs, pos || meta?.pos, focus)}
     </div>
     <div class="pop-pane" data-pop-pane="lines" hidden>
     ${newsBlock}
@@ -2768,6 +2844,7 @@ function openPlayerPopup(player, eventId, market, side) {
         </tr>`).join("")}
       </tbody>
     </table>` : ""}
+    </div>
     </div>
   `;
   $("popup").hidden = false;
