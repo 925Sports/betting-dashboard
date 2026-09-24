@@ -288,6 +288,29 @@ tr:hover td { background: rgba(255,255,255,0.025); }
 .popup-line:hover td { background: #1a2740; }
 .popup-h { margin: 16px 0 8px; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: #8b9bb4; }
 .usage-grid { margin-bottom: 10px; }
+.pop-tabs { display: flex; gap: 6px; margin: 12px 0 10px; }
+.pop-tab {
+  background: #182236; color: #8b9bb4; border: 1px solid #1c2a3f;
+  border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.pop-tab.on { color: #fff; border-color: #3d6fd6; background: #173056; }
+.snap-card { margin-top: 12px; }
+.snap-board + .snap-board { margin-top: 16px; }
+.snap-bar-wrap {
+  position: relative; min-width: 120px; height: 16px;
+  background: #182236; border-radius: 6px; overflow: hidden;
+}
+.snap-bar {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, #1f4fd0, #3d7bff);
+}
+.snap-bar-wrap b {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 10px; font-weight: 800;
+}
+.snap-up { color: #8ee0b5; font-weight: 700; }
+.snap-down { color: #f5a3ae; font-weight: 700; }
+.snap-ok { color: #e7b549; font-weight: 700; }
 
 .player-row { display: flex; align-items: center; gap: 8px; }
 .headshot { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; background: #182236; flex: 0 0 28px; }
