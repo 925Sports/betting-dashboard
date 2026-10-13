@@ -112,6 +112,7 @@ const state = {
   previewGame: "",
   minBooks: true,
   volFilter: "game",
+  showMore: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -125,7 +126,8 @@ function american(price) {
 
 function pickSize() { return Number($("picks").value || 5); }
 function breakEven() {
-  if (["ud", "prophetx", "novig", "kalshi", "polymarket"].includes(state.view)) return 50;
+  if (state.view === "ud") return 52.5;
+  if (["prophetx", "novig", "kalshi", "polymarket"].includes(state.view)) return 50;
   return PP_BE[pickSize()] || 54.93;
 }
 
@@ -219,22 +221,42 @@ function ppCashPct(row) {
   if (!isWholeLine(row.line)) return null;
   const L = Math.round(Number(row.line));
   const half = nearestHalfLine(row);
-  if (half == null) return null;
-  const nv = nvAtHalf(row, half) ?? row.pct_to_hit;
-  if (nv == null) return null;
+  const nv = half != null ? (nvAtHalf(row, half) ?? row.pct_to_hit) : null;
+  if (half != null && nv != null) {
+    const under = String(row.side || "").toLowerCase() === "under";
+    const pOver = (under ? 100 - nv : nv) / 100;
+    if (Math.abs(half - (L - 0.5)) <= 0.2) {
+      if (under) return +Number(nv).toFixed(1);
+      const lam = lambdaFromCdf(L - 1, Math.min(0.97, Math.max(0.03, 1 - pOver)));
+      return +((1 - poissonCdf(L, lam)) * 100).toFixed(1);
+    }
+    if (Math.abs(half - (L + 0.5)) <= 0.2) {
+      if (!under) return +Number(nv).toFixed(1);
+      const lam = lambdaFromCdf(L, Math.min(0.97, Math.max(0.03, nv / 100)));
+      return +(poissonCdf(L - 1, lam) * 100).toFixed(1);
+    }
+  }
+  const trueVal = Number(row.true_point ?? row.avg_line ?? row.projection ?? row.book_line);
+  if (!Number.isFinite(trueVal)) return null;
   const under = String(row.side || "").toLowerCase() === "under";
-  const pOver = (under ? 100 - nv : nv) / 100;
-  if (Math.abs(half - (L - 0.5)) <= 0.2) {
-    if (under) return +Number(nv).toFixed(1);
-    const lam = lambdaFromCdf(L - 1, Math.min(0.97, Math.max(0.03, 1 - pOver)));
-    return +((1 - poissonCdf(L, lam)) * 100).toFixed(1);
-  }
-  if (Math.abs(half - (L + 0.5)) <= 0.2) {
-    if (!under) return +Number(nv).toFixed(1);
-    const lam = lambdaFromCdf(L, Math.min(0.97, Math.max(0.03, nv / 100)));
-    return +(poissonCdf(L - 1, lam) * 100).toFixed(1);
-  }
-  return null;
+  const lowCount = /td|touchdown|reception|goal|assist|hit|steal|block|sack/i.test(String(row.stat || ""));
+  const per = lowCount ? 2.2 : 4;
+  const raw = 50 + (under ? -(trueVal - L) : (trueVal - L)) * per;
+  return +Math.max(8, Math.min(92, raw - (lowCount ? 1 : 2))).toFixed(1);
+}
+
+function fantasyAdjustedPct(row) {
+  if (!isFantasyStat(row.stat)) return null;
+  const cmp = row.fantasy_cmp || {};
+  const trueVal = Number(row.true_point ?? row.avg_line ?? row.projection);
+  if (!Number.isFinite(trueVal)) return null;
+  const line = state.view === "ud"
+    ? Number(cmp.ud_as_pp ?? cmp.ud ?? row.dfs?.underdog?.line)
+    : Number(cmp.pp ?? row.dfs?.prizepicks?.line ?? row.line);
+  if (!Number.isFinite(line)) return null;
+  const under = String(row.side || "").toLowerCase() === "under";
+  const raw = 50 + (under ? -(trueVal - line) : (trueVal - line)) * 1.6;
+  return +Math.max(8, Math.min(92, raw)).toFixed(1);
 }
 
 function hitPct(row) {
@@ -243,10 +265,18 @@ function hitPct(row) {
     if (cash != null) return cash;
   }
   if (state.view === "ud") {
+    if (isFantasyStat(row.stat)) {
+      if (row.pct_ud != null) return row.pct_ud;
+      return fantasyAdjustedPct(row) ?? bookNoVig(row);
+    }
     const nv = bookNoVig(row);
     if (row.pct_ud != null && !(Number(row.pct_ud) === 50 && nv != null)) return row.pct_ud;
     if (nv != null) return nv;
     if (row.pct_to_hit != null && Number(row.pct_to_hit) !== 50) return row.pct_to_hit;
+  }
+  if (state.view === "pp" && isFantasyStat(row.stat) && row.pct_to_hit == null) {
+    const adj = fantasyAdjustedPct(row);
+    if (adj != null) return adj;
   }
   if (state.view === "prophetx") {
     const nv = bookNoVig(row);
@@ -274,7 +304,12 @@ function hitPct(row) {
 }
 
 function rowEdge(row) {
-  if (["ud", "prophetx", "novig", "kalshi", "polymarket"].includes(state.view)) {
+  if (state.view === "ud") {
+    const fair = hitPct(row);
+    if (fair == null) return null;
+    return +(fair - breakEven()).toFixed(1);
+  }
+  if (["prophetx", "novig", "kalshi", "polymarket"].includes(state.view)) {
     const fair = bookNoVig(row) ?? hitPct(row);
     const offer = state.view === "kalshi"
       ? bookImplied(kalshiOffer(row)?.price)
@@ -318,6 +353,16 @@ function parseWhen(iso) {
   if (/^\d{4}-\d{2}-\d{2}T/.test(s) && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(s)) s += "Z";
   const d = new Date(s);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function fmtAgo(iso) {
+  const d = parseWhen(iso);
+  if (!d) return "";
+  const min = Math.max(0, Math.round((Date.now() - d.getTime()) / 60000));
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} min ago`;
+  const hr = Math.round(min / 60);
+  return hr === 1 ? "1 hr ago" : `${hr} hr ago`;
 }
 
 function fmtWhen(iso) {
@@ -1304,15 +1349,15 @@ function renderSlip() {
   if (!bar) return;
   bar.hidden = state.section === "games" || state.slip.length === 0;
   if ($("slipCount")) $("slipCount").textContent = String(state.slip.length);
+  const names = state.slip.map((r) => r.player);
+  const dup = names.find((n, i) => names.indexOf(n) !== i);
   if ($("slipPicks")) {
     $("slipPicks").innerHTML = state.slip.map((r, i) =>
       `<button type="button" class="book-pick on" data-slip="${i}">${escapeHtml(r.player)} ${escapeHtml(r.side)} ${r.line ?? ""} ✕</button>`
-    ).join("");
+    ).join("") + (dup ? `<span class="line-note">Same player: ${escapeHtml(dup)}</span>` : "");
   }
   const open = $("slipOpen");
-  if (open) {
-    open.href = ppSlipLink(state.slip);
-  }
+  if (open) open.href = ppSlipLink(state.slip);
 }
 function addToSlip(row) {
   if (state.slip.length >= 6) return;
@@ -1671,10 +1716,15 @@ function rowsForGame(game) {
 }
 
 function previewBest(rows) {
+  const view = state.view;
   return rows
-    .filter((r) => r.dfs?.prizepicks && (!r.pp_tier || r.pp_tier === "Standard") && !r.is_alternate)
+    .filter((r) => {
+      if (view === "ud") return r.dfs?.underdog && !r.is_alternate;
+      if (view === "pp" || view === "ev") return r.dfs?.prizepicks && (!r.pp_tier || r.pp_tier === "Standard") && !r.is_alternate;
+      return true;
+    })
     .map((r) => ({ r, edge: rowEdge(r) }))
-    .filter((x) => x.r.pct_to_hit != null)
+    .filter((x) => hitPct(x.r) != null)
     .sort((a, b) => (b.edge ?? -999) - (a.edge ?? -999))
     .slice(0, 12);
 }
@@ -1699,8 +1749,11 @@ function gameScript(sample) {
 
 function rankedOvers(rows, team, stats) {
   return rows
-    .filter((r) => r.side === "Over" && r.dfs?.prizepicks && (!stats || stats.has(r.stat)) && (!team || rowTeam(r) === team))
-    .sort((a, b) => (b.pct_to_hit || 0) - (a.pct_to_hit || 0));
+    .filter((r) => r.side === "Over" && (!stats || stats.has(r.stat)) && (!team || rowTeam(r) === team))
+    .map((r) => ({ r, edge: rowEdge(r) }))
+    .filter((x) => (x.edge ?? -999) >= 0)
+    .sort((a, b) => (b.edge ?? -999) - (a.edge ?? -999))
+    .map((x) => x.r);
 }
 
 function previewCorrelates(rows, sample) {
@@ -2284,7 +2337,7 @@ function renderPreview() {
       </div>
     </div>`;
   $("count").textContent = `${shown.length} games · ${rows.length} props`;
-  $("updated").textContent = `Updated ${fmtWhen(state.data?.updated)} · BE ${breakEven()}%`;
+  $("updated").textContent = `Updated ${fmtAgo(state.data?.updated) || fmtWhen(state.data?.updated)} · BE ${breakEven()}%`;
 }
 
 function showSectionWraps() {
@@ -2329,7 +2382,7 @@ function render(full) {
     const all = state.data?.props || [];
     fillWhen(all);
     if (state.data) {
-      $("updated").textContent = `Updated ${fmtWhen(state.data.updated)} · BE ${breakEven()}%`;
+      $("updated").textContent = `Updated ${fmtAgo(state.data.updated) || fmtWhen(state.data.updated)} · BE ${breakEven()}%`;
       const sport = ($("sport")?.value || state.sport || "all").toLowerCase();
       const pool = sport === "all" ? all : all.filter((r) => String(r.sport || "").toLowerCase() === sport);
       fillGameAndTeam(pool);
@@ -2355,9 +2408,11 @@ function render(full) {
   if (!state.data) return;
   const all = state.liveProps || state.data.props || [];
   const rows = sortRows(applyFilters(all));
-  const cap = 200;
+  const cap = state.showMore ? 600 : 200;
   const view = rows.slice(0, cap);
-  $("count").textContent = rows.length > cap ? `${cap} of ${rows.length.toLocaleString()} shown` : `${rows.length.toLocaleString()} shown`;
+  $("count").textContent = rows.length > cap
+    ? `${cap} of ${rows.length.toLocaleString()} shown`
+    : `${rows.length.toLocaleString()} shown`;
 
   if (!rows.length) {
     $("tbody").innerHTML = "";
