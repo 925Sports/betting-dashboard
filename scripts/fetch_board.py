@@ -628,8 +628,8 @@ def apply_ud(row, ud_list):
         nv = u.get("nv_over") if row.get("side") == "Over" else u.get("nv_under")
         if nv is not None:
             row["pct_ud"] = sane_pct(nv)
-        elif "fantasy" in str(u.get("stat") or "").lower() and u.get("pp_edge") is not None:
-            row["pct_ud"] = sane_pct(u.get("pp_edge"))
+        elif "fantasy" in str(u.get("stat") or "").lower():
+            row["pct_ud"] = None
         elif row.get("pct_to_hit") is not None:
             row["pct_ud"] = sane_pct(row.get("pct_to_hit"))
         return True
@@ -720,8 +720,8 @@ def enrich_props(rows, pp_rows, ud_rows):
                 "game": game_title, "home_team": home, "away_team": away,
                 "commence_time": u.get("commence_time") or "",
                 "event_id": f"ud-{u['player_key']}-{u['stat']}-{u.get('line')}-{side}",
-                "pct_to_hit": sane_pct(nv) or (sane_pct(u.get("pp_edge")) if is_fan else None),
-                "pct_ud": sane_pct(nv) or (sane_pct(u.get("pp_edge")) if is_fan else None),
+                "pct_to_hit": sane_pct(nv),
+                "pct_ud": sane_pct(nv),
                 "ev": None, "pp_tier": "Standard",
                 "book_line": u.get("line"), "best": None,
                 "spread": u.get("spread"), "total": u.get("total"),
