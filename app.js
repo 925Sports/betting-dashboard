@@ -112,7 +112,9 @@ const state = {
   previewGame: "",
   minBooks: true,
   volFilter: "game",
-  showMore: false,
+  popupChartAll: false,
+  popupTab: "bet",
+  popupKey: "",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -134,10 +136,14 @@ function breakEven() {
 function bookNoVig(row) {
   const vals = Object.values(mergeBooks(row.books) || {})
     .map((b) => Number(b?.no_vig))
-    .filter((n) => Number.isFinite(n));
+    .filter((n) => Number.isFinite(n) && n > 5 && n < 95);
   if (!vals.length) return null;
   vals.sort((a, b) => a - b);
-  return +vals[Math.floor(vals.length / 2)].toFixed(1);
+  const mid = vals[Math.floor(vals.length / 2)];
+  const tight = vals.filter((n) => Math.abs(n - mid) <= 8);
+  const pool = tight.length >= 2 ? tight : vals;
+  pool.sort((a, b) => a - b);
+  return +pool[Math.floor(pool.length / 2)].toFixed(1);
 }
 
 function offerImplied(row) {
@@ -236,26 +242,29 @@ function ppCashPct(row) {
       return +(poissonCdf(L - 1, lam) * 100).toFixed(1);
     }
   }
+  // Fallback when no nearby .5 line: use projection / average and exclude the push.
   const trueVal = Number(row.true_point ?? row.avg_line ?? row.projection ?? row.book_line);
   if (!Number.isFinite(trueVal)) return null;
   const under = String(row.side || "").toLowerCase() === "under";
-  const lowCount = /td|touchdown|reception|goal|assist|hit|steal|block|sack/i.test(String(row.stat || ""));
-  const per = lowCount ? 2.2 : 4;
-  const raw = 50 + (under ? -(trueVal - L) : (trueVal - L)) * per;
-  return +Math.max(8, Math.min(92, raw - (lowCount ? 1 : 2))).toFixed(1);
+  const diff = trueVal - L;
+  // Rough: each point away from the line moves cash % by ~4, then strip a small push discount.
+  const raw = 50 + (under ? -diff : diff) * 4;
+  const cash = Math.max(8, Math.min(92, raw - 2));
+  return +cash.toFixed(1);
 }
 
 function fantasyAdjustedPct(row) {
   if (!isFantasyStat(row.stat)) return null;
-  const cmp = row.fantasy_cmp || {};
+  const cmp = fantasyCmp(row);
   const trueVal = Number(row.true_point ?? row.avg_line ?? row.projection);
   if (!Number.isFinite(trueVal)) return null;
-  const line = state.view === "ud"
-    ? Number(cmp.ud_as_pp ?? cmp.ud ?? row.dfs?.underdog?.line)
-    : Number(cmp.pp ?? row.dfs?.prizepicks?.line ?? row.line);
+  let line = null;
+  if (state.view === "ud") line = Number(cmp?.ud_as_pp ?? cmp?.ud ?? row.dfs?.underdog?.line ?? row.line);
+  else line = Number(cmp?.pp ?? row.dfs?.prizepicks?.line ?? row.line);
   if (!Number.isFinite(line)) return null;
   const under = String(row.side || "").toLowerCase() === "under";
-  const raw = 50 + (under ? -(trueVal - line) : (trueVal - line)) * 1.6;
+  const diff = trueVal - line;
+  const raw = 50 + (under ? -diff : diff) * 1.8;
   return +Math.max(8, Math.min(92, raw)).toFixed(1);
 }
 
@@ -266,17 +275,19 @@ function hitPct(row) {
   }
   if (state.view === "ud") {
     if (isFantasyStat(row.stat)) {
+      const adj = fantasyAdjustedPct(row);
+      if (adj != null) return adj;
       if (row.pct_ud != null) return row.pct_ud;
-      return fantasyAdjustedPct(row) ?? bookNoVig(row);
+      return bookNoVig(row);
     }
     const nv = bookNoVig(row);
     if (row.pct_ud != null && !(Number(row.pct_ud) === 50 && nv != null)) return row.pct_ud;
     if (nv != null) return nv;
     if (row.pct_to_hit != null && Number(row.pct_to_hit) !== 50) return row.pct_to_hit;
   }
-  if (state.view === "pp" && isFantasyStat(row.stat) && row.pct_to_hit == null) {
+  if (state.view === "pp" && isFantasyStat(row.stat)) {
     const adj = fantasyAdjustedPct(row);
-    if (adj != null) return adj;
+    if (adj != null && row.pct_to_hit == null) return adj;
   }
   if (state.view === "prophetx") {
     const nv = bookNoVig(row);
@@ -305,7 +316,7 @@ function hitPct(row) {
 
 function rowEdge(row) {
   if (state.view === "ud") {
-    const fair = hitPct(row);
+    const fair = isFantasyStat(row.stat) ? (hitPct(row) ?? bookNoVig(row)) : (bookNoVig(row) ?? hitPct(row));
     if (fair == null) return null;
     return +(fair - breakEven()).toFixed(1);
   }
@@ -317,6 +328,8 @@ function rowEdge(row) {
         ? bookImplied(row.books?.polymarket?.price)
         : offerImplied(row);
     if (fair == null || offer == null) return null;
+    const books = sportsbookCount(row);
+    if (books < 2 && !isFantasyStat(row.stat)) return null;
     return +(fair - offer).toFixed(1);
   }
   const pct = hitPct(row);
@@ -353,16 +366,6 @@ function parseWhen(iso) {
   if (/^\d{4}-\d{2}-\d{2}T/.test(s) && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(s)) s += "Z";
   const d = new Date(s);
   return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function fmtAgo(iso) {
-  const d = parseWhen(iso);
-  if (!d) return "";
-  const min = Math.max(0, Math.round((Date.now() - d.getTime()) / 60000));
-  if (min < 1) return "just now";
-  if (min < 60) return `${min} min ago`;
-  const hr = Math.round(min / 60);
-  return hr === 1 ? "1 hr ago" : `${hr} hr ago`;
 }
 
 function fmtWhen(iso) {
@@ -541,6 +544,14 @@ function intelPlayer(name) {
   return intel.players[normName(name)] || null;
 }
 
+function intelStamp() {
+  const updated = state.intel?.updated || state.intel?.pulled_at;
+  const season = currentSeason();
+  const weeks = state.intel?.log_seasons?.length ? ` · logs through ${season}` : "";
+  if (!updated) return `Injuries / usage · ${season}${weeks}`;
+  return `Injuries / usage as of ${fmtWhen(updated)}${weeks}`;
+}
+
 function currentSeason() {
   if (state.intel?.injury_season) return Number(state.intel.injury_season);
   if (state.intel?.has_2026_logs) return 2026;
@@ -715,6 +726,19 @@ function upcomingOpp(focus) {
   return "";
 }
 
+function teamTargetShare(g) {
+  if (!g?.team || g.week == null) return null;
+  const tgt = Number(g.tgt || 0);
+  let teamTgt = 0;
+  Object.values(state.intel?.logs || {}).forEach((list) => {
+    (list || []).forEach((x) => {
+      if (x.team === g.team && x.week === g.week && x.season === g.season) teamTgt += Number(x.tgt || 0);
+    });
+  });
+  if (!teamTgt) return null;
+  return Math.round((tgt / teamTgt) * 100);
+}
+
 function logBarLabel(g) {
   if (g?.date) {
     const d = new Date(g.date);
@@ -732,7 +756,10 @@ function renderSplitChart(focus, recs) {
   if (!splits) return "";
   const oppSplit = vsOppSplit(recs, focus.stat, focus.line, focus.side, upcomingOpp(focus));
   const ln = focus.line == null ? null : Number(focus.line);
-  const bars = recs.slice(-20).reverse().map((g) => {
+  const all = recs.slice(-20);
+  const showAll = !!state.popupChartAll && all.length > 5;
+  const barsSrc = showAll ? all : all.slice(-5);
+  const bars = barsSrc.reverse().map((g) => {
     const v = logValue(g, focus.stat);
     let cls = "void";
     if (v == null || ln == null) cls = "void";
@@ -759,9 +786,14 @@ function renderSplitChart(focus, recs) {
       <em>${s.n} game${s.n === 1 ? "" : "s"}${s.avg != null ? ` · avg ${s.avg}` : ""}</em>
     </div>`;
   };
+  const slots = Math.max(bars.length, 1);
+  const more = all.length > 5
+    ? `<button type="button" class="chart-more" data-chart-more="${showAll ? "less" : "more"}" title="${showAll ? "Show last 5" : `Show last ${all.length}`}">${showAll ? "‹" : "›"}</button>`
+    : "";
   return `<h4 class="popup-h">Recent vs ${escapeHtml(focus.side || "")} ${focus.line ?? ""} ${escapeHtml(focus.stat || "")}</h4>
-    <div class="split-note">Green cleared the line · red missed · gray push. Line marked across the bars.</div>
-    <div class="log-bars" style="--n:${Math.max(bars.length, 4)}">
+    <div class="split-note">Green cleared the line · red missed · gray push. Showing ${showAll ? `all ${bars.length}` : `last ${bars.length}`} game${bars.length === 1 ? "" : "s"}.</div>
+    <div class="chart-row">
+    <div class="log-bars" style="--slots:${slots}">
       ${bars.map((b) => {
         const h = b.v == null ? 8 : Math.max(14, Math.round((Number(b.v) / maxV) * 100));
         return `<div class="log-col" title="${escapeHtml(b.lab)} vs ${escapeHtml(b.g.opp || "")}: ${b.v ?? "—"}">
@@ -773,6 +805,8 @@ function renderSplitChart(focus, recs) {
           <div class="log-opp">${escapeHtml(b.g.opp || "")}</div>
         </div>`;
       }).join("")}
+    </div>
+    ${more}
     </div>
     <div class="hit-grid">
       ${windows.map((s) => card(s.n >= recs.length ? `${currentSeason()} (${s.n})` : `Last ${s.n}`, s)).join("")}
@@ -899,6 +933,7 @@ function isStandardExchange(r, key) {
   if (r.is_alternate) return false;
   if (Math.abs(Number(b.price)) >= 350) return false;
   if (isYesNoLongshot(r) && Math.abs(Number(b.price)) >= 180) return false;
+  if (sportsbookCount(r) < 2 && !isFantasyStat(r.stat)) return false;
   return true;
 }
 
@@ -948,7 +983,7 @@ function applyFilters(rows) {
     }
     if (hasStarted(r.commence_time)) return false;
     if (!matchesWhen(r.commence_time)) return false;
-    if (!q && state.minBooks && !isFantasyStat(r.stat) && sportsbookCount(r) < 2) return false;
+    if (!q && state.minBooks && !isFantasyStat(r.stat) && state.view !== "pp" && sportsbookCount(r) < 2) return false;
     if (team && !rowHasTeam(r, team)) return false;
     if (game && gameKeyOf(r) !== game && r.game !== game) return false;
     if (stat && r.stat !== stat) return false;
@@ -1075,6 +1110,16 @@ function fillWhen(all) {
   if ([...sel.options].some((o) => o.value === current)) sel.value = current;
 }
 
+function fillStats(pool) {
+  const base = (pool || []).filter((r) => matchesWhen(r.commence_time) && !hasStarted(r.commence_time));
+  const game = $("game")?.value || "";
+  const team = $("team")?.value || "";
+  const scoped = base.filter((r) => (!game || gameKeyOf(r) === game) && rowHasTeam(r, team));
+  const stats = unique(scoped.map((r) => r.stat).filter(Boolean));
+  const coreFirst = [...stats.filter((s) => CORE_STATS.has(s)).sort(), ...stats.filter((s) => !CORE_STATS.has(s)).sort()];
+  if ($("stat")) fillSelect($("stat"), coreFirst, "All props");
+}
+
 function fillSelect(sel, values, allLabel) {
   const current = sel.value;
   sel.innerHTML = `<option value="">${allLabel}</option>` +
@@ -1098,14 +1143,19 @@ function rowHasTeam(row, team) {
 }
 
 function fillGameAndTeam(pool) {
-  const teams = unique((pool || []).flatMap(teamNames)).sort((a, b) => a.localeCompare(b));
+  const base = (pool || []).filter((r) => matchesWhen(r.commence_time) && !hasStarted(r.commence_time));
+  const teams = unique(base.flatMap(teamNames)).sort((a, b) => a.localeCompare(b));
   if ($("team")) fillSelect($("team"), teams, "All teams");
   const team = $("team")?.value || "";
   const q = ($("gameQ")?.value || "").trim().toLowerCase();
-  let games = unique((pool || []).filter((r) => rowHasTeam(r, team)).map((r) => gameKeyOf(r)).filter(Boolean))
+  let games = unique(base.filter((r) => rowHasTeam(r, team)).map((r) => gameKeyOf(r)).filter(Boolean))
     .sort((a, b) => a.localeCompare(b));
   if (q) games = games.filter((g) => g.toLowerCase().includes(q));
-  if ($("game")) fillSelect($("game"), games, games.length ? "All games" : "No matching games");
+  if ($("game")) {
+    const prev = $("game").value;
+    fillSelect($("game"), games, games.length ? "All games" : "No matching games");
+    if (prev && ![...$("game").options].some((o) => o.value === prev)) $("game").value = "";
+  }
 }
 
 function visibleBooks() {
@@ -1349,15 +1399,15 @@ function renderSlip() {
   if (!bar) return;
   bar.hidden = state.section === "games" || state.slip.length === 0;
   if ($("slipCount")) $("slipCount").textContent = String(state.slip.length);
-  const names = state.slip.map((r) => r.player);
-  const dup = names.find((n, i) => names.indexOf(n) !== i);
   if ($("slipPicks")) {
     $("slipPicks").innerHTML = state.slip.map((r, i) =>
       `<button type="button" class="book-pick on" data-slip="${i}">${escapeHtml(r.player)} ${escapeHtml(r.side)} ${r.line ?? ""} ✕</button>`
-    ).join("") + (dup ? `<span class="line-note">Same player: ${escapeHtml(dup)}</span>` : "");
+    ).join("");
   }
   const open = $("slipOpen");
-  if (open) open.href = ppSlipLink(state.slip);
+  if (open) {
+    open.href = ppSlipLink(state.slip);
+  }
 }
 function addToSlip(row) {
   if (state.slip.length >= 6) return;
@@ -1686,6 +1736,13 @@ function gameKeyOf(row) {
   return g.trim();
 }
 
+function teamPairKey(row) {
+  const key = gameKeyOf(row);
+  const parts = String(key || "").split("@").map((s) => s.trim()).filter(Boolean);
+  if (parts.length !== 2) return key;
+  return parts.slice().sort().join("|");
+}
+
 function richerGame(a, b) {
   const score = (r) => [r.spread, r.total, r.ml_home, r.ml_away, r.player, r.books].filter((x) => x != null && x !== "").length;
   return score(b) > score(a) ? b : a;
@@ -1699,7 +1756,8 @@ function upcomingGames() {
     if (r.commence_time && !matchesWhen(r.commence_time)) return;
     const key = gameKeyOf(r);
     if (!key || key === "@") return;
-    map.set(key, map.has(key) ? richerGame(map.get(key), r) : r);
+    const pair = teamPairKey(r) || key;
+    map.set(pair, map.has(pair) ? richerGame(map.get(pair), r) : r);
   };
   (state.data?.games || []).forEach(add);
   (state.data?.props || []).forEach(add);
@@ -1716,15 +1774,10 @@ function rowsForGame(game) {
 }
 
 function previewBest(rows) {
-  const view = state.view;
   return rows
-    .filter((r) => {
-      if (view === "ud") return r.dfs?.underdog && !r.is_alternate;
-      if (view === "pp" || view === "ev") return r.dfs?.prizepicks && (!r.pp_tier || r.pp_tier === "Standard") && !r.is_alternate;
-      return true;
-    })
+    .filter((r) => r.dfs?.prizepicks && (!r.pp_tier || r.pp_tier === "Standard") && !r.is_alternate)
     .map((r) => ({ r, edge: rowEdge(r) }))
-    .filter((x) => hitPct(x.r) != null)
+    .filter((x) => x.r.pct_to_hit != null)
     .sort((a, b) => (b.edge ?? -999) - (a.edge ?? -999))
     .slice(0, 12);
 }
@@ -1749,11 +1802,8 @@ function gameScript(sample) {
 
 function rankedOvers(rows, team, stats) {
   return rows
-    .filter((r) => r.side === "Over" && (!stats || stats.has(r.stat)) && (!team || rowTeam(r) === team))
-    .map((r) => ({ r, edge: rowEdge(r) }))
-    .filter((x) => (x.edge ?? -999) >= 0)
-    .sort((a, b) => (b.edge ?? -999) - (a.edge ?? -999))
-    .map((x) => x.r);
+    .filter((r) => r.side === "Over" && r.dfs?.prizepicks && (!stats || stats.has(r.stat)) && (!team || rowTeam(r) === team))
+    .sort((a, b) => (b.pct_to_hit || 0) - (a.pct_to_hit || 0));
 }
 
 function previewCorrelates(rows, sample) {
@@ -1907,7 +1957,7 @@ function previewUsage(sample) {
   const html = `${table(away, byTeam[away] || [])}${table(home, byTeam[home] || [])}`;
   if (!html) return "";
   return `<div class="preview-card snap-card">
-    <h3>Snaps by team</h3>
+    <h3>Snaps by team <span class="muted" style="font-weight:400;font-size:12px">${escapeHtml(intelStamp())}</span></h3>
     <div class="corr-why">${season} offensive snap %. Green / red is vs that player's own season average. QBs do not show routes.</div>
     ${html}
   </div>`;
@@ -2080,23 +2130,44 @@ function gameRosterNames(sample) {
   return names;
 }
 
+function kalshiNameMatch(title, name) {
+  const t = nameKey(title);
+  const n = nameKey(name);
+  if (!t || !n) return false;
+  if (t.includes(n)) return true;
+  const toks = n.split(" ");
+  if (toks.length < 2) return false;
+  const first = toks[0];
+  const last = toks[toks.length - 1];
+  if (last.length < 4) return false;
+  const initial = first[0];
+  return t.includes(last) && (t.includes(`${initial} ${last}`) || t.includes(`${initial}${last}`) || t.startsWith(`${initial} `));
+}
+
 function kalshiPropsForGame(sample) {
   const list = state.data?.kalshi?.props || [];
   if (!list.length || !sample) return [];
   const roster = gameRosterNames(sample);
   if (!roster.size) return [];
-  return list.filter((m) => roster.has(nameKey((m.title || "").split(":")[0]))).sort((a, b) => (b.dollar || 0) - (a.dollar || 0));
+  const teams = gameTeams(sample);
+  return list.filter((m) => {
+    const player = (m.title || "").split(":")[0];
+    const key = nameKey(player);
+    if (roster.has(key)) return true;
+    for (const name of roster) {
+      if (kalshiNameMatch(player, name)) return true;
+    }
+    const blob = `${m.title || ""} ${m.subtitle || ""}`.toUpperCase();
+    return [...teams].some((t) => blob.includes(` ${t} `) || blob.startsWith(`${t} `));
+  }).sort((a, b) => (b.dollar || 0) - (a.dollar || 0));
 }
 
 function kalshiPropsForPlayer(player) {
   const list = state.data?.kalshi?.props || [];
   const key = nameKey(player);
   if (!key) return [];
-  const last = key.split(" ").pop();
-  return list.filter((m) => {
-    const t = nameKey(`${m.title || ""} ${m.subtitle || ""}`);
-    return t.includes(key) || (last && last.length > 3 && t.includes(last));
-  }).sort((a, b) => (b.dollar || 0) - (a.dollar || 0));
+  return list.filter((m) => kalshiNameMatch(`${m.title || ""} ${m.subtitle || ""}`, player))
+    .sort((a, b) => (b.dollar || 0) - (a.dollar || 0));
 }
 
 function kalshiActionNote(m, best, sample) {
@@ -2309,7 +2380,7 @@ function renderPreview() {
     ${previewUsage(sample)}
     <div class="preview-grid">
       <div class="preview-card">
-        <h3>Injuries / availability</h3>
+        <h3>Injuries / availability <span class="muted" style="font-weight:400;font-size:12px">${escapeHtml(intelStamp())}</span></h3>
         ${inj.length ? inj.map((r) => `<div class="preview-inj">
           <button type="button" class="preview-inj-head" data-inj="1">
             <div class="player-row">${headshotTag(r.headshot)}
@@ -2337,7 +2408,7 @@ function renderPreview() {
       </div>
     </div>`;
   $("count").textContent = `${shown.length} games · ${rows.length} props`;
-  $("updated").textContent = `Updated ${fmtAgo(state.data?.updated) || fmtWhen(state.data?.updated)} · BE ${breakEven()}%`;
+  $("updated").textContent = `Updated ${fmtWhen(state.data?.updated)} · BE ${breakEven()}%`;
 }
 
 function showSectionWraps() {
@@ -2382,13 +2453,11 @@ function render(full) {
     const all = state.data?.props || [];
     fillWhen(all);
     if (state.data) {
-      $("updated").textContent = `Updated ${fmtAgo(state.data.updated) || fmtWhen(state.data.updated)} · BE ${breakEven()}%`;
+      $("updated").textContent = `Updated ${fmtWhen(state.data.updated)} · BE ${breakEven()}%`;
       const sport = ($("sport")?.value || state.sport || "all").toLowerCase();
       const pool = sport === "all" ? all : all.filter((r) => String(r.sport || "").toLowerCase() === sport);
       fillGameAndTeam(pool);
-      const stats = unique(all.map((r) => r.stat));
-      const coreFirst = [...stats.filter((s) => CORE_STATS.has(s)).sort(), ...stats.filter((s) => !CORE_STATS.has(s)).sort()];
-      fillSelect($("stat"), coreFirst, "All props");
+      fillStats(pool);
     }
     renderBookPicks();
     renderHead();
@@ -2408,15 +2477,19 @@ function render(full) {
   if (!state.data) return;
   const all = state.liveProps || state.data.props || [];
   const rows = sortRows(applyFilters(all));
-  const cap = state.showMore ? 600 : 200;
+  const cap = 200;
   const view = rows.slice(0, cap);
-  $("count").textContent = rows.length > cap
-    ? `${cap} of ${rows.length.toLocaleString()} shown`
-    : `${rows.length.toLocaleString()} shown`;
+  $("count").textContent = rows.length > cap ? `${cap} of ${rows.length.toLocaleString()} shown` : `${rows.length.toLocaleString()} shown`;
 
   if (!rows.length) {
     $("tbody").innerHTML = "";
     $("empty").style.display = "block";
+    const emptyMsg = state.view === "pick6"
+      ? "Pick6 has no data source yet."
+      : state.view === "polymarket"
+        ? "Polymarket has no matched props yet."
+        : "No rows match these filters.";
+    $("empty").textContent = emptyMsg;
     return;
   }
   $("empty").style.display = "none";
@@ -2436,7 +2509,7 @@ function render(full) {
         <td class="line-cell"><div class="line-stack"><span class="tag ${sideClass}">${escapeHtml(r.side)}</span><div class="line-num">${lineTxt ?? "—"}</div>${fantasyNote(r)}</div></td>
         <td>${tierBadge(r.pp_tier)}</td>
         <td><span class="${pctClass(hitPct(r))}">${hitPct(r) != null ? hitPct(r).toFixed(1) + "%" : "—"}</span></td>
-        <td class="${edge >= 0 ? "" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}${r.dfs?.prizepicks ? `<button type="button" class="slip-add" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">+ slip</button>` : ""}</td>
+        <td class="${edge >= 0 ? "" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}${["prophetx", "novig", "kalshi", "polymarket"].includes(state.view) ? ` <span class="line-note">${sportsbookCount(r)} books</span>` : ""}${r.dfs?.prizepicks ? `<button type="button" class="slip-add" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">+ slip</button>` : ""}</td>
         ${bestCell(r)}
         ${cols.map((b) => bookCell(r, b.key)).join("")}
       </tr>`;
@@ -2511,11 +2584,12 @@ $("minBooks")?.addEventListener("change", () => {
 let qTimer = null;
 ["game", "stat", "side", "tier", "picks", "minPct", "when", "team"].forEach((id) => {
   $(id)?.addEventListener("change", () => {
-    if (id === "team") {
+    if (id === "when" || id === "team" || id === "game") {
       const all = state.data?.props || [];
       const sport = ($("sport")?.value || state.sport || "all").toLowerCase();
       const pool = sport === "all" ? all : all.filter((r) => String(r.sport || "").toLowerCase() === sport);
       fillGameAndTeam(pool);
+      fillStats(pool);
     }
     render();
   });
@@ -2653,7 +2727,7 @@ function contextLog(recs, focus) {
   const groups = [`<th class="grp" colspan="3">Fantasy / game</th>`];
   const sub = ["<th>Week</th><th>Fpts</th><th>Matchup</th>"];
   if (passOn) { groups.push(`<th class="grp" colspan="5">Passing</th>`); sub.push("<th>Cmp</th><th>Att</th><th>Yds</th><th>TD</th><th>INT</th>"); }
-  if (recOn) { groups.push(`<th class="grp" colspan="6">Receiving</th>`); sub.push("<th>Rec</th><th>Tar</th><th>Yds</th><th>TD</th><th>Catch%</th><th>Rte%</th>"); }
+  if (recOn) { groups.push(`<th class="grp" colspan="7">Receiving</th>`); sub.push("<th>Rec</th><th>Tar</th><th>Yds</th><th>TD</th><th>Tgt%</th><th>Catch%</th><th>Rte%</th>"); }
   if (rushOn) { groups.push(`<th class="grp" colspan="4">Rushing</th>`); sub.push("<th>Att</th><th>Yds</th><th>Avg</th><th>TD</th>"); }
   groups.push(`<th class="grp" colspan="2">Snaps</th>`);
   sub.push("<th>Snp</th><th>Snp%</th>");
@@ -2666,7 +2740,7 @@ function contextLog(recs, focus) {
       `<td class="match">${escapeHtml(match)}</td>`,
     ];
     if (passOn) bits.push(`<td>${g.cmp ?? 0}</td><td>${g.att ?? 0}</td><td>${g.pass_yds ?? 0}</td><td>${g.pass_td ?? 0}</td><td>${g.int ?? 0}</td>`);
-    if (recOn) bits.push(`<td>${g.rec ?? 0}</td><td>${g.tgt ?? 0}</td><td>${g.rec_yds ?? 0}</td><td>${g.rec_td ?? 0}</td><td>${catchPct(g) != null ? `${catchPct(g)}%` : "—"}</td><td>${g.route_pct != null ? `${Math.round(g.route_pct)}%` : "—"}</td>`);
+    if (recOn) bits.push(`<td>${g.rec ?? 0}</td><td>${g.tgt ?? 0}</td><td>${g.rec_yds ?? 0}</td><td>${g.rec_td ?? 0}</td><td>${teamTargetShare(g) != null ? `${teamTargetShare(g)}%` : "—"}</td><td>${catchPct(g) != null ? `${catchPct(g)}%` : "—"}</td><td>${g.route_pct != null ? `${Math.round(g.route_pct)}%` : "—"}</td>`);
     if (rushOn) bits.push(`<td>${g.car ?? 0}</td><td>${g.rush_yds ?? 0}</td><td>${avg}</td><td>${g.rush_td ?? 0}</td>`);
     bits.push(`<td>${g.off_snaps ?? "—"}</td><td>${g.off_pct != null ? `${Math.round(g.off_pct)}%` : "—"}</td>`);
     return `<tr>${bits.join("")}</tr>`;
@@ -2734,6 +2808,12 @@ function usageDetail(recs, pos, focus) {
 }
 
 function openPlayerPopup(player, eventId, market, side) {
+  const popupKey = `${player}|${eventId || ""}|${market || ""}|${side || ""}`;
+  if (state.popupKey !== popupKey) {
+    state.popupChartAll = false;
+    state.popupTab = state.popupTab && state.popupKey.startsWith(`${player}|`) ? state.popupTab : "bet";
+  }
+  state.popupKey = popupKey;
   const all = state.data?.props || [];
   const key = nameKey(player);
   const mine = all.filter((r) => r.player === player || nameKey(r.player) === key);
@@ -2923,6 +3003,10 @@ function openPlayerPopup(player, eventId, market, side) {
   $("popupClose").onclick = closePopup;
   const slipBtn = $("popupSlip");
   if (slipBtn) slipBtn.onclick = () => addToSlip(focus);
+  if (state.popupTab && state.popupTab !== "bet") {
+    $("popupCard")?.querySelectorAll("[data-pop-tab]").forEach((b) => b.classList.toggle("on", b.dataset.popTab === state.popupTab));
+    $("popupCard")?.querySelectorAll("[data-pop-pane]").forEach((p) => { p.hidden = p.dataset.popPane !== state.popupTab; });
+  }
 }
 
 document.addEventListener("click", (e) => {
@@ -2971,9 +3055,18 @@ $("slipPicks")?.addEventListener("click", (e) => {
 $("slipClear")?.addEventListener("click", () => { state.slip = []; renderSlip(); });
 $("popup")?.addEventListener("click", (e) => {
   if (e.target.id === "popup") closePopup();
+  const more = e.target.closest("[data-chart-more]");
+  if (more) {
+    state.popupChartAll = more.dataset.chartMore !== "less";
+    state.popupTab = "chart";
+    const [player, eventId, market, side] = (state.popupKey || "").split("|");
+    if (player) openPlayerPopup(player, eventId, market, side);
+    return;
+  }
   const tab = e.target.closest("[data-pop-tab]");
   if (!tab) return;
   const name = tab.dataset.popTab;
+  state.popupTab = name;
   $("popupCard")?.querySelectorAll("[data-pop-tab]").forEach((b) => b.classList.toggle("on", b === tab));
   $("popupCard")?.querySelectorAll("[data-pop-pane]").forEach((p) => { p.hidden = p.dataset.popPane !== name; });
 });
@@ -3059,29 +3152,31 @@ async function loadData() {
     }
     const sport = $("sport")?.value || state.sport || "all";
     state.sport = sport;
-    if (sport === "all") {
-      const keys = Object.keys(DATA_URLS);
-      const results = await Promise.allSettled(keys.map((k) => fetchBoard(DATA_URLS[k], version)));
-      const boards = results.map((res, i) => res.status === "fulfilled"
-        ? tagSport(res.value, SPORT_LABEL[keys[i]])
-        : { props: [], games: [], kalshi: {} });
-      state.data = {
-        updated: boards.find((b) => b.updated)?.updated,
-        sport: "ALL",
-        props: boards.flatMap((b) => b.props || []),
-        games: boards.flatMap((b) => b.games || []),
-        kalshi: {
-          ml: boards.flatMap((b) => b.kalshi?.ml || []),
-          spread: boards.flatMap((b) => b.kalshi?.spread || []),
-          total: boards.flatMap((b) => b.kalshi?.total || []),
-          props: boards.flatMap((b) => b.kalshi?.props || []),
-        },
-      };
-    } else {
-      const label = SPORT_LABEL[sport] || sport.toUpperCase();
-      const data = await fetchBoard(DATA_URLS[sport] || DATA_URLS.nfl, version);
-      state.data = tagSport(data, label);
+    state.boardCache = state.boardCache || {};
+    const keys = sport === "all" ? Object.keys(DATA_URLS) : [sport];
+    const missing = keys.filter((k) => !state.boardCache[k]);
+    if (missing.length) {
+      const results = await Promise.allSettled(missing.map((k) => fetchBoard(DATA_URLS[k], version)));
+      results.forEach((res, i) => {
+        const key = missing[i];
+        state.boardCache[key] = res.status === "fulfilled"
+          ? tagSport(res.value, SPORT_LABEL[key] || key.toUpperCase())
+          : { props: [], games: [], kalshi: {} };
+      });
     }
+    const boards = keys.map((k) => state.boardCache[k] || { props: [], games: [], kalshi: {} });
+    state.data = {
+      updated: boards.find((b) => b.updated)?.updated,
+      sport: sport === "all" ? "ALL" : (SPORT_LABEL[sport] || sport.toUpperCase()),
+      props: boards.flatMap((b) => b.props || []),
+      games: boards.flatMap((b) => b.games || []),
+      kalshi: {
+        ml: boards.flatMap((b) => b.kalshi?.ml || []),
+        spread: boards.flatMap((b) => b.kalshi?.spread || []),
+        total: boards.flatMap((b) => b.kalshi?.total || []),
+        props: boards.flatMap((b) => b.kalshi?.props || []),
+      },
+    };
     state.liveProps = (state.data.props || []).filter((r) => !hasStarted(r.commence_time));
     state.uiReady = false;
     render(true);
