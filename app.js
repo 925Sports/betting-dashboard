@@ -304,8 +304,8 @@ function hitPct(row) {
       return bookNoVig(row);
     }
     const nv = bookNoVig(row);
-    if (row.pct_ud != null && !(Number(row.pct_ud) === 50 && nv != null)) return row.pct_ud;
     if (nv != null) return nv;
+    if (row.pct_ud != null && Number(row.pct_ud) !== 50) return row.pct_ud;
     if (row.pct_to_hit != null && Number(row.pct_to_hit) !== 50) return row.pct_to_hit;
   }
   if (state.view === "pp" && isFantasyStat(row.stat)) {
@@ -2525,7 +2525,7 @@ function render(full) {
       <tr>
         <td>
           <div class="player-row">${headshotTag(r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}${posTag(r)}</button>${venueIcon(r)}${weatherIcon(r)}${flagIcons(r)}</div>
-          <div class="game"><span class="sport-tag">${escapeHtml(r.sport || "")}</span> ${escapeHtml(matchup(r))} · ${escapeHtml(fmtWhen(r.commence_time))}</div>
+          <div class="game"><span class="sport-tag ${escapeHtml(String(r.sport || "").toLowerCase())}">${escapeHtml(r.sport || "")}</span> ${escapeHtml(matchup(r))} · ${escapeHtml(fmtWhen(r.commence_time))}</div>
           <div class="script">${scriptLine(r)}${r.broadcasts ? ` · ${escapeHtml(r.broadcasts)}` : ""}</div>
         </td>
         <td>${escapeHtml(r.stat)}</td>
