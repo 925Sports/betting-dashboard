@@ -10,7 +10,7 @@ const DATA_URLS = {
 };
 const INTEL_URL = "./data/nfl-intel.json";
 const SPORT_LABEL = { nfl: "NFL", cfb: "CFB", mlb: "MLB", soccer: "SOCCER", wnba: "WNBA", nba: "NBA", cbb: "CBB", nhl: "NHL" };
- 
+
 const BOOKS = [
   { key: "prizepicks", label: "PP", name: "PrizePicks", color: "#6D28FF", dfs: true, on: true, tile: "#6D28FF", logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQBa_IfAC9uxHYxj3nRDqyo09hGsSkT4crW1duodUEJTw&s=10" },
   { key: "underdog", label: "UD", name: "Underdog", color: "#FFE500", dfs: true, on: true, tile: "#FFE500", logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT72uOdgpjWIynJRaFuKdRKhojBxPd54jbqPeLErnwYRg&s" },
@@ -40,9 +40,9 @@ const BOOKS = [
   { key: "fanatics", label: "FAN", name: "Fanatics", color: "#E1062A", dfs: false, on: false, logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSSux_F3VXmZFaIhASk929Dlir6zaoojrqsQnny1bU_w7kr428BXiCWnv0&s=10" },
   { key: "mybookieag", label: "MB", name: "MyBookie", color: "#F5A623", dfs: false, on: false, logo: "https://play-lh.googleusercontent.com/4xoo_moz_ctNrvD9dwcZhUKBOxD6fJJlL1z6LBlRe1NvAS_Ga2ahPlJpY10nNVEtVZbvp7jpC6brEF6PCA6V" },
 ];
- 
+
 const PP_BE = { 2: 57.74, 3: 58.48, 4: 56.23, 5: 54.93, 6: 54.09 };
- 
+
 const TEAM_ABBR = {
   "Arizona Cardinals": "ARI", "Atlanta Falcons": "ATL", "Baltimore Ravens": "BAL",
   "Buffalo Bills": "BUF", "Carolina Panthers": "CAR", "Chicago Bears": "CHI",
@@ -56,7 +56,7 @@ const TEAM_ABBR = {
   "San Francisco 49ers": "SF", "Seattle Seahawks": "SEA", "Tampa Bay Buccaneers": "TB",
   "Tennessee Titans": "TEN", "Washington Commanders": "WAS",
 };
- 
+
 const TEAM_NICK = {};
 Object.entries(TEAM_ABBR).forEach(([full, ab]) => {
   TEAM_NICK[full.toLowerCase()] = ab;
@@ -66,7 +66,7 @@ Object.entries(TEAM_ABBR).forEach(([full, ab]) => {
     TEAM_NICK[nick.toLowerCase()] = ab;
   }
 });
- 
+
 const STADIUMS = {
   ARI: "State Farm Stadium · Glendale, AZ", ATL: "Mercedes-Benz Stadium · Atlanta, GA",
   BAL: "M&T Bank Stadium · Baltimore, MD", BUF: "Highmark Stadium · Orchard Park, NY",
@@ -85,11 +85,11 @@ const STADIUMS = {
   SEA: "Lumen Field · Seattle, WA", TB: "Raymond James Stadium · Tampa, FL",
   TEN: "Nissan Stadium · Nashville, TN", WAS: "Northwest Stadium · Landover, MD",
 };
- 
+
 const PASS_STATS = new Set(["Pass Yds", "Pass TDs", "Pass+Rush Yds", "Pass Att", "Completions", "Fantasy Score"]);
 const CATCH_STATS = new Set(["Rec Yds", "Receptions", "Rush+Rec Yds", "Targets"]);
 const RUSH_STATS = new Set(["Rush Yds", "Rush Att", "Anytime TD", "Rush+Rec Yds"]);
- 
+
 const CORE_STATS = new Set([
   "Pass Yds", "Rush Yds", "Receptions", "Rec Yds", "Rush+Rec Yds",
   "Pass TDs", "Anytime TD", "Fantasy Score", "Pass+Rush Yds",
@@ -97,10 +97,10 @@ const CORE_STATS = new Set([
   "Points", "Rebounds", "Pts+Rebs+Asts", "Pts+Rebs", "Pts+Asts", "3-PT Made",
 ]);
 const FALLBACK_HEAD = "https://www.freeiconspng.com/uploads/--tie-user-users-work-worker-working-icon--icon-search-engine-6.png";
- 
+
 const DEFAULT_ON = new Set(BOOKS.filter((b) => b.on).map((b) => b.key));
 const BOOK_BY_KEY = Object.fromEntries(BOOKS.map((b) => [b.key, b]));
- 
+
 const state = {
   data: null,
   intel: null,
@@ -116,23 +116,23 @@ const state = {
   popupTab: "all",
   popupKey: "",
 };
- 
+
 const $ = (id) => document.getElementById(id);
- 
+
 function american(price) {
   if (price == null || price === "") return "—";
   const n = Number(price);
   if (Number.isNaN(n)) return "—";
   return n > 0 ? `+${Math.round(n)}` : String(Math.round(n));
 }
- 
+
 function pickSize() { return Number($("picks").value || 5); }
 function breakEven() {
   if (state.view === "ud") return 52.5;
   if (["prophetx", "novig", "kalshi", "polymarket"].includes(state.view)) return 50;
   return PP_BE[pickSize()] || 54.93;
 }
- 
+
 function bookNoVig(row) {
   const vals = Object.values(mergeBooks(row.books) || {})
     .map((b) => Number(b?.no_vig))
@@ -145,7 +145,7 @@ function bookNoVig(row) {
   pool.sort((a, b) => a - b);
   return +pool[Math.floor(pool.length / 2)].toFixed(1);
 }
- 
+
 function offerImplied(row) {
   if (state.view === "ud") {
     const u = row.dfs?.underdog || {};
@@ -162,25 +162,25 @@ function offerImplied(row) {
   if (!impl.length) return null;
   return +Math.min(...impl).toFixed(1);
 }
- 
+
 function isWholeLine(n) {
   const x = Number(n);
   return Number.isFinite(x) && Math.abs(x - Math.round(x)) < 1e-6;
 }
- 
+
 function poissonPmf(k, lam) {
   if (k < 0 || lam <= 0) return 0;
   let x = Math.exp(-lam);
   for (let i = 1; i <= k; i += 1) x *= lam / i;
   return x;
 }
- 
+
 function poissonCdf(k, lam) {
   let s = 0;
   for (let i = 0; i <= k; i += 1) s += poissonPmf(i, lam);
   return s;
 }
- 
+
 function lambdaFromCdf(k, p) {
   p = Math.min(0.97, Math.max(0.03, p));
   let lo = 0.01, hi = 80;
@@ -191,7 +191,7 @@ function lambdaFromCdf(k, p) {
   }
   return (lo + hi) / 2;
 }
- 
+
 function nearestHalfLine(row) {
   const L = Number(row.line);
   const nums = Object.values(mergeBooks(row.books) || {})
@@ -205,7 +205,7 @@ function nearestHalfLine(row) {
   pool.sort((a, b) => Math.abs(a - L) - Math.abs(b - L));
   return pool[0];
 }
- 
+
 function nvAtHalf(row, half) {
   const vals = [];
   Object.values(mergeBooks(row.books) || {}).forEach((b) => {
@@ -220,7 +220,7 @@ function nvAtHalf(row, half) {
   vals.sort((a, b) => a - b);
   return vals[Math.floor(vals.length / 2)];
 }
- 
+
 function ppCashPct(row) {
   if (isFantasyStat(row.stat)) return null;
   if (row.hit_model === "cash_no_push" && row.pct_to_hit != null) return row.pct_to_hit;
@@ -252,7 +252,7 @@ function ppCashPct(row) {
   const cash = Math.max(8, Math.min(92, raw - 2));
   return +cash.toFixed(1);
 }
- 
+
 function fantasyAdjustedPct(row) {
   if (!isFantasyStat(row.stat)) return null;
   const cmp = fantasyCmp(row);
@@ -267,7 +267,7 @@ function fantasyAdjustedPct(row) {
   const raw = 50 + (under ? -diff : diff) * 1.8;
   return +Math.max(8, Math.min(92, raw)).toFixed(1);
 }
- 
+
 function hitPct(row) {
   const nv = bookNoVig(row);
   if (state.view === "pp" || state.view === "ev") {
@@ -303,7 +303,7 @@ function hitPct(row) {
   if (state.view === "polymarket") return nv ?? bookImplied(row.books?.polymarket?.price) ?? row.pct_to_hit;
   return nv ?? row.pct_to_hit;
 }
- 
+
 function rowEdge(row) {
   if (state.view === "ud") {
     const fair = isFantasyStat(row.stat) ? (hitPct(row) ?? bookNoVig(row)) : (bookNoVig(row) ?? hitPct(row));
@@ -326,27 +326,27 @@ function rowEdge(row) {
   if (pct == null) return null;
   return +(pct - breakEven()).toFixed(1);
 }
- 
+
 function pctClass(pct) {
   if (pct == null) return "pct";
   if (pct >= breakEven()) return "pct good";
   if (pct >= breakEven() - 2) return "pct ok";
   return "pct bad";
 }
- 
+
 function edgeClass(edge) {
   if (edge == null) return "pct";
   if (edge >= 0) return "pct good";
   if (edge >= -2) return "pct ok";
   return "pct bad";
 }
- 
+
 function sideTag(side) {
   const s = String(side || "");
   const cls = s === "Over" || s === "Yes" ? "over" : (s === "Under" || s === "No" ? "under" : "");
   return `<span class="tag ${cls}">${escapeHtml(s || "—")}</span>`;
 }
- 
+
 function fmtAgo(iso) {
   const d = parseWhen(iso);
   if (!d) return "";
@@ -357,7 +357,7 @@ function fmtAgo(iso) {
   if (hrs < 24) return `${hrs} hr ago`;
   return fmtWhen(iso);
 }
- 
+
 function parseWhen(iso) {
   if (!iso) return null;
   let s = String(iso).trim();
@@ -366,7 +366,7 @@ function parseWhen(iso) {
   const d = new Date(s);
   return Number.isNaN(d.getTime()) ? null : d;
 }
- 
+
 function fmtWhen(iso) {
   const d = parseWhen(iso);
   if (!d) return "";
@@ -375,18 +375,18 @@ function fmtWhen(iso) {
     weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
   }) + " CT";
 }
- 
+
 function hasStarted(iso) {
   const d = parseWhen(iso);
   return !!(d && d.getTime() <= Date.now());
 }
- 
+
 function posTag(row) {
   const p = String(row.position || "").trim();
   if (!p) return "";
   return ` (${escapeHtml(p)})`;
 }
- 
+
 function venueIcon(row) {
   const raw = `${row.venue_type || ""} ${row.venue_name || ""}`.toLowerCase();
   if (!raw.trim()) return "";
@@ -397,7 +397,7 @@ function venueIcon(row) {
   const extra = row.venue_name ? ` · ${row.venue_name}` : "";
   return `<span class="venue-ico" title="${escapeHtml(label + extra)}">${mark}</span>`;
 }
- 
+
 function weatherIcon(row) {
   const cond = String(row.weather || "").trim();
   const temp = String(row.temp || "").trim();
@@ -417,7 +417,7 @@ function weatherIcon(row) {
   const tip = [cond || "Weather", temp ? `${temp}°` : ""].filter(Boolean).join(" · ");
   return `<span class="venue-ico" title="${escapeHtml(tip)}">${mark}</span>`;
 }
- 
+
 function ymdInCT(iso) {
   const d = iso ? parseWhen(iso) || new Date(iso) : new Date();
   if (Number.isNaN(d.getTime())) return "";
@@ -427,19 +427,19 @@ function ymdInCT(iso) {
   const get = (t) => parts.find((p) => p.type === t)?.value;
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
- 
+
 function shiftYmd(offset) {
   const [y, m, day] = ymdInCT().split("-").map(Number);
   const d = new Date(Date.UTC(y, m - 1, day + offset, 12));
   return ymdInCT(d.toISOString());
 }
- 
+
 function dateLabel(ymd) {
   if (!ymd) return "";
   const d = new Date(`${ymd}T12:00:00`);
   return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
- 
+
 function matchesWhen(iso) {
   const sel = $("when")?.value || "";
   if (!sel) return true;
@@ -449,11 +449,11 @@ function matchesWhen(iso) {
   if (sel === "tomorrow") return day === shiftYmd(1);
   return day === sel;
 }
- 
+
 function isFantasyStat(stat) {
   return /fantasy/i.test(String(stat || ""));
 }
- 
+
 const BOOK_ALIAS = {
   hardrockbet_fl: "hardrockbet",
   hardrock_fl: "hardrockbet",
@@ -468,7 +468,7 @@ const BOOK_ALIAS = {
   mybookie: "mybookieag",
 };
 function canonBook(k) { return BOOK_ALIAS[String(k || "")] || k; }
- 
+
 function mergeBooks(map) {
   const out = {};
   Object.entries(map || {}).forEach(([k, v]) => {
@@ -477,25 +477,25 @@ function mergeBooks(map) {
   });
   return out;
 }
- 
+
 function sportsbookCount(row) {
   return Object.values(mergeBooks(row.books)).filter((b) => b && b.price != null).length;
 }
- 
+
 const TEAM_CODE_NICK = {};
 Object.entries(TEAM_ABBR).forEach(([full, ab]) => {
   TEAM_CODE_NICK[ab] = full.split(" ").pop();
 });
- 
+
 function sportOf(row) {
   return String(row?.sport || row?.league || "").toUpperCase();
 }
- 
+
 function isNflContext(row) {
   const s = sportOf(row);
   return !s || s === "NFL";
 }
- 
+
 function abbr(team, row) {
   const raw = String(team || "").trim();
   if (!raw) return "";
@@ -507,7 +507,7 @@ function abbr(team, row) {
   if (parts.length >= 2 && TEAM_NICK[parts[0].toLowerCase()]) return TEAM_NICK[parts[0].toLowerCase()];
   return raw;
 }
- 
+
 function teamLabel(team, row) {
   if (row && !isNflContext(row)) return String(team || "").replace(/\s+/g, " ").trim();
   const code = abbr(team, row);
@@ -515,16 +515,16 @@ function teamLabel(team, row) {
   const nick = TEAM_CODE_NICK[code];
   return nick && nick.toLowerCase() !== code.toLowerCase() ? `${code} ${nick}` : code;
 }
- 
+
 function matchup(row) {
   const away = teamLabel(row.away_team, row) || teamLabel(String(row.game || "").split("@")[0], row);
   const home = teamLabel(row.home_team, row) || teamLabel(String(row.game || "").split("@")[1], row);
   if (!away && !home) return row.game || "";
   return `${away} @ ${home}`;
 }
- 
+
 function unique(arr) { return [...new Set(arr.filter(Boolean))]; }
- 
+
 function escapeHtml(s) {
   return String(s ?? "")
     .replaceAll("&", "&amp;")
@@ -532,17 +532,17 @@ function escapeHtml(s) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
 }
- 
+
 function normName(s) {
   return String(s || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 }
- 
+
 function intelPlayer(name) {
   const intel = state.intel;
   if (!intel?.players || !name) return null;
   return intel.players[normName(name)] || null;
 }
- 
+
 function intelStamp() {
   const updated = state.intel?.updated || state.intel?.pulled_at;
   const season = currentSeason();
@@ -550,20 +550,20 @@ function intelStamp() {
   if (!updated) return `Injuries / usage · ${season}${weeks}`;
   return `Injuries / usage as of ${fmtWhen(updated)}${weeks}`;
 }
- 
+
 function currentSeason() {
   if (state.intel?.injury_season) return Number(state.intel.injury_season);
   if (state.intel?.has_2026_logs) return 2026;
   const seasons = state.intel?.log_seasons || [];
   return seasons.length ? Math.max(...seasons.map(Number)) : 2026;
 }
- 
+
 function intelLogs(gsis) {
   if (!gsis) return [];
   const season = currentSeason();
   return (state.intel?.logs?.[gsis] || []).filter((g) => !g.season || Number(g.season) === season);
 }
- 
+
 function injClass(status) {
   const s = String(status || "").toLowerCase();
   if (s.includes("out") || s === "ir") return "out";
@@ -571,13 +571,13 @@ function injClass(status) {
   if (s.includes("question")) return "questionable";
   return "";
 }
- 
+
 function injPill(inj) {
   if (!inj?.status) return "";
   const label = inj.status;
   return `<span class="inj-pill ${injClass(label)}" title="${escapeHtml(inj.injury || "")}">${escapeHtml(label)}</span>`;
 }
- 
+
 function playerNewsItems(row) {
   const meta = intelPlayer(row.player);
   const gsis = row.gsis_id || meta?.gsis_id;
@@ -588,7 +588,7 @@ function playerNewsItems(row) {
     return name && blob.includes(name);
   }).slice(0, 3);
 }
- 
+
 function flagIcons(row) {
   const bits = [];
   if (row.injury?.status) {
@@ -603,14 +603,14 @@ function flagIcons(row) {
   }
   return bits.length ? `<span class="flags">${bits.join("")}</span>` : "";
 }
- 
+
 function avgLogs(recs, key) {
   const list = (recs || []).slice(-5);
   if (!list.length) return null;
   const sum = list.reduce((a, r) => a + (Number(r[key]) || 0), 0);
   return +(sum / list.length).toFixed(1);
 }
- 
+
 function usagePack(recs) {
   const last = (recs || []).slice(-5);
   if (!last.length) return null;
@@ -635,7 +635,7 @@ function usagePack(recs) {
     lastWeek: lastG.week,
   };
 }
- 
+
 function usageStrip(recs, pos) {
   const u = usagePack(recs);
   if (!u || (u.snap == null && u.routes == null && u.tgt == null)) return "";
@@ -648,12 +648,12 @@ function usageStrip(recs, pos) {
     ${cell(`Last (w${u.lastWeek || "—"}${u.lastOpp ? ` vs ${u.lastOpp}` : ""})`, [u.lastSnap != null ? `${u.lastSnap} sn` : "", !qb && u.lastRoutes != null ? `${u.lastRoutes} rte` : "", !qb && u.lastTgt != null ? `${u.lastTgt} tgt` : ""].filter(Boolean).join(" · ") || "—")}
   </div>`;
 }
- 
+
 function playerByGsis(gsis) {
   const players = state.intel?.players || {};
   return Object.values(players).find((p) => p.gsis_id === gsis) || null;
 }
- 
+
 const LOG_STAT = {
   "Receptions": (g) => g.rec,
   "Rec Yds": (g) => g.rec_yds,
@@ -672,13 +672,13 @@ const LOG_STAT = {
   "Rec TDs": (g) => g.rec_td,
   "Rush TDs": (g) => g.rush_td,
 };
- 
+
 function logValue(g, stat) {
   const fn = LOG_STAT[stat];
   if (fn) return Number(fn(g) || 0);
   return null;
 }
- 
+
 function splitStats(games, stat, line, side) {
   const vals = (games || []).map((g) => ({ g, v: logValue(g, stat) })).filter((x) => x.v != null);
   if (!vals.length) return null;
@@ -707,7 +707,7 @@ function splitStats(games, stat, line, side) {
     home, away, all: pack("Avg", vals),
   };
 }
- 
+
 function vsOppSplit(games, stat, line, side, opp) {
   if (!opp) return null;
   const needle = String(opp).toUpperCase();
@@ -715,7 +715,7 @@ function vsOppSplit(games, stat, line, side, opp) {
   const pack = splitStats(list, stat, line, side);
   return pack ? { ...pack.all, label: `vs ${needle}` } : null;
 }
- 
+
 function upcomingOpp(focus) {
   const team = focus.nfl_team || intelPlayer(focus.player)?.team || "";
   const home = abbr(focus.home_team, focus);
@@ -724,7 +724,7 @@ function upcomingOpp(focus) {
   if (team && away && team === away) return home;
   return "";
 }
- 
+
 function teamTargetShare(g) {
   if (!g?.team || g.week == null) return null;
   const tgt = Number(g.tgt || 0);
@@ -737,7 +737,7 @@ function teamTargetShare(g) {
   if (!teamTgt) return null;
   return Math.round((tgt / teamTgt) * 100);
 }
- 
+
 function logBarLabel(g) {
   if (g?.date) {
     const d = new Date(g.date);
@@ -748,7 +748,7 @@ function logBarLabel(g) {
   }
   return g?.week != null ? `W${g.week}` : "";
 }
- 
+
 function renderSplitChart(focus, recs) {
   if (!recs.length || !focus?.stat) return "";
   const splits = splitStats(recs, focus.stat, focus.line, focus.side);
@@ -814,7 +814,7 @@ function renderSplitChart(focus, recs) {
       ${oppSplit ? card(oppSplit.label, oppSplit) : card("vs opponent", null, "No prior meeting in these logs")}
     </div>`;
 }
- 
+
 function bookMark(book, size) {
   const cls = size === "sm" ? "book-logo sm" : "book-logo";
   const tile = book.tile ? ` style="background:${book.tile}"` : "";
@@ -823,7 +823,7 @@ function bookMark(book, size) {
   }
   return `<span class="book-mark ${size === "sm" ? "sm" : ""}" style="--c:${book.color}" title="${escapeHtml(book.name)}">${escapeHtml(book.label)}</span>`;
 }
- 
+
 function kalshiKind(stat) {
   const s = String(stat || "").toLowerCase();
   if (/fantasy/.test(s)) return null;
@@ -842,14 +842,14 @@ function kalshiKind(stat) {
   if (/touchdown|^tds?$/.test(s)) return "td";
   return null;
 }
- 
+
 function centsToAmerican(cents) {
   const p = Number(cents) / 100;
   if (!(p > 0.01 && p < 0.99)) return null;
   if (p >= 0.5) return Math.round(-100 * p / (1 - p));
   return Math.round(100 * (1 - p) / p);
 }
- 
+
 function kalshiThreshold(title) {
   const t = String(title || "");
   const plus = t.match(/(\d+(?:\.\d+)?)\s*\+/);
@@ -857,7 +857,7 @@ function kalshiThreshold(title) {
   const n = t.match(/(\d+(?:\.\d+)?)/);
   return n ? Number(n[1]) : null;
 }
- 
+
 function kalshiOffer(row) {
   if (!state.booksOn.has("kalshi")) return null;
   const player = nameKey(row.player);
@@ -901,7 +901,7 @@ function kalshiOffer(row) {
     title: m.title,
   };
 }
- 
+
 function bookOffer(row, key) {
   if (key === "kalshi") return kalshiOffer(row);
   const meta = BOOK_BY_KEY[key];
@@ -914,13 +914,13 @@ function bookOffer(row, key) {
   const books = mergeBooks(row.books);
   return books[key] || row.books?.[key] || null;
 }
- 
+
 function isYesNoLongshot(r) {
   const line = Number(r.dfs?.underdog?.line ?? r.books?.prophetx?.line ?? r.books?.novig?.line ?? r.line);
   if (line !== 0.5 && line !== 0) return false;
   return /home run|stolen|touchdown|^hr$|\bhits?\b|goals?(?!ie)|rbi|runs batted|shots? on target|anytime|first to|to score|to record/i.test(String(r.stat || ""));
 }
- 
+
 function isStandardUd(r) {
   const u = r.dfs?.underdog;
   if (!u || u.line == null) return false;
@@ -933,7 +933,7 @@ function isStandardUd(r) {
   if (pct != null && (pct >= 65 || pct <= 35)) return false;
   return true;
 }
- 
+
 function isStandardExchange(r, key) {
   const b = r.books?.[key];
   if (!b || b.price == null) return false;
@@ -943,12 +943,12 @@ function isStandardExchange(r, key) {
   if (sportsbookCount(r) < 2 && !isFantasyStat(r.stat)) return false;
   return true;
 }
- 
+
 function isHalfLine(n) {
   const x = Number(n);
   return Number.isFinite(x) && Math.abs((x * 2) % 2 - 1) < 0.05;
 }
- 
+
 function leanSide(row) {
   if (state.view !== "pp" && state.view !== "ev") return row;
   if (!isHalfLine(row.line)) return row;
@@ -961,7 +961,7 @@ function leanSide(row) {
     flipped_from: row.side,
   };
 }
- 
+
 function applyFilters(rows) {
   const game = $("game").value;
   const team = $("team")?.value || "";
@@ -971,7 +971,7 @@ function applyFilters(rows) {
   const minPct = Number($("minPct").value || 0);
   const q = $("q").value.trim().toLowerCase();
   const be = breakEven();
- 
+
   return rows.map(leanSide).filter((r) => {
     if (state.view === "pp" && !r.dfs?.prizepicks) return false;
     if (state.view === "ud" && !isStandardUd(r)) return false;
@@ -1001,7 +1001,7 @@ function applyFilters(rows) {
     return true;
   });
 }
- 
+
 function sortRows(rows) {
   const dir = state.sortDir === "asc" ? 1 : -1;
   return [...rows].sort((a, b) => {
@@ -1016,7 +1016,7 @@ function sortRows(rows) {
     return String(va).localeCompare(String(vb)) * dir;
   });
 }
- 
+
 function displayLine(row) {
   if (state.view === "pp" && row.dfs?.prizepicks?.line != null) return row.dfs.prizepicks.line;
   if (state.view === "ud" && row.dfs?.underdog?.line != null) return row.dfs.underdog.line;
@@ -1025,7 +1025,7 @@ function displayLine(row) {
   if (state.view === "novig" && row.books?.novig?.line != null) return row.books.novig.line;
   return row.line;
 }
- 
+
 function recTrue(row) {
   const f = row.fantasy_cmp || {};
   if (f.recs != null && f.recs !== "") return Number(f.recs);
@@ -1041,7 +1041,7 @@ function recTrue(row) {
   const n = Number(hit.avg_line ?? hit.book_line ?? hit.line);
   return Number.isFinite(n) ? n : null;
 }
- 
+
 function fantasyCmp(row) {
   if (!isFantasyStat(row.stat)) return null;
   const f = { ...(row.fantasy_cmp || {}) };
@@ -1062,7 +1062,7 @@ function fantasyCmp(row) {
   }
   return { ...f, pp, ud, recs, ud_as_pp: udAsPp, pp_as_ud: ppAsUd, mode };
 }
- 
+
 function fantasyNote(row) {
   const f = fantasyCmp(row);
   if (!f) return "";
@@ -1084,7 +1084,7 @@ function fantasyNote(row) {
   }
   return "";
 }
- 
+
 function bookCell(row, key) {
   const src = bookOffer(row, key);
   if (!src) return `<td class="muted">—</td>`;
@@ -1102,7 +1102,7 @@ function bookCell(row, key) {
     : "";
   return `<td class="price">${american(src.price)}${note}${vol}</td>`;
 }
- 
+
 function fillWhen(all) {
   const sel = $("when");
   if (!sel) return;
@@ -1116,7 +1116,7 @@ function fillWhen(all) {
   ].map(([v, lab]) => `<option value="${escapeHtml(v)}">${escapeHtml(lab)}</option>`).join("");
   if ([...sel.options].some((o) => o.value === current)) sel.value = current;
 }
- 
+
 function fillStats(pool) {
   const base = (pool || []).filter((r) => matchesWhen(r.commence_time) && !hasStarted(r.commence_time));
   const game = $("game")?.value || "";
@@ -1126,14 +1126,14 @@ function fillStats(pool) {
   const coreFirst = [...stats.filter((s) => CORE_STATS.has(s)).sort(), ...stats.filter((s) => !CORE_STATS.has(s)).sort()];
   if ($("stat")) fillSelect($("stat"), coreFirst, "All props");
 }
- 
+
 function fillSelect(sel, values, allLabel) {
   const current = sel.value;
   sel.innerHTML = `<option value="">${allLabel}</option>` +
     values.map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
   if ([...sel.options].some((o) => o.value === current)) sel.value = current;
 }
- 
+
 function teamNames(row) {
   return unique([
     row.away_team,
@@ -1142,13 +1142,13 @@ function teamNames(row) {
     teamLabel(row.home_team, row),
   ].map((t) => String(t || "").replace(/\s+/g, " ").trim()).filter((t) => t.length > 1));
 }
- 
+
 function rowHasTeam(row, team) {
   if (!team) return true;
   const needle = String(team).toLowerCase();
   return `${row.away_team || ""} ${row.home_team || ""} ${row.game || ""} ${gameKeyOf(row)} ${matchup(row)}`.toLowerCase().includes(needle);
 }
- 
+
 function fillGameAndTeam(pool) {
   const base = (pool || []).filter((r) => matchesWhen(r.commence_time) && !hasStarted(r.commence_time));
   const teams = unique(base.flatMap(teamNames)).sort((a, b) => a.localeCompare(b));
@@ -1164,11 +1164,11 @@ function fillGameAndTeam(pool) {
     if (prev && ![...$("game").options].some((o) => o.value === prev)) $("game").value = "";
   }
 }
- 
+
 function visibleBooks() {
   return BOOKS.filter((b) => state.booksOn.has(b.key));
 }
- 
+
 function renderBookPicks() {
   $("bookPicks").innerHTML = BOOKS.map((b) => {
     const on = state.booksOn.has(b.key) ? "on" : "";
@@ -1178,7 +1178,7 @@ function renderBookPicks() {
     </button>`;
   }).join("");
 }
- 
+
 function renderHead() {
   const fixed = `
     <th data-key="player">Player</th>
@@ -1204,13 +1204,13 @@ function renderHead() {
     });
   });
 }
- 
+
 function tierBadge(tier) {
   if (!tier) return `<span class="muted">—</span>`;
   const cls = tier === "Demon" ? "tier demon" : tier === "Goblin" ? "tier goblin" : tier === "Alternate" ? "tier alt" : "tier std";
   return `<span class="${cls}">${tier}</span>`;
 }
- 
+
 function bestCell(row) {
   const b = row.best;
   if (!b) return `<td class="muted">—</td>`;
@@ -1218,7 +1218,7 @@ function bestCell(row) {
   const mark = meta ? bookMark(meta, "sm") : `<span class="muted">${escapeHtml(b.book)}</span>`;
   return `<td class="price">${mark} ${american(b.price)}</td>`;
 }
- 
+
 function spreadCell(row) {
   if (row.spread == null) return `<td class="muted">—</td>`;
   const home = abbr(row.home_team);
@@ -1226,13 +1226,13 @@ function spreadCell(row) {
   const txt = n > 0 ? `${home} +${n}` : `${home} ${n}`;
   return `<td>${escapeHtml(txt)}</td>`;
 }
- 
+
 function totalCell(row) {
   if (row.total == null) return `<td class="muted">—</td>`;
   return `<td>${Number(row.total)}</td>`;
 }
- 
- 
+
+
 function scriptLine(row) {
   const bits = [];
   if (row.spread != null) {
@@ -1243,7 +1243,7 @@ function scriptLine(row) {
   if (row.total != null) bits.push(`O/U ${Number(row.total)}`);
   return bits.join(" · ") || "—";
 }
- 
+
 function moneyShort(n) {
   const x = Number(n);
   if (!Number.isFinite(x) || x <= 0) return "";
@@ -1251,7 +1251,7 @@ function moneyShort(n) {
   if (x >= 1e3) return `$${(x / 1e3).toFixed(1)}k`;
   return `$${Math.round(x)}`;
 }
- 
+
 function teamTokens(name) {
   const raw = String(name || "").trim();
   const skip = new Set(["the", "pro", "football", "team", "game"]);
@@ -1266,28 +1266,28 @@ function teamTokens(name) {
   });
   return [...out];
 }
- 
+
 function hasTeamToken(text, tokens) {
   return tokens.filter((tok) => tok.length >= 3 && new RegExp(`(?:^|[^a-z0-9])${tok}(?:[^a-z0-9]|$)`).test(text)).length;
 }
- 
+
 function kalshiMatch(list, game) {
   const sides = kalshiSides(list, game);
   return sides.home || sides.away || null;
 }
- 
+
 function outcomeClause(m) {
   const raw = `${m.subtitle || ""} ${m.title || ""}`;
   const parts = raw.split(":");
   return parts[parts.length - 1].toLowerCase();
 }
- 
+
 function parseKalshiPts(m) {
   const t = `${m.title || ""} ${m.subtitle || ""}`;
   const hit = t.match(/over\s+(\d+(?:\.\d+)?)/i) || t.match(/by\s+(\d+(?:\.\d+)?)/i);
   return hit ? Number(hit[1]) : null;
 }
- 
+
 function kalshiSides(list, game, kind) {
   kind = kind || "win";
   const homeTok = teamTokens(game.home_team);
@@ -1308,7 +1308,7 @@ function kalshiSides(list, game, kind) {
     else if (a > h) side = "away";
     return { m, side, pts: parseKalshiPts(m), dollar: m.dollar || 0 };
   }).filter(Boolean);
- 
+
   const pickSide = (side) => {
     let pool = scored.filter((x) => x.side === side);
     if (kind === "cover" && Number.isFinite(spread)) {
@@ -1328,7 +1328,7 @@ function kalshiSides(list, game, kind) {
   else if (awayM && !homeM) homeM = flipKalshi(awayM);
   return { home: homeM, away: awayM };
 }
- 
+
 function flipKalshi(m) {
   if (!m || m.implied == null) return null;
   return {
@@ -1339,12 +1339,12 @@ function flipKalshi(m) {
     flipped: true,
   };
 }
- 
+
 function volShare(part, total) {
   if (!total) return null;
   return Math.round(1000 * (Number(part) || 0) / total) / 10;
 }
- 
+
 function kalshiPairBlock(m, label, pairCash, marketWord) {
   if (!m) return `<div class="line-note muted">${escapeHtml(label)} —</div>`;
   const share = volShare(m.dollar, pairCash);
@@ -1355,7 +1355,7 @@ function kalshiPairBlock(m, label, pairCash, marketWord) {
     ${share != null ? ` · ${share}% of ${marketWord} $` : ""}
   </div>`;
 }
- 
+
 function kalshiCell(list, game, kind) {
   if (typeof game === "string") {
     const hit = (list || []).find((m) => (m.title || "").toLowerCase().includes(game.toLowerCase()));
@@ -1423,7 +1423,7 @@ function addToSlip(row) {
   state.slip.push(row);
   renderSlip();
 }
- 
+
 function bestBookPrice(g, market, side) {
   const books = g.books || {};
   let best = null;
@@ -1436,7 +1436,7 @@ function bestBookPrice(g, market, side) {
   });
   return best;
 }
- 
+
 function marketStack(g, market, line, sideA, sideB, labelA, labelB) {
   const a = bestBookPrice(g, market, sideA);
   const b = bestBookPrice(g, market, sideB);
@@ -1447,7 +1447,7 @@ function marketStack(g, market, line, sideA, sideB, labelA, labelB) {
     <div class="line-note">${escapeHtml(labelB)} ${b ? `${b.book} ${american(b.price)}` : "—"}</div>
   </td>`;
 }
- 
+
 function renderGames() {
   const wrap = $("gamesWrap");
   if (!wrap) return;
@@ -1492,7 +1492,7 @@ function renderGames() {
   $("count").textContent = `${games.length} games · Kalshi ML ${(k.ml || []).length}`;
   renderSlip();
 }
- 
+
 function allKalshiMarkets() {
   const k = state.data?.kalshi || {};
   return [
@@ -1502,7 +1502,7 @@ function allKalshiMarkets() {
     ...(k.props || []).map((m) => ({ ...m, bucket: "props" })),
   ];
 }
- 
+
 function renderVolume() {
   const wrap = $("volumeWrap");
   if (!wrap) return;
@@ -1549,7 +1549,7 @@ function renderVolume() {
   $("count").textContent = `${rows.length} Kalshi markets · slate ${moneyShort(slate) || "$0"}`;
   $("updated").textContent = `Updated ${fmtWhen(state.data?.updated)} · Kalshi volume`;
 }
- 
+
 function renderTicker() {
   const bar = $("newsTicker");
   const track = $("tickerTrack");
@@ -1562,7 +1562,7 @@ function renderTicker() {
     `<a class="ticker-item" href="${escapeHtml(n.url || "#")}" target="_blank" rel="noopener"><b>${escapeHtml(n.source || "")}</b> ${escapeHtml(n.headline || "")}</a>`
   ).join("");
 }
- 
+
 function renderNews() {
   const wrap = $("newsWrap");
   if (!wrap) return;
@@ -1584,7 +1584,7 @@ function renderNews() {
   $("newsEmpty").style.display = rows.length ? "none" : "block";
   $("count").textContent = `${rows.length} headlines · pulled ${fmtWhen(state.intel?.news_pulled_at)}`;
 }
- 
+
 function renderInjuries() {
   const wrap = $("injWrap");
   if (!wrap) return;
@@ -1607,7 +1607,7 @@ function renderInjuries() {
   const note = state.intel?.has_2026_logs ? "" : " · 2025 season file until Week 1 2026";
   $("count").textContent = `${rows.length} injury rows · latest ${state.intel?.injury_season || ""}w${state.intel?.injury_week || ""}${note}`;
 }
- 
+
 function renderLogs() {
   const wrap = $("logsWrap");
   if (!wrap) return;
@@ -1645,18 +1645,18 @@ function renderLogs() {
   $("logsEmpty").style.display = ranked.length ? "none" : "block";
   $("count").textContent = `${ranked.length} skill players · seasons ${(state.intel?.log_seasons || []).join(", ") || "n/a"}`;
 }
- 
+
 function bestOver(rows, stats) {
   return rows
     .filter((r) => r.side === "Over" || r.side === "Yes")
     .filter((r) => !stats || stats.has(r.stat))
     .sort((a, b) => (b.pct_to_hit || 0) - (a.pct_to_hit || 0));
 }
- 
+
 function playerTeamGuess(row) {
   return row.nfl_team || intelPlayer(row.player)?.team || "";
 }
- 
+
 function buildStackGames() {
   const rows = (state.data?.props || []).filter((r) =>
     String(r.sport || "").toUpperCase() === "NFL" && !hasStarted(r.commence_time) && r.dfs?.prizepicks
@@ -1703,7 +1703,7 @@ function buildStackGames() {
     };
   }).filter((g) => g.qb || g.pass.length).sort((a, b) => (b.total || 0) - (a.total || 0) || b.score - a.score);
 }
- 
+
 function renderStacks() {
   const wrap = $("stacksWrap");
   if (!wrap) return;
@@ -1738,19 +1738,19 @@ function renderStacks() {
   $("stacksEmpty").style.display = games.length ? "none" : "block";
   $("count").textContent = `${games.length} stack games`;
 }
- 
+
 function setTab(view) {
   document.querySelectorAll(".tab[data-view]").forEach((b) => b.classList.toggle("on", b.dataset.view === view));
   document.querySelectorAll(".tab[data-section]").forEach((b) => b.classList.remove("on"));
   state.view = view;
 }
- 
+
 function syncTabs() {
   const previewOn = state.section === "preview";
   document.querySelectorAll(".tab[data-view]").forEach((b) => b.classList.toggle("on", !previewOn && b.dataset.view === state.view));
   document.querySelectorAll(".tab[data-section]").forEach((b) => b.classList.toggle("on", b.dataset.section === state.section));
 }
- 
+
 function gameKeyOf(row) {
   let away = row?.away_team;
   let home = row?.home_team;
@@ -1765,19 +1765,19 @@ function gameKeyOf(row) {
   if (a && h) return `${a} @ ${h}`;
   return g.trim();
 }
- 
+
 function teamPairKey(row) {
   const key = gameKeyOf(row);
   const parts = String(key || "").split("@").map((s) => s.trim()).filter(Boolean);
   if (parts.length !== 2) return key;
   return parts.slice().sort().join("|");
 }
- 
+
 function richerGame(a, b) {
   const score = (r) => [r.spread, r.total, r.ml_home, r.ml_away, r.player, r.books].filter((x) => x != null && x !== "").length;
   return score(b) > score(a) ? b : a;
 }
- 
+
 function upcomingGames() {
   const map = new Map();
   const add = (r) => {
@@ -1793,7 +1793,7 @@ function upcomingGames() {
   (state.data?.props || []).forEach(add);
   return [...map.values()].sort((a, b) => String(a.commence_time || "").localeCompare(String(b.commence_time || "")));
 }
- 
+
 function rowsForGame(game) {
   const want = gameKeyOf({ game }) || String(game || "");
   if (!want) return [];
@@ -1802,7 +1802,7 @@ function rowsForGame(game) {
     return gameKeyOf(r) === want;
   });
 }
- 
+
 function previewBest(rows) {
   return rows
     .filter((r) => r.dfs?.prizepicks && (!r.pp_tier || r.pp_tier === "Standard") && !r.is_alternate)
@@ -1811,11 +1811,11 @@ function previewBest(rows) {
     .sort((a, b) => (b.edge ?? -999) - (a.edge ?? -999))
     .slice(0, 12);
 }
- 
+
 function rowTeam(r) {
   return r.nfl_team || intelPlayer(r.player)?.team || "";
 }
- 
+
 function gameScript(sample) {
   const sp = Number(sample.spread);
   if (sample.spread == null || Number.isNaN(sp)) return null;
@@ -1829,13 +1829,13 @@ function gameScript(sample) {
     dogName: homeFav ? sample.away_team : sample.home_team,
   };
 }
- 
+
 function rankedOvers(rows, team, stats) {
   return rows
     .filter((r) => r.side === "Over" && r.dfs?.prizepicks && (!stats || stats.has(r.stat)) && (!team || rowTeam(r) === team))
     .sort((a, b) => (b.pct_to_hit || 0) - (a.pct_to_hit || 0));
 }
- 
+
 function previewCorrelates(rows, sample) {
   const out = [];
   const script = gameScript(sample);
@@ -1872,7 +1872,7 @@ function previewCorrelates(rows, sample) {
     return true;
   }).slice(0, 8);
 }
- 
+
 function previewInjuries(sample) {
   const nfl = !sportOf(sample) || sportOf(sample) === "NFL";
   if (!nfl) return [];
@@ -1910,7 +1910,7 @@ function previewInjuries(sample) {
   });
   return fromIntel.sort((a, b) => rank(a.report_status) - rank(b.report_status) || String(a.name).localeCompare(String(b.name))).slice(0, 24);
 }
- 
+
 function previewUsage(sample) {
   if (sportOf(sample) && sportOf(sample) !== "NFL") return "";
   const home = abbr(sample.home_team, sample);
@@ -1992,7 +1992,7 @@ function previewUsage(sample) {
     ${html}
   </div>`;
 }
- 
+
 function bestGameBook(books, market, side) {
   let best = null;
   Object.entries(books || {}).forEach(([k, pack]) => {
@@ -2004,7 +2004,7 @@ function bestGameBook(books, market, side) {
   });
   return best;
 }
- 
+
 function marketSideCard(label, best, hot, kalshiM, share, marketWord) {
   const meta = best ? BOOK_BY_KEY[best.book] : null;
   const book = best
@@ -2022,7 +2022,7 @@ function marketSideCard(label, best, hot, kalshiM, share, marketWord) {
     ${kLine}
   </div>`;
 }
- 
+
 function previewGameMarkets(sample) {
   const listed = (state.data?.games || []).find((g) =>
     gameKeyOf(g) === gameKeyOf(sample) || (g.home_team === sample.home_team && g.away_team === sample.away_team)
@@ -2112,7 +2112,7 @@ function previewGameMarkets(sample) {
     ${previewKalshi(sample)}
   </div>`;
 }
- 
+
 function formatKalshiProp(m, side) {
   const raw = String(m?.title || "").replace(/\s+/g, " ").trim();
   const parts = raw.split(":");
@@ -2129,7 +2129,7 @@ function formatKalshiProp(m, side) {
   }
   return `${mark} ${escapeHtml(raw)}`;
 }
- 
+
 function gameTeams(sample) {
   const set = new Set();
   const bump = (t) => {
@@ -2142,7 +2142,7 @@ function gameTeams(sample) {
   String(gameKeyOf(sample) || "").split("@").forEach(bump);
   return set;
 }
- 
+
 function gameRosterNames(sample) {
   const teams = gameTeams(sample);
   if (teams.size < 2) return new Set();
@@ -2159,7 +2159,7 @@ function gameRosterNames(sample) {
   });
   return names;
 }
- 
+
 function kalshiNameMatch(title, name) {
   const t = nameKey(title);
   const n = nameKey(name);
@@ -2173,7 +2173,7 @@ function kalshiNameMatch(title, name) {
   const initial = first[0];
   return t.includes(last) && (t.includes(`${initial} ${last}`) || t.includes(`${initial}${last}`) || t.startsWith(`${initial} `));
 }
- 
+
 function kalshiPropsForGame(sample) {
   const list = state.data?.kalshi?.props || [];
   if (!list.length || !sample) return [];
@@ -2191,7 +2191,7 @@ function kalshiPropsForGame(sample) {
     return [...teams].some((t) => blob.includes(` ${t} `) || blob.startsWith(`${t} `));
   }).sort((a, b) => (b.dollar || 0) - (a.dollar || 0));
 }
- 
+
 function kalshiPropsForPlayer(player) {
   const list = state.data?.kalshi?.props || [];
   const key = nameKey(player);
@@ -2199,7 +2199,7 @@ function kalshiPropsForPlayer(player) {
   return list.filter((m) => kalshiNameMatch(`${m.title || ""} ${m.subtitle || ""}`, player))
     .sort((a, b) => (b.dollar || 0) - (a.dollar || 0));
 }
- 
+
 function kalshiActionNote(m, best, sample) {
   const title = nameKey(m.title);
   const match = (best || []).find((x) => {
@@ -2218,7 +2218,7 @@ function kalshiActionNote(m, best, sample) {
   }
   return "";
 }
- 
+
 function previewAction(sample, best) {
   const props = kalshiPropsForGame(sample);
   if (!props.length) return "";
@@ -2255,7 +2255,7 @@ function previewAction(sample, best) {
     </details>
   </div>`;
 }
- 
+
 function previewKalshi(sample) {
   const k = state.data?.kalshi || {};
   const away = abbr(sample.away_team) || "Away";
@@ -2318,7 +2318,7 @@ function previewKalshi(sample) {
       <div class="muted">No Kalshi player props matched the ${who} roster.</div></div>`;
   return `<div class="preview-card" style="margin-top:10px"><h3>Kalshi</h3>${table}${propHtml}</div>`;
 }
- 
+
 function previewNews(sample) {
   const rows = rowsForGame(gameKeyOf(sample));
   const names = rows.map((r) => String(r.player || "").toLowerCase()).filter(Boolean);
@@ -2330,7 +2330,7 @@ function previewNews(sample) {
     return names.some((nm) => nm && blob.includes(nm));
   }).slice(0, 8);
 }
- 
+
 function renderPreview() {
   const wrap = $("previewWrap");
   if (!wrap) return;
@@ -2440,7 +2440,7 @@ function renderPreview() {
   $("count").textContent = `${shown.length} games · ${rows.length} props`;
   $("updated").textContent = `Updated ${fmtAgo(state.data?.updated)} · BE ${breakEven()}%`;
 }
- 
+
 function showSectionWraps() {
   const intel = ["news", "injuries", "logs"].includes(state.section);
   const propsWrap = $("propsWrap");
@@ -2457,7 +2457,7 @@ function showSectionWraps() {
     el.style.display = intel || ["games", "stacks", "preview", "volume"].includes(state.section) ? "none" : "";
   });
 }
- 
+
 function indexKalshi() {
   const byFull = new Map();
   const byLast = new Map();
@@ -2474,7 +2474,7 @@ function indexKalshi() {
   state.kalshiByFull = byFull;
   state.kalshiByLast = byLast;
 }
- 
+
 function render(full) {
   if (!state.data && !state.intel) return;
   syncTabs();
@@ -2514,7 +2514,7 @@ function render(full) {
     : `${rows.length.toLocaleString()} shown`;
   const more = $("showMore");
   if (more) more.style.display = rows.length > cap ? "block" : "none";
- 
+
   if (!rows.length) {
     $("tbody").innerHTML = "";
     $("empty").style.display = "block";
@@ -2549,7 +2549,7 @@ function render(full) {
       </tr>`;
   }).join("");
 }
- 
+
 document.querySelectorAll(".tab[data-view]").forEach((btn) => {
   btn.addEventListener("click", () => {
     state.view = btn.dataset.view;
@@ -2567,14 +2567,14 @@ document.querySelectorAll(".tab[data-section]").forEach((btn) => {
     render(true);
   });
 });
- 
+
 document.addEventListener("click", (e) => {
   const vol = e.target.closest("#volPicks [data-vol]");
   if (!vol) return;
   state.volFilter = vol.dataset.vol;
   renderVolume();
 });
- 
+
 $("bookPicks").addEventListener("click", (e) => {
   const btn = e.target.closest(".book-pick");
   if (!btn) return;
@@ -2588,12 +2588,12 @@ $("bookPicks").addEventListener("click", (e) => {
   renderHead();
   render();
 });
- 
+
 $("booksReset").addEventListener("click", () => {
   state.booksOn = new Set(DEFAULT_ON);
   render();
 });
- 
+
 if ($("sport")) {
   $("sport").addEventListener("change", () => {
     state.sport = $("sport").value;
@@ -2646,13 +2646,13 @@ $("gameQ")?.addEventListener("input", () => {
     render();
   }, 120);
 });
- 
- 
+
+
 function closePopup() {
   const el = $("popup");
   if (el) el.hidden = true;
 }
- 
+
 function lastVsOppNote(games, focus) {
   const opp = upcomingOpp(focus);
   if (!opp || !games.length) return "";
@@ -2666,7 +2666,7 @@ function lastVsOppNote(games, focus) {
   const push = v === Number(focus.line);
   return `Last vs ${opp} (${g.season} w${g.week}): ${v} ${focus.stat}. That ${push ? "pushed" : cash ? "cashed" : "missed"} this ${focus.side} ${focus.line} number.`;
 }
- 
+
 function bestPayoutKey(map, preferLine) {
   const entries = Object.entries(map || {}).filter(([, v]) => v && v.price != null);
   if (!entries.length) return "";
@@ -2677,7 +2677,7 @@ function bestPayoutKey(map, preferLine) {
   pool.sort((a, b) => Number(b[1].price) - Number(a[1].price));
   return pool[0][0];
 }
- 
+
 function bestOppositePrice(row) {
   if (!row) return null;
   let best = null;
@@ -2688,7 +2688,7 @@ function bestOppositePrice(row) {
   });
   return best;
 }
- 
+
 function betSummary(focus, recs, oppRow) {
   const be = breakEven();
   const edge = rowEdge(focus);
@@ -2720,11 +2720,11 @@ function betSummary(focus, recs, oppRow) {
   }
   return rows.join("");
 }
- 
+
 function nameKey(s) {
   return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
- 
+
 function standardishLines(rows) {
   const best = new Map();
   (rows || []).forEach((r) => {
@@ -2744,7 +2744,7 @@ function standardishLines(rows) {
   });
   return [...best.values()].map((x) => x.r).sort((a, b) => String(a.stat).localeCompare(String(b.stat)));
 }
- 
+
 function logFamily(stat) {
   const s = String(stat || "").toLowerCase();
   if (/pass\+rush|rush\+rec|fantasy|anytime td/.test(s)) return "mix";
@@ -2753,7 +2753,7 @@ function logFamily(stat) {
   if (/(rec|tgt|target|catch|receiving|longest rec)/.test(s)) return "rec";
   return "mix";
 }
- 
+
 function contextLog(recs, focus) {
   if (!recs.length) return `<div class="muted">No ${currentSeason()} game log yet.</div>`;
   const pos = String(focus?.position || focus?.nfl_pos || intelPlayer(focus?.player)?.pos || "").toUpperCase();
@@ -2791,7 +2791,7 @@ function contextLog(recs, focus) {
     </table></div>
   </div>`;
 }
- 
+
 function usageDetail(recs, pos, focus) {
   if (!recs.length) return `<div class="muted">No ${currentSeason()} usage yet.</div>`;
   const qb = /^QB$/i.test(pos || "");
@@ -2844,7 +2844,7 @@ function usageDetail(recs, pos, focus) {
       <tbody>${statRows}</tbody>
     </table></div>`;
 }
- 
+
 function openPlayerPopup(player, eventId, market, side) {
   const popupKey = `${player}|${eventId || ""}|${market || ""}|${side || ""}`;
   if (state.popupKey !== popupKey) {
@@ -2899,7 +2899,7 @@ function openPlayerPopup(player, eventId, market, side) {
       <a href="${escapeHtml(n.url || "#")}" target="_blank" rel="noopener">${escapeHtml(n.headline || "")}</a></div>`).join("")}` : "";
   const injBlock = liveInj ? `<div class="popup-stat" style="margin-bottom:12px"><b>Injury</b>${injPill(liveInj)} ${escapeHtml(liveInj.injury || "")}${liveInj.week ? ` · ${liveInj.season || ""}w${liveInj.week}` : ""}</div>` : "";
   const newsNote = relatedNews.length ? `<div class="popup-stat" style="margin-bottom:12px"><b>Injury / news</b>${relatedNews.slice(0, 3).map((n) => `<div><a href="${escapeHtml(n.url || "#")}" target="_blank" rel="noopener">${escapeHtml(n.headline || "")}</a><div class="corr-why">${escapeHtml(n.source || "")} · ${escapeHtml(n.published || "")}</div></div>`).join("")}</div>` : "";
- 
+
   $("popupCard").innerHTML = `
     <div class="popup-top">
       <div>
@@ -3060,7 +3060,7 @@ function openPlayerPopup(player, eventId, market, side) {
     $("popupCard")?.querySelectorAll("[data-pop-pane]").forEach((p) => { p.hidden = p.dataset.popPane !== state.popupTab; });
   }
 }
- 
+
 document.addEventListener("click", (e) => {
   const line = e.target.closest("tr.popup-line");
   if (line) {
@@ -3085,7 +3085,7 @@ document.addEventListener("click", (e) => {
     openPlayerPopup(intelBtn.dataset.player, intelBtn.dataset.eid || "", intelBtn.dataset.market || "", intelBtn.dataset.side || "");
   }
 });
- 
+
 $("tbody").addEventListener("click", (e) => {
   const add = e.target.closest(".slip-add");
   if (add) {
@@ -3123,7 +3123,7 @@ $("popup")?.addEventListener("click", (e) => {
   $("popupCard")?.querySelectorAll("[data-pop-pane]").forEach((p) => { p.hidden = p.dataset.popPane !== name; });
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePopup(); });
- 
+
 function hideFlagTip() {
   const tip = $("flagTip");
   if (tip) tip.hidden = true;
@@ -3149,7 +3149,7 @@ document.addEventListener("mouseout", (e) => {
   }
 });
 document.addEventListener("scroll", hideFlagTip, true);
- 
+
 const LOAD_LINES = [
   "Warming up the slate…",
   "Checking the books…",
@@ -3157,7 +3157,7 @@ const LOAD_LINES = [
   "Sharpening the edges…",
   "Two-minute drill…",
 ];
- 
+
 function setLoader(msg) {
   const el = $("loaderText");
   if (el && msg) el.textContent = msg;
@@ -3168,26 +3168,26 @@ function hideLoader() {
   el.classList.add("out");
   setTimeout(() => el.remove(), 500);
 }
- 
+
 let lineIdx = 0;
 const lineTimer = setInterval(() => {
   lineIdx = (lineIdx + 1) % LOAD_LINES.length;
   setLoader(LOAD_LINES[lineIdx]);
 }, 700);
- 
+
 function tagSport(data, sport) {
   const props = (data?.props || []).map((r) => ({ ...r, sport: r.sport || sport }));
   const games = (data?.games || []).map((g) => ({ ...g, sport: g.sport || sport }));
   return { ...data, props, games };
 }
- 
+
 async function fetchBoard(url, version) {
   const full = version ? `${url}?v=${encodeURIComponent(version)}` : url;
   const res = await fetch(full, { cache: "no-cache" });
   if (!res.ok) throw new Error(`${url} ${res.status}`);
   return res.json();
 }
- 
+
 async function loadData() {
   try {
     setLoader("Checking the books…");
@@ -3211,9 +3211,13 @@ async function loadData() {
       const results = await Promise.allSettled(missing.map((k) => fetchBoard(DATA_URLS[k], version)));
       results.forEach((res, i) => {
         const key = missing[i];
-        state.boardCache[key] = res.status === "fulfilled"
-          ? tagSport(res.value, SPORT_LABEL[key] || key.toUpperCase())
-          : { props: [], games: [], kalshi: {} };
+        try {
+          state.boardCache[key] = res.status === "fulfilled"
+            ? tagSport(res.value, SPORT_LABEL[key] || key.toUpperCase())
+            : { props: [], games: [], kalshi: {} };
+        } catch (_) {
+          state.boardCache[key] = { props: [], games: [], kalshi: {} };
+        }
       });
     }
     const boards = keys.map((k) => state.boardCache[k] || { props: [], games: [], kalshi: {} });
@@ -3231,16 +3235,20 @@ async function loadData() {
     };
     state.liveProps = (state.data.props || []).filter((r) => !hasStarted(r.commence_time));
     state.uiReady = false;
-    render(true);
+    try { render(true); } catch (renderErr) { console.error(renderErr); }
+    if (!(state.data.props || []).length) {
+      $("empty").style.display = "block";
+      $("empty").textContent = "Lines are still loading. Refresh in a minute.";
+    }
   } catch (err) {
-    $("updated").textContent = "Could not load props JSON";
+    $("updated").textContent = "Could not refresh";
     $("empty").style.display = "block";
-    $("empty").textContent = "No data yet. Run the GitHub Action.";
+    $("empty").textContent = "Lines are still loading. Refresh in a minute.";
     console.error(err);
   } finally {
     clearInterval(lineTimer);
     hideLoader();
   }
 }
- 
+
 loadData();
