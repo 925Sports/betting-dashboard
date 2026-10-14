@@ -1463,11 +1463,17 @@ function renderSlip() {
 }
 function addToSlip(row) {
   if (!row?.dfs?.prizepicks) return;
-  const key = `${row.player}|${row.event_id}|${row.market}|${row.side}`;
-  if (state.slip.some((s) => `${s.player}|${s.event_id}|${s.market}|${s.side}` === key)) return;
+  const key = `${row.player}|${row.stat}|${row.side}|${row.line}`;
+  if (state.slip.some((s) => `${s.player}|${s.stat}|${s.side}|${s.line}` === key)) return;
   if (state.slip.length >= 6) state.slip.shift();
   state.slip.push(row);
   renderSlip();
+  const note = $("slipNote");
+  if (note) {
+    note.textContent = `Added ${row.player} ${row.side} ${row.line ?? ""}`;
+    note.hidden = false;
+    setTimeout(() => { note.hidden = true; }, 1800);
+  }
 }
 
 function slipText() {
@@ -2700,6 +2706,7 @@ document.querySelectorAll(".tab[data-view]").forEach((btn) => {
       state.section = "props";
       if ($("section")) $("section").value = "props";
     }
+    renderHead();
     render();
   });
 });
@@ -3290,7 +3297,12 @@ $("tbody").addEventListener("click", (e) => {
   const add = e.target.closest(".slip-add");
   if (add) {
     const all = state.data?.props || [];
-    const row = all.find((r) => r.player === add.dataset.player && r.event_id === add.dataset.eid && r.market === add.dataset.market && r.side === add.dataset.side);
+    const row = all.find((r) =>
+      r.player === add.dataset.player &&
+      r.event_id === add.dataset.eid &&
+      r.market === add.dataset.market &&
+      r.side === add.dataset.side
+    ) || all.find((r) => r.player === add.dataset.player && r.side === add.dataset.side);
     if (row) addToSlip(row);
     return;
   }
