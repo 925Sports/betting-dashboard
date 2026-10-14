@@ -34,6 +34,8 @@
       <button class="tab" data-view="novig" type="button">Novig</button>
       <button class="tab" data-view="kalshi" type="button">Kalshi</button>
       <button class="tab" data-view="polymarket" type="button">Polymarket</button>
+      <button class="tab" data-view="books" type="button">Books</button>
+      <button class="tab" data-view="arb" type="button">Arb</button>
       <button class="tab" data-view="ev" type="button">+EV Only</button>
       <button class="tab" data-view="all" type="button">All Props</button>
       <button class="tab" data-section="preview" type="button">Game Preview</button>
@@ -67,8 +69,11 @@
       </select>
       <select id="team"></select>
       <div class="pick-combo" id="gameCombo">
-        <input type="search" id="gameQ" placeholder="Search games…" autocomplete="off" />
         <select id="game"></select>
+        <div class="game-drop" id="gameDrop" hidden>
+          <input type="search" id="gameQ" placeholder="Search games…" autocomplete="off" />
+          <div class="game-opts" id="gameOpts"></div>
+        </div>
       </div>
       <select id="stat"></select>
       <select id="side">
