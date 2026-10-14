@@ -2480,7 +2480,7 @@ function showSectionWraps() {
   const books = document.querySelector(".books-bar");
   const filt = document.querySelector(".filters");
   const arbWrap = $("arbStakeWrap");
-  if (arbWrap) arbWrap.hidden = state.view !== "arb";
+  if (arbWrap) arbWrap.hidden = state.view !== "arb" || state.section !== "props";
   if (propsWrap) propsWrap.style.display = state.section === "props" ? "block" : "none";
   ["previewWrap", "gamesWrap", "volumeWrap", "newsWrap", "injWrap", "logsWrap", "stacksWrap"].forEach((id) => {
     const el = $(id);
