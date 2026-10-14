@@ -1245,10 +1245,15 @@ function renderHead() {
   });
 }
 
-function tierBadge(tier) {
-  if (!tier) return `<span class="muted">—</span>`;
-  const cls = tier === "Demon" ? "tier demon" : tier === "Goblin" ? "tier goblin" : tier === "Alternate" ? "tier alt" : "tier std";
-  return `<span class="${cls}">${tier}</span>`;
+function tierBadge(row) {
+  if (state.view === "pp" || state.view === "ev") {
+    const tier = row.pp_tier;
+    if (!tier) return `<span class="muted">—</span>`;
+    const cls = tier === "Demon" ? "tier demon" : tier === "Goblin" ? "tier goblin" : tier === "Alternate" ? "tier alt" : "tier std";
+    return `<span class="${cls}">${tier}</span>`;
+  }
+  if (row.is_alternate) return `<span class="tier alt">Alt</span>`;
+  return `<span class="tier std">Standard</span>`;
 }
 
 function bestCell(row) {
@@ -2499,19 +2504,22 @@ function indexKalshi() {
 function bestBookEdge(row) {
   const TRAD = ["draftkings", "fanduel", "betmgm", "williamhill_us", "betrivers", "espnbet", "bovada", "hardrockbet", "pinnacle"];
   const fair = exchangeFair(row, "");
-  if (fair == null) return null;
+  if (fair == null || fair < 15 || fair > 85) return null;
+  const rowLine = Number(row.line);
   let best = null;
   TRAD.forEach((k) => {
     const b = row.books?.[k];
     if (!b || b.price == null) return;
+    if (b.line != null && Math.abs(Number(b.line) - rowLine) > 0.6) return;
     const px = Number(b.price);
-    if (!Number.isFinite(px) || Math.abs(px) > 400 || Math.abs(px) < 100) return;
+    if (!Number.isFinite(px) || px > 250 || px < -300) return;
     const ip = bookImplied(px);
-    if (ip == null) return;
+    if (ip == null || ip < 20 || ip > 80) return;
     const edge = +(fair - ip).toFixed(1);
+    if (edge > 12 || edge < -5) return;
     if (!best || edge > best.edge) best = { book: k, price: px, ip, edge, fair };
   });
-  return best;
+  return best && best.edge > 1 ? best : null;
 }
 
 function arbPairs(rows) {
@@ -2543,8 +2551,11 @@ function arbPairs(rows) {
     });
     if (!bestOver || !bestUnder || bestOver.book === bestUnder.book) return;
     const sum = bestOver.ip + bestUnder.ip;
-    if (sum >= 100 || sum < 94) return;
-    out.push({ ...g.sample, over: bestOver, under: bestUnder, arb: +(100 - sum).toFixed(2) });
+    if (sum >= 99.5 || sum < 96) return;
+    const arb = +(100 - sum).toFixed(2);
+    const overStake = +(bestUnder.ip / sum * 100).toFixed(1);
+    const underStake = +(bestOver.ip / sum * 100).toFixed(1);
+    out.push({ ...g.sample, over: bestOver, under: bestUnder, arb, overStake, underStake });
   });
   return out.sort((a, b) => b.arb - a.arb);
 }
@@ -2609,7 +2620,7 @@ function render(full) {
     $("count").textContent = `${pairs.length} arbs`;
     $("empty").style.display = pairs.length ? "none" : "block";
     $("empty").textContent = "No arbitrage pairs right now.";
-    $("headrow").innerHTML = `<th>Player</th><th>Stat</th><th>Line</th><th>Over</th><th>Under</th><th>Arb</th>`;
+    $("headrow").innerHTML = `<th>Player</th><th>Stat</th><th>Line</th><th>Over</th><th>Under</th><th>Arb</th><th>Stake</th>`;
     $("tbody").innerHTML = pairs.slice(0, 100).map((p) => {
       const om = BOOK_BY_KEY[p.over.book];
       const um = BOOK_BY_KEY[p.under.book];
@@ -2621,6 +2632,7 @@ function render(full) {
         <td>${om ? bookMark(om, "sm") : ""} ${american(p.over.price)}</td>
         <td>${um ? bookMark(um, "sm") : ""} ${american(p.under.price)}</td>
         <td class="pct good">${p.arb}%</td>
+        <td class="line-note">${p.overStake}% / ${p.underStake}%</td>
       </tr>`;
     }).join("");
     return;
@@ -2657,7 +2669,7 @@ function render(full) {
         </td>
         <td>${escapeHtml(r.stat)}</td>
         <td class="line-cell"><div class="line-stack"><span class="tag ${sideClass}">${escapeHtml(r.side)}</span><div class="line-num">${lineTxt ?? "—"}</div>${fantasyNote(r)}</div></td>
-        <td>${tierBadge(r.pp_tier)}</td>
+        <td>${tierBadge(r)}</td>
         <td><span class="${pctClass(hitPct(r))}">${hitPct(r) != null ? hitPct(r).toFixed(1) + "%" : "—"}</span></td>
         <td class="${edge >= 0 ? "" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}${["prophetx", "novig", "kalshi", "polymarket"].includes(state.view) ? ` <span class="line-note">${sportsbookCount(r)} books</span>` : ""}${r.dfs?.prizepicks ? `<button type="button" class="slip-add" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">+ slip</button>` : ""}</td>
         ${bestCell(r)}
@@ -3003,14 +3015,17 @@ function dvpFor(row) {
     (state.intel.logs[p.gsis_id] || []).forEach((g) => {
       const o = abbr(g.opp, row);
       if (!o) return;
-      if (!byOpp[o]) byOpp[o] = [];
+      const gameKey = `${g.season}|${g.week}|${o}`;
+      if (!byOpp[o]) byOpp[o] = {};
+      if (!byOpp[o][gameKey]) byOpp[o][gameKey] = 0;
       const v = Number(g[statKey]);
-      if (Number.isFinite(v)) byOpp[o].push(v);
+      if (Number.isFinite(v)) byOpp[o][gameKey] += v;
     });
   });
-  const ranks = Object.entries(byOpp).map(([o, arr]) => ({
-    opp: o, avg: arr.reduce((a, b) => a + b, 0) / arr.length, n: arr.length,
-  })).sort((a, b) => b.avg - a.avg);
+  const ranks = Object.entries(byOpp).map(([o, games]) => {
+    const totals = Object.values(games);
+    return { opp: o, avg: totals.reduce((a, b) => a + b, 0) / totals.length, n: totals.length };
+  }).sort((a, b) => b.avg - a.avg);
   const hit = ranks.find((r) => r.opp === oppAb);
   if (!hit) return null;
   return { pos, opp: oppAb, avg: +hit.avg.toFixed(1), rank: ranks.indexOf(hit) + 1, of: ranks.length, stat: row.stat || statKey };
@@ -3115,7 +3130,7 @@ function openPlayerPopup(player, eventId, market, side) {
       if (!d) return `<div class="muted">DVP is NFL only, and needs an opponent plus a QB/RB/WR/TE position.</div>`;
       const soft = d.rank <= 10;
       return `<div class="popup-stat"><b>${escapeHtml(d.opp)} vs ${escapeHtml(d.pos)}</b>
-        Allows ${d.avg} ${escapeHtml(d.stat)} per game · rank ${d.rank} of ${d.of}
+        Allows ${d.avg} ${escapeHtml(d.stat)} per game to ${escapeHtml(d.pos)} · rank ${d.rank} of ${d.of}
         <div class="corr-why">${soft ? "Soft matchup (top 10 allowed)." : "Tougher matchup."}</div>
       </div>`;
     })()}
