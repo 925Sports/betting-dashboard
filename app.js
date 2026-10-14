@@ -3191,54 +3191,54 @@ async function fetchBoard(url, version) {
 async function loadData() {
   try {
     setLoader("Checking the books…");
+    renderBookPicks();
     let version = "";
     try {
       const meta = await fetch("./data/meta.json", { cache: "no-cache" }).then((r) => r.ok ? r.json() : null);
       version = meta?.updated || "";
     } catch (_) {}
-    setLoader("Hiking the props…");
-    try {
-      state.intel = await fetchBoard(INTEL_URL, version);
-    } catch (_) {
-      state.intel = null;
-    }
     const sport = $("sport")?.value || state.sport || "all";
     state.sport = sport;
     state.boardCache = state.boardCache || {};
     const keys = sport === "all" ? Object.keys(DATA_URLS) : [sport];
-    const missing = keys.filter((k) => !state.boardCache[k]);
-    if (missing.length) {
-      const results = await Promise.allSettled(missing.map((k) => fetchBoard(DATA_URLS[k], version)));
-      results.forEach((res, i) => {
-        const key = missing[i];
-        try {
-          state.boardCache[key] = res.status === "fulfilled"
-            ? tagSport(res.value, SPORT_LABEL[key] || key.toUpperCase())
-            : { props: [], games: [], kalshi: {} };
-        } catch (_) {
-          state.boardCache[key] = { props: [], games: [], kalshi: {} };
-        }
-      });
-    }
-    const boards = keys.map((k) => state.boardCache[k] || { props: [], games: [], kalshi: {} });
-    state.data = {
-      updated: boards.find((b) => b.updated)?.updated,
-      sport: sport === "all" ? "ALL" : (SPORT_LABEL[sport] || sport.toUpperCase()),
-      props: boards.flatMap((b) => b.props || []),
-      games: boards.flatMap((b) => b.games || []),
-      kalshi: {
-        ml: boards.flatMap((b) => b.kalshi?.ml || []),
-        spread: boards.flatMap((b) => b.kalshi?.spread || []),
-        total: boards.flatMap((b) => b.kalshi?.total || []),
-        props: boards.flatMap((b) => b.kalshi?.props || []),
-      },
+    const first = keys.includes("nfl") ? "nfl" : keys[0];
+    const rest = keys.filter((k) => k !== first);
+    const loadOne = async (key) => {
+      if (state.boardCache[key]) return;
+      try {
+        const data = await fetchBoard(DATA_URLS[key], version);
+        state.boardCache[key] = tagSport(data, SPORT_LABEL[key] || key.toUpperCase());
+      } catch (_) {
+        state.boardCache[key] = { props: [], games: [], kalshi: {} };
+      }
     };
-    state.liveProps = (state.data.props || []).filter((r) => !hasStarted(r.commence_time));
-    state.uiReady = false;
-    try { render(true); } catch (renderErr) { console.error(renderErr); }
-    if (!(state.data.props || []).length) {
-      $("empty").style.display = "block";
-      $("empty").textContent = "Lines are still loading. Refresh in a minute.";
+    const assemble = () => {
+      const boards = keys.map((k) => state.boardCache[k] || { props: [], games: [], kalshi: {} });
+      state.data = {
+        updated: boards.find((b) => b.updated)?.updated,
+        sport: sport === "all" ? "ALL" : (SPORT_LABEL[sport] || sport.toUpperCase()),
+        props: boards.flatMap((b) => b.props || []),
+        games: boards.flatMap((b) => b.games || []),
+        kalshi: {
+          ml: boards.flatMap((b) => b.kalshi?.ml || []),
+          spread: boards.flatMap((b) => b.kalshi?.spread || []),
+          total: boards.flatMap((b) => b.kalshi?.total || []),
+          props: boards.flatMap((b) => b.kalshi?.props || []),
+        },
+      };
+      state.liveProps = (state.data.props || []).filter((r) => !hasStarted(r.commence_time));
+      state.uiReady = false;
+      try { render(true); } catch (renderErr) { console.error(renderErr); }
+    };
+    setLoader("Loading NFL…");
+    await loadOne(first);
+    try { state.intel = await fetchBoard(INTEL_URL, version); } catch (_) { state.intel = null; }
+    assemble();
+    hideLoader();
+    if (rest.length) {
+      setLoader("Loading other sports…");
+      await Promise.allSettled(rest.map(loadOne));
+      assemble();
     }
   } catch (err) {
     $("updated").textContent = "Could not refresh";
