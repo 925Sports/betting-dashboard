@@ -2443,6 +2443,10 @@ function showSectionWraps() {
   const books = document.querySelector(".books-bar");
   const filt = document.querySelector(".filters");
   if (propsWrap) propsWrap.style.display = state.section === "props" ? "block" : "none";
+  ["previewWrap", "gamesWrap", "volumeWrap", "newsWrap", "injWrap", "logsWrap", "stacksWrap"].forEach((id) => {
+    const el = $(id);
+    if (el) el.style.display = "none";
+  });
   if (books) books.style.display = state.section === "props" ? "flex" : "none";
   if (filt) [...filt.querySelectorAll("select, label, input")].forEach((el) => {
     if (el.id === "sport" || el.id === "section" || el.id === "q") return;
@@ -2624,17 +2628,36 @@ $("q")?.addEventListener("input", () => {
   clearTimeout(qTimer);
   qTimer = setTimeout(() => render(), 180);
 });
-$("gameQ")?.addEventListener("input", () => {
-  clearTimeout(qTimer);
-  qTimer = setTimeout(() => {
-    const all = state.data?.props || [];
-    const sport = ($("sport")?.value || state.sport || "all").toLowerCase();
-    const pool = sport === "all" ? all : all.filter((r) => String(r.sport || "").toLowerCase() === sport);
-    fillGameAndTeam(pool);
-    render();
-  }, 120);
+$("game")?.addEventListener("mousedown", (e) => {
+  e.preventDefault();
+  const drop = $("gameDrop");
+  if (!drop) return;
+  drop.hidden = !drop.hidden;
+  if (!drop.hidden) {
+    renderGameOpts();
+    $("gameQ")?.focus();
+  }
 });
-
+function renderGameOpts() {
+  const sel = $("game");
+  const box = $("gameOpts");
+  if (!sel || !box) return;
+  const q = ($("gameQ")?.value || "").trim().toLowerCase();
+  const opts = [...sel.options].filter((o) => !q || o.textContent.toLowerCase().includes(q) || o.value.toLowerCase().includes(q));
+  box.innerHTML = opts.map((o) => `<button type="button" class="game-opt${o.value === sel.value ? " on" : ""}" data-val="${escapeHtml(o.value)}">${escapeHtml(o.textContent)}</button>`).join("");
+}
+$("gameOpts")?.addEventListener("click", (e) => {
+  const btn = e.target.closest(".game-opt");
+  if (!btn) return;
+  $("game").value = btn.dataset.val;
+  $("gameDrop").hidden = true;
+  $("gameQ").value = "";
+  render();
+});
+$("gameQ")?.addEventListener("input", renderGameOpts);
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("#gameCombo")) $("gameDrop").hidden = true;
+});
 
 function closePopup() {
   const el = $("popup");
@@ -2841,7 +2864,19 @@ function dvpFor(row) {
   const oppRaw = row.home ? row.away_team : row.home_team;
   const oppAb = abbr(oppRaw, row);
   if (!oppAb) return null;
-  const statKey = /pass/i.test(row.stat) ? "pass_yds" : /rush/i.test(row.stat) ? "rush_yds" : /rec/i.test(row.stat) ? "rec_yds" : "ppr";
+  const stat = String(row.stat || "");
+  const statKey = /pass td/i.test(stat) ? "pass_td"
+    : /pass yds|passing/i.test(stat) ? "pass_yds"
+    : /rush td/i.test(stat) ? "rush_td"
+    : /rush yds|rushing/i.test(stat) ? "rush_yds"
+    : /rush att|carries/i.test(stat) ? "car"
+    : /rec td/i.test(stat) ? "rec_td"
+    : /receptions|^rec$/i.test(stat) ? "rec"
+    : /targets/i.test(stat) ? "tgt"
+    : /rec yds|receiving/i.test(stat) ? "rec_yds"
+    : /completions/i.test(stat) ? "cmp"
+    : /pass att/i.test(stat) ? "att"
+    : "ppr";
   const byOpp = {};
   Object.values(state.intel.players).forEach((p) => {
     if (String(p.pos || "").toUpperCase() !== pos) return;
@@ -2858,7 +2893,7 @@ function dvpFor(row) {
   })).sort((a, b) => b.avg - a.avg);
   const hit = ranks.find((r) => r.opp === oppAb);
   if (!hit) return null;
-  return { pos, opp: oppAb, avg: +hit.avg.toFixed(1), rank: ranks.indexOf(hit) + 1, of: ranks.length, stat: statKey.replace("_", " ") };
+  return { pos, opp: oppAb, avg: +hit.avg.toFixed(1), rank: ranks.indexOf(hit) + 1, of: ranks.length, stat: row.stat || statKey };
 }
 
 function openPlayerPopup(player, eventId, market, side) {
