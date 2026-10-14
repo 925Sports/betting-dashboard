@@ -1462,11 +1462,16 @@ function renderSlip() {
   }
 }
 function addToSlip(row) {
-  if (state.slip.length >= 6) return;
-  const sig = `${row.player}|${row.stat}|${row.side}|${row.line}`;
-  if (state.slip.some((r) => `${r.player}|${r.stat}|${r.side}|${r.line}` === sig)) return;
+  if (!row?.dfs?.prizepicks) return;
+  const key = `${row.player}|${row.event_id}|${row.market}|${row.side}`;
+  if (state.slip.some((s) => `${s.player}|${s.event_id}|${s.market}|${s.side}` === key)) return;
+  if (state.slip.length >= 6) state.slip.shift();
   state.slip.push(row);
   renderSlip();
+}
+
+function slipText() {
+  return state.slip.map((r) => `${r.player} ${r.side} ${r.line ?? ""} ${r.stat}`).join("\n");
 }
 
 function renderGames() {
@@ -2468,6 +2473,8 @@ function showSectionWraps() {
   const propsWrap = $("propsWrap");
   const books = document.querySelector(".books-bar");
   const filt = document.querySelector(".filters");
+  const arbWrap = $("arbStakeWrap");
+  if (arbWrap) arbWrap.hidden = state.view !== "arb";
   if (propsWrap) propsWrap.style.display = state.section === "props" ? "block" : "none";
   ["previewWrap", "gamesWrap", "volumeWrap", "newsWrap", "injWrap", "logsWrap", "stacksWrap"].forEach((id) => {
     const el = $(id);
@@ -2553,8 +2560,8 @@ function arbPairs(rows) {
     const sum = bestOver.ip + bestUnder.ip;
     if (sum >= 99.5 || sum < 96) return;
     const arb = +(100 - sum).toFixed(2);
-    const overStake = +(bestUnder.ip / sum * 100).toFixed(1);
-    const underStake = +(bestOver.ip / sum * 100).toFixed(1);
+    const overStake = +(bestOver.ip / sum * 100).toFixed(1);
+    const underStake = +(bestUnder.ip / sum * 100).toFixed(1);
     out.push({ ...g.sample, over: bestOver, under: bestUnder, arb, overStake, underStake });
   });
   return out.sort((a, b) => b.arb - a.arb);
@@ -2608,22 +2615,28 @@ function render(full) {
         <td class="line-cell"><div class="line-stack">${sideTag(r.side)}<div class="line-num">${r.line ?? ""}</div></div></td>
         <td>${meta ? bookMark(meta, "sm") + " " + escapeHtml(meta.name) : best.book}</td>
         <td>${american(best.price)}</td>
-        <td>${best.fair}%</td>
-        <td class="pct good">+${best.edge}</td>
+        <td>${best.fair}%${r.avg_line != null ? `<div class="line-note">mkt ${r.avg_line}</div>` : ""}</td>
+        <td class="pct good">+${best.edge}<div class="line-note">${sportsbookCount(r)} books</div></td>
       </tr>`;
     }).join("");
     return;
   }
 
   if (state.view === "arb") {
+    const wrap = $("arbStakeWrap");
+    if (wrap) wrap.hidden = false;
     const pairs = arbPairs(all);
+    const stake = Number($("arbStake")?.value || 10);
     $("count").textContent = `${pairs.length} arbs`;
     $("empty").style.display = pairs.length ? "none" : "block";
     $("empty").textContent = "No arbitrage pairs right now.";
-    $("headrow").innerHTML = `<th>Player</th><th>Stat</th><th>Line</th><th>Over</th><th>Under</th><th>Arb</th><th>Stake</th>`;
+    $("headrow").innerHTML = `<th>Player</th><th>Stat</th><th>Line</th><th>Over</th><th>Under</th><th>Arb</th><th>$ on Over</th><th>$ on Under</th><th>Profit</th>`;
     $("tbody").innerHTML = pairs.slice(0, 100).map((p) => {
       const om = BOOK_BY_KEY[p.over.book];
       const um = BOOK_BY_KEY[p.under.book];
+      const overDol = +(stake * p.overStake / 100).toFixed(2);
+      const underDol = +(stake * p.underStake / 100).toFixed(2);
+      const profit = +(stake * p.arb / 100).toFixed(2);
       return `<tr>
         <td><div class="player-row">${headshotTag(p.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(p.player)}" data-eid="${escapeHtml(p.event_id || "")}" data-market="${escapeHtml(p.market || "")}" data-side="Over">${escapeHtml(p.player)}${posTag(p)}</button></div>
           <div class="game"><span class="sport-tag ${escapeHtml(String(p.sport || "").toLowerCase())}">${escapeHtml(p.sport || "")}</span> ${escapeHtml(matchup(p))}</div></td>
@@ -2632,7 +2645,9 @@ function render(full) {
         <td>${om ? bookMark(om, "sm") : ""} ${american(p.over.price)}</td>
         <td>${um ? bookMark(um, "sm") : ""} ${american(p.under.price)}</td>
         <td class="pct good">${p.arb}%</td>
-        <td class="line-note">${p.overStake}% / ${p.underStake}%</td>
+        <td>$${overDol}</td>
+        <td>$${underDol}</td>
+        <td class="pct good">$${profit}</td>
       </tr>`;
     }).join("");
     return;
@@ -2739,6 +2754,7 @@ $("stacksBody")?.addEventListener("click", (e) => {
   const btn = e.target.closest(".player-btn");
   if (btn?.dataset.player) openPlayerPopup(btn.dataset.player, "", "", "");
 });
+$("arbStake")?.addEventListener("input", () => { if (state.view === "arb") render(); });
 $("minBooks")?.addEventListener("change", () => {
   state.minBooks = !!$("minBooks").checked;
   render();
@@ -3288,7 +3304,13 @@ $("slipPicks")?.addEventListener("click", (e) => {
   state.slip.splice(Number(btn.dataset.slip), 1);
   renderSlip();
 });
-$("slipClear")?.addEventListener("click", () => { state.slip = []; renderSlip(); });
+$("slipOpen")?.addEventListener("click", async () => {
+  const text = slipText();
+  if (text) {
+    try { await navigator.clipboard.writeText(text); } catch (_) {}
+  }
+  window.open("https://app.prizepicks.com/", "_blank", "noopener");
+});
 $("popup")?.addEventListener("click", (e) => {
   if (e.target.id === "popup") closePopup();
   const more = e.target.closest("[data-chart-more]");
