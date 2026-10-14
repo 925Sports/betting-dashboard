@@ -113,7 +113,7 @@ const state = {
   minBooks: true,
   volFilter: "game",
   popupChartAll: false,
-  popupTab: "all",
+  popupTab: "bet",
   popupKey: "",
 };
 
@@ -269,14 +269,10 @@ function fantasyAdjustedPct(row) {
 }
 
 function hitPct(row) {
-  const nv = bookNoVig(row);
   if (state.view === "pp" || state.view === "ev") {
     const cash = ppCashPct(row);
     if (cash != null) return cash;
-    if (isFantasyStat(row.stat)) {
-      const adj = fantasyAdjustedPct(row);
-      if (adj != null) return adj;
-    }
+    const nv = bookNoVig(row);
     if (nv != null) return nv;
   }
   if (state.view === "ud") {
@@ -284,24 +280,40 @@ function hitPct(row) {
       const adj = fantasyAdjustedPct(row);
       if (adj != null) return adj;
       if (row.pct_ud != null) return row.pct_ud;
-      return nv;
+      return bookNoVig(row);
     }
+    const nv = bookNoVig(row);
     if (row.pct_ud != null && !(Number(row.pct_ud) === 50 && nv != null)) return row.pct_ud;
     if (nv != null) return nv;
+    if (row.pct_to_hit != null && Number(row.pct_to_hit) !== 50) return row.pct_to_hit;
+  }
+  if (state.view === "pp" && isFantasyStat(row.stat)) {
+    const adj = fantasyAdjustedPct(row);
+    if (adj != null && row.pct_to_hit == null) return adj;
   }
   if (state.view === "prophetx") {
+    const nv = bookNoVig(row);
     if (nv != null) return nv;
     const p = bookImplied(row.books?.prophetx?.price);
-    return p != null ? +p.toFixed(1) : null;
+    return p != null ? +p.toFixed(1) : row.pct_to_hit;
   }
   if (state.view === "novig") {
+    const nv = bookNoVig(row);
     if (nv != null) return nv;
     const p = bookImplied(row.books?.novig?.price);
-    return p != null ? +p.toFixed(1) : null;
+    return p != null ? +p.toFixed(1) : row.pct_to_hit;
   }
-  if (state.view === "kalshi") return nv ?? row.pct_to_hit;
-  if (state.view === "polymarket") return nv ?? bookImplied(row.books?.polymarket?.price) ?? row.pct_to_hit;
-  return nv ?? row.pct_to_hit;
+  if (state.view === "kalshi") {
+    const nv = bookNoVig(row);
+    if (nv != null) return nv;
+    return row.pct_to_hit;
+  }
+  if (state.view === "polymarket") {
+    const nv = bookNoVig(row);
+    if (nv != null) return nv;
+    return bookImplied(row.books?.polymarket?.price) ?? row.pct_to_hit;
+  }
+  return row.pct_to_hit;
 }
 
 function rowEdge(row) {
@@ -347,16 +359,7 @@ function sideTag(side) {
   return `<span class="tag ${cls}">${escapeHtml(s || "—")}</span>`;
 }
 
-function fmtAgo(iso) {
-  const d = parseWhen(iso);
-  if (!d) return "";
-  const mins = Math.max(0, Math.round((Date.now() - d.getTime()) / 60000));
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins} min ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs} hr ago`;
-  return fmtWhen(iso);
-}
+const TZ = "America/Chicago";
 
 function parseWhen(iso) {
   if (!iso) return null;
@@ -791,14 +794,14 @@ function renderSplitChart(focus, recs) {
     : "";
   return `<h4 class="popup-h">Recent vs ${escapeHtml(focus.side || "")} ${focus.line ?? ""} ${escapeHtml(focus.stat || "")}</h4>
     <div class="split-note">Green cleared the line · red missed · gray push. Showing ${showAll ? `all ${bars.length}` : `last ${bars.length}`} game${bars.length === 1 ? "" : "s"}.</div>
-    <div class="chart-row" style="min-height:180px">
-    <div class="log-bars" style="--slots:${slots};gap:8px">
+    <div class="chart-row">
+    <div class="log-bars" style="--slots:${slots}">
       ${bars.map((b) => {
-        const h = b.v == null ? 12 : Math.max(18, Math.round((Number(b.v) / maxV) * 100));
+        const h = b.v == null ? 8 : Math.max(14, Math.round((Number(b.v) / maxV) * 100));
         return `<div class="log-col" title="${escapeHtml(b.lab)} vs ${escapeHtml(b.g.opp || "")}: ${b.v ?? "—"}">
-          <div class="log-track" style="height:160px">
+          <div class="log-track">
             ${ln != null ? `<i class="log-line" style="bottom:${linePct}%"></i>` : ""}
-            <b class="log-bar ${b.cls}" style="height:${h}%;min-width:28px"><span style="font-size:12px;font-weight:700">${b.v == null ? "—" : b.v}</span></b>
+            <b class="log-bar ${b.cls}" style="height:${h}%"><span>${b.v == null ? "—" : b.v}</span></b>
           </div>
           <div class="log-lab">${escapeHtml(b.lab)}</div>
           <div class="log-opp">${escapeHtml(b.g.opp || "")}</div>
@@ -862,7 +865,6 @@ function kalshiOffer(row) {
   if (!state.booksOn.has("kalshi")) return null;
   const player = nameKey(row.player);
   const last = player.split(" ").pop();
-  const first = player.split(" ")[0] || "";
   const list = state.kalshiByFull?.get(player)
     || ((last && (state.kalshiByLast?.get(last) || []).length === 1) ? state.kalshiByLast.get(last) : [])
     || [];
@@ -870,12 +872,9 @@ function kalshiOffer(row) {
   const kind = kalshiKind(row.stat);
   const line = Number(row.line);
   const under = String(row.side || "").toLowerCase() === "under";
-  const teamCodes = new Set([abbr(row.away_team), abbr(row.home_team)].filter(Boolean).map((c) => c.toUpperCase()));
   const hits = list.filter((m) => {
     const t = nameKey(`${m.title || ""} ${m.subtitle || ""}`);
-    const raw = `${m.title || ""} ${m.subtitle || ""}`.toUpperCase();
-    if (!(t.includes(player) || (first && last && t.includes(`${first[0]} ${last}`)))) return false;
-    if (teamCodes.size && ![...teamCodes].some((c) => raw.includes(c))) return false;
+    if (!(t.includes(player) || (last && last.length > 3 && t.includes(last)))) return false;
     if (kind && m.kind && m.kind !== kind) return false;
     return true;
   });
@@ -918,7 +917,7 @@ function bookOffer(row, key) {
 function isYesNoLongshot(r) {
   const line = Number(r.dfs?.underdog?.line ?? r.books?.prophetx?.line ?? r.books?.novig?.line ?? r.line);
   if (line !== 0.5 && line !== 0) return false;
-  return /home run|stolen|touchdown|^hr$|\bhits?\b|goals?(?!ie)|rbi|runs batted|shots? on target|anytime|first to|to score|to record/i.test(String(r.stat || ""));
+  return /home run|stolen|touchdown|^hr$|hits|goals?(?!ie)/i.test(String(r.stat || ""));
 }
 
 function isStandardUd(r) {
@@ -927,10 +926,6 @@ function isStandardUd(r) {
   if (u.source !== "filter") return false;
   if (r.is_alternate) return false;
   if (isYesNoLongshot(r)) return false;
-  const line = Number(u.line);
-  if (line === 0.5 || line === 0) return false;
-  const pct = hitPct(r);
-  if (pct != null && (pct >= 65 || pct <= 35)) return false;
   return true;
 }
 
@@ -1424,30 +1419,6 @@ function addToSlip(row) {
   renderSlip();
 }
 
-function bestBookPrice(g, market, side) {
-  const books = g.books || {};
-  let best = null;
-  Object.entries(books).forEach(([k, v]) => {
-    const slot = v?.[market];
-    if (!slot) return;
-    const price = slot[side];
-    if (price == null) return;
-    if (!best || Number(price) > Number(best.price)) best = { book: k, price, line: slot.line };
-  });
-  return best;
-}
-
-function marketStack(g, market, line, sideA, sideB, labelA, labelB) {
-  const a = bestBookPrice(g, market, sideA);
-  const b = bestBookPrice(g, market, sideB);
-  const lineTxt = line != null ? line : "—";
-  return `<td class="line-stack">
-    <div class="line-num">${escapeHtml(String(lineTxt))}</div>
-    <div class="line-note">${escapeHtml(labelA)} ${a ? `${a.book} ${american(a.price)}` : "—"}</div>
-    <div class="line-note">${escapeHtml(labelB)} ${b ? `${b.book} ${american(b.price)}` : "—"}</div>
-  </td>`;
-}
-
 function renderGames() {
   const wrap = $("gamesWrap");
   if (!wrap) return;
@@ -1479,9 +1450,10 @@ function renderGames() {
     const edge = g.edge;
     return `<tr>
       <td><div class="player">${escapeHtml(g.game)}</div><div class="game"><span class="sport-tag">${escapeHtml(g.sport || "")}</span> ${escapeHtml(fmtWhen(g.commence_time))}</div></td>
-      ${marketStack(g, "spread", g.spread, "home", "away", abbr(g.home_team) || "Home", abbr(g.away_team) || "Away")}
-      ${marketStack(g, "total", g.total, "over", "under", "Over", "Under")}
-      ${marketStack(g, "ml", "ML", "away", "home", abbr(g.away_team) || "Away", abbr(g.home_team) || "Home")}
+      <td class="line-stack"><div class="line-num">${g.spread ?? "—"}</div>${g.spread_proj != null ? `<div class="line-note">proj ${g.spread_proj}</div>` : ""}</td>
+      <td class="line-stack"><div class="line-num">${g.total ?? "—"}</div>${g.total_proj != null ? `<div class="line-note">proj ${g.total_proj}</div>` : ""}</td>
+      <td class="price">${american(g.ml_away)}<div class="line-note">${bookImplied(g.ml_away) != null ? bookImplied(g.ml_away).toFixed(1) + "%" : ""}</div></td>
+      <td class="price">${american(g.ml_home)}<div class="line-note">${bookImplied(g.ml_home) != null ? bookImplied(g.ml_home).toFixed(1) + "%" : ""}</div></td>
       <td>${kalshiCell(k.ml, g, "win")}</td>
       <td>${kalshiCell(k.spread, g, "cover")}</td>
       <td>${kalshiCell(k.total, g, "total")}</td>
@@ -2438,7 +2410,7 @@ function renderPreview() {
       </div>
     </div>`;
   $("count").textContent = `${shown.length} games · ${rows.length} props`;
-  $("updated").textContent = `Updated ${fmtAgo(state.data?.updated)} · BE ${breakEven()}%`;
+  $("updated").textContent = `Updated ${fmtWhen(state.data?.updated)} · BE ${breakEven()}%`;
 }
 
 function showSectionWraps() {
@@ -2483,7 +2455,7 @@ function render(full) {
     const all = state.data?.props || [];
     fillWhen(all);
     if (state.data) {
-      $("updated").textContent = `Updated ${fmtAgo(state.data.updated)} · BE ${breakEven()}%`;
+      $("updated").textContent = `Updated ${fmtWhen(state.data.updated)} · BE ${breakEven()}%`;
       const sport = ($("sport")?.value || state.sport || "all").toLowerCase();
       const pool = sport === "all" ? all : all.filter((r) => String(r.sport || "").toLowerCase() === sport);
       fillGameAndTeam(pool);
@@ -2507,13 +2479,9 @@ function render(full) {
   if (!state.data) return;
   const all = state.liveProps || state.data.props || [];
   const rows = sortRows(applyFilters(all));
-  const cap = state.showMore ? 600 : 200;
+  const cap = 200;
   const view = rows.slice(0, cap);
-  $("count").textContent = rows.length > cap
-    ? `${cap} of ${rows.length.toLocaleString()} shown`
-    : `${rows.length.toLocaleString()} shown`;
-  const more = $("showMore");
-  if (more) more.style.display = rows.length > cap ? "block" : "none";
+  $("count").textContent = rows.length > cap ? `${cap} of ${rows.length.toLocaleString()} shown` : `${rows.length.toLocaleString()} shown`;
 
   if (!rows.length) {
     $("tbody").innerHTML = "";
@@ -2541,9 +2509,9 @@ function render(full) {
         </td>
         <td>${escapeHtml(r.stat)}</td>
         <td class="line-cell"><div class="line-stack"><span class="tag ${sideClass}">${escapeHtml(r.side)}</span><div class="line-num">${lineTxt ?? "—"}</div>${fantasyNote(r)}</div></td>
-        <td>${state.view === "ud" ? `<span class="muted">—</span>` : tierBadge(r.pp_tier)}</td>
+        <td>${tierBadge(r.pp_tier)}</td>
         <td><span class="${pctClass(hitPct(r))}">${hitPct(r) != null ? hitPct(r).toFixed(1) + "%" : "—"}</span></td>
-        <td class="${edge >= 0 ? "" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}${["prophetx", "novig", "kalshi", "polymarket"].includes(state.view) ? ` <span class="line-note">${sportsbookCount(r)} books</span>` : ""}${state.view === "pp" && r.dfs?.prizepicks ? `<button type="button" class="slip-add" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">+ slip</button>` : ""}</td>
+        <td class="${edge >= 0 ? "" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}${["prophetx", "novig", "kalshi", "polymarket"].includes(state.view) ? ` <span class="line-note">${sportsbookCount(r)} books</span>` : ""}${r.dfs?.prizepicks ? `<button type="button" class="slip-add" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">+ slip</button>` : ""}</td>
         ${bestCell(r)}
         ${cols.map((b) => bookCell(r, b.key)).join("")}
       </tr>`;
@@ -2610,10 +2578,6 @@ $("stackShape")?.addEventListener("change", render);
 $("stacksBody")?.addEventListener("click", (e) => {
   const btn = e.target.closest(".player-btn");
   if (btn?.dataset.player) openPlayerPopup(btn.dataset.player, "", "", "");
-});
-$("showMore")?.addEventListener("click", () => {
-  state.showMore = true;
-  render();
 });
 $("minBooks")?.addEventListener("change", () => {
   state.minBooks = !!$("minBooks").checked;
@@ -2849,7 +2813,7 @@ function openPlayerPopup(player, eventId, market, side) {
   const popupKey = `${player}|${eventId || ""}|${market || ""}|${side || ""}`;
   if (state.popupKey !== popupKey) {
     state.popupChartAll = false;
-    state.popupTab = state.popupTab && state.popupKey.startsWith(`${player}|`) ? state.popupTab : "all";
+    state.popupTab = state.popupTab && state.popupKey.startsWith(`${player}|`) ? state.popupTab : "bet";
   }
   state.popupKey = popupKey;
   const all = state.data?.props || [];
@@ -2910,28 +2874,14 @@ function openPlayerPopup(player, eventId, market, side) {
       <button type="button" class="popup-x" id="popupClose">✕</button>
     </div>
     <div class="pop-tabs">
-      <button type="button" class="pop-tab on" data-pop-tab="all">All</button>
-      <button type="button" class="pop-tab" data-pop-tab="bet">Bet</button>
+      <button type="button" class="pop-tab on" data-pop-tab="bet">Bet</button>
       <button type="button" class="pop-tab" data-pop-tab="chart">Chart</button>
       <button type="button" class="pop-tab" data-pop-tab="log">Game log</button>
       <button type="button" class="pop-tab" data-pop-tab="usage">Usage</button>
       <button type="button" class="pop-tab" data-pop-tab="lines">Lines</button>
     </div>
     <div class="pop-body">
-    <div class="pop-pane" data-pop-pane="all">
-    <div class="popup-grid">
-      <div class="popup-stat"><b>The bet</b>${escapeHtml(focus.stat || "")} ${escapeHtml(focus.side || "")} ${focus.line ?? ""}</div>
-      <div class="popup-stat"><b>% to hit</b>${hitPct(focus) != null ? hitPct(focus).toFixed(1) + "%" : "—"}</div>
-      <div class="popup-stat"><b>Edge</b>${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</div>
-    </div>
-    ${injBlock}
-    ${newsNote}
-    <div class="popup-stat sum-card" style="margin-bottom:12px"><b>Bet write-up</b>${betSummary(focus, recs, oppRow)}</div>
-    ${renderSplitChart(focus, recs) || ""}
-    ${logBlock}
-    ${usageDetail(recs, pos || meta?.pos, focus)}
-    </div>
-    <div class="pop-pane" data-pop-pane="bet" hidden>
+    <div class="pop-pane" data-pop-pane="bet">
     <div class="popup-grid">
       <div class="popup-stat"><b>The bet</b>${escapeHtml(focus.stat || "")} ${escapeHtml(focus.side || "")} ${focus.line ?? ""}</div>
       <div class="popup-stat"><b>Tier</b>${escapeHtml(focus.pp_tier || "—")}</div>
@@ -3055,7 +3005,7 @@ function openPlayerPopup(player, eventId, market, side) {
   $("popupClose").onclick = closePopup;
   const slipBtn = $("popupSlip");
   if (slipBtn) slipBtn.onclick = () => addToSlip(focus);
-  if (state.popupTab && state.popupTab !== "all") {
+  if (state.popupTab && state.popupTab !== "bet") {
     $("popupCard")?.querySelectorAll("[data-pop-tab]").forEach((b) => b.classList.toggle("on", b.dataset.popTab === state.popupTab));
     $("popupCard")?.querySelectorAll("[data-pop-pane]").forEach((p) => { p.hidden = p.dataset.popPane !== state.popupTab; });
   }
@@ -3191,12 +3141,17 @@ async function fetchBoard(url, version) {
 async function loadData() {
   try {
     setLoader("Checking the books…");
-    renderBookPicks();
     let version = "";
     try {
       const meta = await fetch("./data/meta.json", { cache: "no-cache" }).then((r) => r.ok ? r.json() : null);
       version = meta?.updated || "";
     } catch (_) {}
+    setLoader("Hiking the props…");
+    try {
+      state.intel = await fetchBoard(INTEL_URL, version);
+    } catch (_) {
+      state.intel = null;
+    }
     const sport = $("sport")?.value || state.sport || "all";
     state.sport = sport;
     state.boardCache = state.boardCache || {};
@@ -3211,7 +3166,6 @@ async function loadData() {
           : { props: [], games: [], kalshi: {} };
       });
     }
-    try { state.intel = await fetchBoard(INTEL_URL, version); } catch (_) { state.intel = null; }
     const boards = keys.map((k) => state.boardCache[k] || { props: [], games: [], kalshi: {} });
     state.data = {
       updated: boards.find((b) => b.updated)?.updated,
@@ -3227,11 +3181,11 @@ async function loadData() {
     };
     state.liveProps = (state.data.props || []).filter((r) => !hasStarted(r.commence_time));
     state.uiReady = false;
-    try { render(true); } catch (renderErr) { console.error(renderErr); }
+    render(true);
   } catch (err) {
-    $("updated").textContent = "Could not refresh";
+    $("updated").textContent = "Could not load props JSON";
     $("empty").style.display = "block";
-    $("empty").textContent = "Lines are still loading. Refresh in a minute.";
+    $("empty").textContent = "No data yet. Run the GitHub Action.";
     console.error(err);
   } finally {
     clearInterval(lineTimer);
