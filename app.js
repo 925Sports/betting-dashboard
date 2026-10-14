@@ -291,9 +291,10 @@ function hitPct(row) {
   if (state.view === "pp" || state.view === "ev") {
     const cash = ppCashPct(row);
     if (cash != null) return cash;
-    const sheet = Number(row.pct_to_hit);
-    if (Number.isFinite(sheet) && sheet > 5 && sheet < 95) return +sheet.toFixed(1);
     const nv = bookNoVig(row);
+    const sheet = Number(row.pct_to_hit);
+    if (nv != null && Number.isFinite(sheet) && Math.abs(sheet - nv) > 12) return nv;
+    if (Number.isFinite(sheet) && sheet > 5 && sheet < 95) return +sheet.toFixed(1);
     if (nv != null) return nv;
   }
   if (state.view === "ud") {
@@ -947,6 +948,8 @@ function isStandardUd(r) {
   if (u.source !== "filter") return false;
   if (r.is_alternate) return false;
   if (isYesNoLongshot(r)) return false;
+  const nv = bookNoVig(r);
+  if (nv != null && (nv < 42 || nv > 58)) return false;
   return true;
 }
 
@@ -2830,6 +2833,34 @@ function usageDetail(recs, pos, focus) {
     </table></div>`;
 }
 
+function dvpFor(row) {
+  if (sportOf(row) !== "NFL" || !state.intel?.logs || !state.intel?.players) return null;
+  const meta = intelPlayer(row.player);
+  const pos = String(row.position || meta?.pos || "").toUpperCase();
+  if (!pos || !["QB", "RB", "WR", "TE"].includes(pos)) return null;
+  const oppRaw = row.home ? row.away_team : row.home_team;
+  const oppAb = abbr(oppRaw, row);
+  if (!oppAb) return null;
+  const statKey = /pass/i.test(row.stat) ? "pass_yds" : /rush/i.test(row.stat) ? "rush_yds" : /rec/i.test(row.stat) ? "rec_yds" : "ppr";
+  const byOpp = {};
+  Object.values(state.intel.players).forEach((p) => {
+    if (String(p.pos || "").toUpperCase() !== pos) return;
+    (state.intel.logs[p.gsis_id] || []).forEach((g) => {
+      const o = abbr(g.opp, row);
+      if (!o) return;
+      if (!byOpp[o]) byOpp[o] = [];
+      const v = Number(g[statKey]);
+      if (Number.isFinite(v)) byOpp[o].push(v);
+    });
+  });
+  const ranks = Object.entries(byOpp).map(([o, arr]) => ({
+    opp: o, avg: arr.reduce((a, b) => a + b, 0) / arr.length, n: arr.length,
+  })).sort((a, b) => b.avg - a.avg);
+  const hit = ranks.find((r) => r.opp === oppAb);
+  if (!hit) return null;
+  return { pos, opp: oppAb, avg: +hit.avg.toFixed(1), rank: ranks.indexOf(hit) + 1, of: ranks.length, stat: statKey.replace("_", " ") };
+}
+
 function openPlayerPopup(player, eventId, market, side) {
   const popupKey = `${player}|${eventId || ""}|${market || ""}|${side || ""}`;
   if (state.popupKey !== popupKey) {
@@ -2899,6 +2930,7 @@ function openPlayerPopup(player, eventId, market, side) {
       <button type="button" class="pop-tab" data-pop-tab="chart">Chart</button>
       <button type="button" class="pop-tab" data-pop-tab="log">Game log</button>
       <button type="button" class="pop-tab" data-pop-tab="usage">Usage</button>
+      <button type="button" class="pop-tab" data-pop-tab="dvp">DVP</button>
       <button type="button" class="pop-tab" data-pop-tab="lines">Lines</button>
     </div>
     <div class="pop-body">
@@ -2921,6 +2953,17 @@ function openPlayerPopup(player, eventId, market, side) {
     </div>
     <div class="pop-pane" data-pop-pane="usage" hidden>
     ${usageDetail(recs, pos || meta?.pos, focus)}
+    </div>
+    <div class="pop-pane" data-pop-pane="dvp" hidden>
+    ${(() => {
+      const d = dvpFor(focus);
+      if (!d) return `<div class="muted">DVP is NFL only, and needs an opponent plus a QB/RB/WR/TE position.</div>`;
+      const soft = d.rank <= 10;
+      return `<div class="popup-stat"><b>${escapeHtml(d.opp)} vs ${escapeHtml(d.pos)}</b>
+        Allows ${d.avg} ${escapeHtml(d.stat)} per game · rank ${d.rank} of ${d.of}
+        <div class="corr-why">${soft ? "Soft matchup (top 10 allowed)." : "Tougher matchup."}</div>
+      </div>`;
+    })()}
     </div>
     <div class="pop-pane" data-pop-pane="lines" hidden>
     ${newsBlock}
