@@ -363,6 +363,14 @@ th[data-key="line"], td.line-cell, td.line-stack {
   letter-spacing: 0.04em;
   margin-right: 4px;
 }
+.sport-tag.nfl { background: #1a2744; color: #9ec0ff; border-color: #2b4b80; }
+.sport-tag.cfb { background: #2a1f14; color: #f0c27a; border-color: #5a4020; }
+.sport-tag.mlb { background: #1a2e1a; color: #8fd48f; border-color: #2d5a2d; }
+.sport-tag.nba { background: #2a1a14; color: #f0a070; border-color: #5a3020; }
+.sport-tag.wnba { background: #2a1a24; color: #f0a0c0; border-color: #5a2040; }
+.sport-tag.cbb { background: #1a1a2e; color: #b0a0f0; border-color: #30305a; }
+.sport-tag.nhl { background: #14202a; color: #80d0e0; border-color: #204050; }
+.sport-tag.soccer { background: #1a2a1a; color: #a0d080; border-color: #305030; }
 .flags { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; }
 .flag {
   width: 16px; height: 16px; border-radius: 4px;
@@ -444,12 +452,21 @@ th[data-key="line"], td.line-cell, td.line-stack {
   color: #e8eef8;
 }
 .log-bars {
-  display: flex; align-items: stretch; gap: 8px;
-  height: 220px; margin: 8px 0 14px; overflow-x: auto;
+  display: grid;
+  grid-template-columns: repeat(var(--slots, 2), minmax(0, 1fr));
+  align-items: stretch; gap: 10px;
+  height: 240px; margin: 0; flex: 1;
   padding: 4px 2px 8px;
 }
+.chart-row { display: flex; align-items: stretch; gap: 8px; margin: 8px 0 14px; }
+.chart-more {
+  flex: 0 0 36px; align-self: stretch;
+  background: #152033; color: #e8eef8; border: 1px solid #243044;
+  border-radius: 10px; font-size: 22px; font-weight: 700; cursor: pointer;
+}
+.chart-more:hover { background: #1c2c44; }
 .log-col {
-  flex: 0 0 56px; width: 56px;
+  min-width: 0;
   display: flex; flex-direction: column; align-items: center;
 }
 .log-track {
