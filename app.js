@@ -179,6 +179,47 @@ function offerImplied(row) {
   return +Math.min(...impl).toFixed(1);
 }
 
+function exchangeFair(row, skip) {
+  const SHARP = new Set(["pinnacle", "circa", "bookmaker"]);
+  const vals = [];
+  Object.entries(mergeBooks(row.books) || {})
+    .filter(([k]) => k !== skip)
+    .forEach(([k, b]) => {
+      let n = Number(b?.no_vig);
+      if (Number.isFinite(n) && n > 0 && n <= 1) n = n * 100;
+      if (!Number.isFinite(n) || n <= 5 || n >= 95) {
+        const ip = bookImplied(b?.price);
+        if (ip != null && ip > 5 && ip < 95) n = ip;
+      }
+      if (!Number.isFinite(n) || n <= 8 || n >= 92) return;
+      vals.push(n);
+      if (SHARP.has(k)) vals.push(n);
+    });
+  if (vals.length < 2) return null;
+  vals.sort((a, b) => a - b);
+  const lo = Math.floor(vals.length * 0.1);
+  const hi = Math.ceil(vals.length * 0.9);
+  const pool = vals.slice(lo, hi);
+  const use = pool.length ? pool : vals;
+  return +(use.reduce((a, b) => a + b, 0) / use.length).toFixed(1);
+}
+
+function exchangeOffer(row) {
+  const key = state.view;
+  if (key === "kalshi") {
+    const k = kalshiOffer(row);
+    if (!k || k.cents == null) return null;
+    const c = Number(k.cents);
+    if (!Number.isFinite(c) || c < 3 || c > 97) return null;
+    return c;
+  }
+  const b = row.books?.[key];
+  if (!b || b.price == null) return null;
+  const px = Number(b.price);
+  if (!Number.isFinite(px) || Math.abs(px) > 500) return null;
+  return bookImplied(px);
+}
+
 function isWholeLine(n) {
   const x = Number(n);
   return Number.isFinite(x) && Math.abs(x - Math.round(x)) < 1e-6;
@@ -313,27 +354,11 @@ function hitPct(row) {
     const adj = fantasyAdjustedPct(row);
     if (adj != null && row.pct_to_hit == null) return adj;
   }
-  if (state.view === "prophetx") {
-    const nv = bookNoVig(row);
-    if (nv != null) return nv;
-    const p = bookImplied(row.books?.prophetx?.price);
-    return p != null ? +p.toFixed(1) : row.pct_to_hit;
-  }
-  if (state.view === "novig") {
-    const nv = bookNoVig(row);
-    if (nv != null) return nv;
-    const p = bookImplied(row.books?.novig?.price);
-    return p != null ? +p.toFixed(1) : row.pct_to_hit;
-  }
-  if (state.view === "kalshi") {
-    const nv = bookNoVig(row);
-    if (nv != null) return nv;
-    return row.pct_to_hit;
-  }
-  if (state.view === "polymarket") {
-    const nv = bookNoVig(row);
-    if (nv != null) return nv;
-    return bookImplied(row.books?.polymarket?.price) ?? row.pct_to_hit;
+  if (["prophetx", "novig", "kalshi", "polymarket"].includes(state.view)) {
+    const fair = exchangeFair(row, state.view);
+    if (fair != null) return fair;
+    const offer = exchangeOffer(row);
+    return offer != null ? +offer.toFixed(1) : row.pct_to_hit;
   }
   return row.pct_to_hit;
 }
@@ -345,15 +370,10 @@ function rowEdge(row) {
     return +(fair - breakEven()).toFixed(1);
   }
   if (["prophetx", "novig", "kalshi", "polymarket"].includes(state.view)) {
-    const fair = bookNoVig(row) ?? hitPct(row);
-    const offer = state.view === "kalshi"
-      ? bookImplied(kalshiOffer(row)?.price)
-      : state.view === "polymarket"
-        ? bookImplied(row.books?.polymarket?.price)
-        : offerImplied(row);
+    const fair = exchangeFair(row, state.view);
+    const offer = exchangeOffer(row);
     if (fair == null || offer == null) return null;
-    const books = sportsbookCount(row);
-    if (books < 2 && !isFantasyStat(row.stat)) return null;
+    if (sportsbookCount(row) < 2 && !isFantasyStat(row.stat)) return null;
     return +(fair - offer).toFixed(1);
   }
   const pct = hitPct(row);
@@ -957,8 +977,9 @@ function isStandardExchange(r, key) {
   const b = r.books?.[key];
   if (!b || b.price == null) return false;
   if (r.is_alternate) return false;
-  if (Math.abs(Number(b.price)) >= 350) return false;
-  if (isYesNoLongshot(r) && Math.abs(Number(b.price)) >= 180) return false;
+  const px = Math.abs(Number(b.price));
+  if (px >= 400 || px < 100) return false;
+  if (isYesNoLongshot(r) && px >= 180) return false;
   if (sportsbookCount(r) < 2 && !isFantasyStat(r.stat)) return false;
   return true;
 }
