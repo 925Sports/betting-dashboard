@@ -134,8 +134,24 @@ function breakEven() {
 }
 
 function bookNoVig(row) {
+  const line = Number(row.line);
   const vals = Object.values(mergeBooks(row.books) || {})
-    .map((b) => Number(b?.no_vig))
+    .filter((b) => {
+      if (!b) return false;
+      const bl = Number(b.line);
+      if (Number.isFinite(line) && Number.isFinite(bl) && Math.abs(bl - line) > 0.6) return false;
+      return true;
+    })
+    .map((b) => {
+      let n = Number(b?.no_vig);
+      const placeholder = !Number.isFinite(n) || n === 0.5 || n === 50;
+      if (Number.isFinite(n) && n > 0 && n <= 1) n = n * 100;
+      if (placeholder || !Number.isFinite(n) || n <= 5 || n >= 95) {
+        const ip = bookImplied(b?.price);
+        if (ip != null) n = ip;
+      }
+      return n;
+    })
     .filter((n) => Number.isFinite(n) && n > 5 && n < 95);
   if (!vals.length) return null;
   vals.sort((a, b) => a - b);
@@ -210,11 +226,14 @@ function nvAtHalf(row, half) {
   const vals = [];
   Object.values(mergeBooks(row.books) || {}).forEach((b) => {
     if (!b || Math.abs(Number(b.line) - half) > 0.2) return;
-    if (b.no_vig != null) vals.push(Number(b.no_vig));
-    else if (b.price != null) {
+    let n = Number(b.no_vig);
+    const placeholder = !Number.isFinite(n) || n === 0.5 || n === 50;
+    if (Number.isFinite(n) && n > 0 && n <= 1) n = n * 100;
+    if (placeholder || !Number.isFinite(n) || n <= 5 || n >= 95) {
       const ip = bookImplied(b.price);
-      if (ip != null) vals.push(ip);
+      if (ip != null) n = ip;
     }
+    if (Number.isFinite(n) && n > 5 && n < 95) vals.push(n);
   });
   if (!vals.length) return null;
   vals.sort((a, b) => a - b);
@@ -272,6 +291,8 @@ function hitPct(row) {
   if (state.view === "pp" || state.view === "ev") {
     const cash = ppCashPct(row);
     if (cash != null) return cash;
+    const sheet = Number(row.pct_to_hit);
+    if (Number.isFinite(sheet) && sheet > 5 && sheet < 95) return +sheet.toFixed(1);
     const nv = bookNoVig(row);
     if (nv != null) return nv;
   }
