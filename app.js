@@ -2496,6 +2496,59 @@ function indexKalshi() {
   state.kalshiByLast = byLast;
 }
 
+function bestBookEdge(row) {
+  const TRAD = ["draftkings", "fanduel", "betmgm", "williamhill_us", "betrivers", "espnbet", "bovada", "hardrockbet", "pinnacle"];
+  const fair = exchangeFair(row, "");
+  if (fair == null) return null;
+  let best = null;
+  TRAD.forEach((k) => {
+    const b = row.books?.[k];
+    if (!b || b.price == null) return;
+    const px = Number(b.price);
+    if (!Number.isFinite(px) || Math.abs(px) > 400 || Math.abs(px) < 100) return;
+    const ip = bookImplied(px);
+    if (ip == null) return;
+    const edge = +(fair - ip).toFixed(1);
+    if (!best || edge > best.edge) best = { book: k, price: px, ip, edge, fair };
+  });
+  return best;
+}
+
+function arbPairs(rows) {
+  const groups = new Map();
+  rows.forEach((r) => {
+    if (!r.player || r.line == null) return;
+    const key = `${nameKey(r.player)}|${r.stat}|${r.line}|${gameKeyOf(r)}`;
+    if (!groups.has(key)) groups.set(key, { over: null, under: null, sample: r });
+    const g = groups.get(key);
+    if (String(r.side).toLowerCase() === "over") g.over = r;
+    else if (String(r.side).toLowerCase() === "under") g.under = r;
+  });
+  const out = [];
+  const TRAD = ["draftkings", "fanduel", "betmgm", "williamhill_us", "betrivers", "espnbet", "bovada", "hardrockbet", "pinnacle", "novig", "prophetx"];
+  groups.forEach((g) => {
+    if (!g.over || !g.under) return;
+    let bestOver = null, bestUnder = null;
+    TRAD.forEach((k) => {
+      const o = g.over.books?.[k];
+      const u = g.under.books?.[k];
+      if (o?.price != null && Math.abs(Number(o.price)) < 400 && Math.abs(Number(o.price)) >= 100) {
+        const ip = bookImplied(o.price);
+        if (ip != null && (!bestOver || ip < bestOver.ip)) bestOver = { book: k, price: o.price, ip };
+      }
+      if (u?.price != null && Math.abs(Number(u.price)) < 400 && Math.abs(Number(u.price)) >= 100) {
+        const ip = bookImplied(u.price);
+        if (ip != null && (!bestUnder || ip < bestUnder.ip)) bestUnder = { book: k, price: u.price, ip };
+      }
+    });
+    if (!bestOver || !bestUnder || bestOver.book === bestUnder.book) return;
+    const sum = bestOver.ip + bestUnder.ip;
+    if (sum >= 100 || sum < 94) return;
+    out.push({ ...g.sample, over: bestOver, under: bestUnder, arb: +(100 - sum).toFixed(2) });
+  });
+  return out.sort((a, b) => b.arb - a.arb);
+}
+
 function render(full) {
   if (!state.data && !state.intel) return;
   syncTabs();
@@ -2527,6 +2580,52 @@ function render(full) {
   if (sec !== "props") return;
   if (!state.data) return;
   const all = state.liveProps || state.data.props || [];
+
+  if (state.view === "books") {
+    const hits = all.map((r) => ({ r, best: bestBookEdge(r) })).filter((x) => x.best && x.best.edge > 0.5);
+    hits.sort((a, b) => b.best.edge - a.best.edge);
+    $("count").textContent = `${hits.length} books edges`;
+    $("empty").style.display = hits.length ? "none" : "block";
+    $("empty").textContent = "No book is beating the market right now.";
+    $("headrow").innerHTML = `<th>Player</th><th>Stat</th><th>Line</th><th>Book</th><th>Price</th><th>Fair</th><th>Edge</th>`;
+    $("tbody").innerHTML = hits.slice(0, 200).map(({ r, best }) => {
+      const meta = BOOK_BY_KEY[best.book];
+      return `<tr>
+        <td><div class="player-row">${headshotTag(r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}${posTag(r)}</button></div>
+          <div class="game"><span class="sport-tag ${escapeHtml(String(r.sport || "").toLowerCase())}">${escapeHtml(r.sport || "")}</span> ${escapeHtml(matchup(r))}</div></td>
+        <td>${escapeHtml(r.stat)}</td>
+        <td class="line-cell"><div class="line-stack">${sideTag(r.side)}<div class="line-num">${r.line ?? ""}</div></div></td>
+        <td>${meta ? bookMark(meta, "sm") + " " + escapeHtml(meta.name) : best.book}</td>
+        <td>${american(best.price)}</td>
+        <td>${best.fair}%</td>
+        <td class="pct good">+${best.edge}</td>
+      </tr>`;
+    }).join("");
+    return;
+  }
+
+  if (state.view === "arb") {
+    const pairs = arbPairs(all);
+    $("count").textContent = `${pairs.length} arbs`;
+    $("empty").style.display = pairs.length ? "none" : "block";
+    $("empty").textContent = "No arbitrage pairs right now.";
+    $("headrow").innerHTML = `<th>Player</th><th>Stat</th><th>Line</th><th>Over</th><th>Under</th><th>Arb</th>`;
+    $("tbody").innerHTML = pairs.slice(0, 100).map((p) => {
+      const om = BOOK_BY_KEY[p.over.book];
+      const um = BOOK_BY_KEY[p.under.book];
+      return `<tr>
+        <td><div class="player-row">${headshotTag(p.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(p.player)}" data-eid="${escapeHtml(p.event_id || "")}" data-market="${escapeHtml(p.market || "")}" data-side="Over">${escapeHtml(p.player)}${posTag(p)}</button></div>
+          <div class="game"><span class="sport-tag ${escapeHtml(String(p.sport || "").toLowerCase())}">${escapeHtml(p.sport || "")}</span> ${escapeHtml(matchup(p))}</div></td>
+        <td>${escapeHtml(p.stat)}</td>
+        <td class="line-num">${p.line ?? ""}</td>
+        <td>${om ? bookMark(om, "sm") : ""} ${american(p.over.price)}</td>
+        <td>${um ? bookMark(um, "sm") : ""} ${american(p.under.price)}</td>
+        <td class="pct good">${p.arb}%</td>
+      </tr>`;
+    }).join("");
+    return;
+  }
+
   const rows = sortRows(applyFilters(all));
   const cap = 200;
   const view = rows.slice(0, cap);
