@@ -2622,7 +2622,7 @@ function render(full) {
         <td>${meta ? bookMark(meta, "sm") + " " + escapeHtml(meta.name) : best.book}</td>
         <td>${american(best.price)}</td>
         <td>${best.fair}%${r.avg_line != null ? `<div class="line-note">mkt ${r.avg_line}</div>` : ""}</td>
-        <td class="pct good">+${best.edge}<div class="line-note">${sportsbookCount(r)} books</div></td>
+        <td><span class="pct good">+${best.edge}</span><div class="line-note">${sportsbookCount(r)} books</div></td>
       </tr>`;
     }).join("");
     return;
@@ -2650,10 +2650,10 @@ function render(full) {
         <td class="line-num">${p.line ?? ""}</td>
         <td>${om ? bookMark(om, "sm") : ""} ${american(p.over.price)}</td>
         <td>${um ? bookMark(um, "sm") : ""} ${american(p.under.price)}</td>
-        <td class="pct good">${p.arb}%</td>
+        <td><span class="pct good">${p.arb}%</span></td>
         <td>$${overDol}</td>
         <td>$${underDol}</td>
-        <td class="pct good">$${profit}</td>
+        <td><span class="pct good">$${profit}</span></td>
       </tr>`;
     }).join("");
     return;
