@@ -585,12 +585,10 @@ def attach_pp(row, p):
 
     if is_fantasy:
         row["pct_to_hit"] = edge
-    elif nv is not None and (diff is None or diff <= 0.25):
+    elif nv is not None:
         row["pct_to_hit"] = nv
     elif edge is not None:
         row["pct_to_hit"] = edge
-    elif nv is not None:
-        row["pct_to_hit"] = nv
     cur = row.get("pct_to_hit")
     if cur is not None and (cur > 99 or cur < 1):
         row["pct_to_hit"] = edge if is_fantasy else None
@@ -629,7 +627,7 @@ def apply_ud(row, ud_list):
         if nv is not None:
             row["pct_ud"] = sane_pct(nv)
         elif "fantasy" in str(u.get("stat") or "").lower():
-            row["pct_ud"] = None
+            row["pct_ud"] = estimate_fantasy_ud(row, u.get("line"))
         elif row.get("pct_to_hit") is not None:
             row["pct_ud"] = sane_pct(row.get("pct_to_hit"))
         return True
@@ -720,8 +718,8 @@ def enrich_props(rows, pp_rows, ud_rows):
                 "game": game_title, "home_team": home, "away_team": away,
                 "commence_time": u.get("commence_time") or "",
                 "event_id": f"ud-{u['player_key']}-{u['stat']}-{u.get('line')}-{side}",
-                "pct_to_hit": sane_pct(nv),
-                "pct_ud": sane_pct(nv),
+                "pct_to_hit": sane_pct(nv) or (estimate_fantasy_ud({"side": side, "true_point": u.get("true_point"), "avg_line": u.get("line")}, u.get("line")) if is_fan else None),
+                "pct_ud": sane_pct(nv) or (estimate_fantasy_ud({"side": side, "true_point": u.get("true_point"), "avg_line": u.get("line")}, u.get("line")) if is_fan else None),
                 "ev": None, "pp_tier": "Standard",
                 "book_line": u.get("line"), "best": None,
                 "spread": u.get("spread"), "total": u.get("total"),
@@ -905,6 +903,32 @@ def attach_fantasy_compare(rows):
     print(f"fantasy compares={n}")
 
 
+def estimate_fantasy_ud(row, ud_line):
+    """Rough Underdog Fantasy Score hit rate when the sheet has no no-vig.
+
+    Uses the true point / average line (PP scoring) and the converted UD line.
+    A higher UD line raises the Under probability and lowers the Over.
+    """
+    if ud_line is None:
+        return None
+    true = true_avg(row)
+    if true is None:
+        true = base.to_float(row.get("true_point"))
+    if true is None:
+        true = base.to_float(row.get("projection"))
+    if true is None:
+        return None
+    try:
+        diff = float(ud_line) - float(true)
+    except (TypeError, ValueError):
+        return None
+    # ~1.6% per point of line distance from the true average, capped.
+    shift = max(-35.0, min(35.0, diff * 1.6))
+    side = str(row.get("side") or "").title()
+    base_pct = 50.0 + (shift if side == "Under" else -shift)
+    return sane_pct(base_pct)
+
+
 def mark_alternate_lines(rows):
     """Keep one Standard line per player/stat/game; extra numbers are Alternate."""
     groups = defaultdict(list)
@@ -925,6 +949,10 @@ def mark_alternate_lines(rows):
         key = (norm_name(row.get("player") or ""), row.get("stat"), row.get("game") or row.get("event_id"))
         groups[key].append(row)
     for recs in groups.values():
+        # Never demote the only PrizePicks line for this player/stat.
+        pp_lines = [r for r in recs if (r.get("dfs") or {}).get("prizepicks", {}).get("line") is not None]
+        if len(pp_lines) <= 1:
+            continue
         if len(recs) < 2:
             continue
         def dist(r):
@@ -940,7 +968,10 @@ def mark_alternate_lines(rows):
                 return abs(float(line) - float(ref)) if line is not None and ref is not None else 0.0
             except (TypeError, ValueError):
                 return 0.0
-        recs.sort(key=dist)
+        recs.sort(key=lambda r: (
+            0 if (r.get("dfs") or {}).get("prizepicks", {}).get("line") is not None else 1,
+            dist(r),
+        ))
         for r in recs[1:]:
             r["pp_tier"] = "Alternate"
             r["is_alternate"] = True
