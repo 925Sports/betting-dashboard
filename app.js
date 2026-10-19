@@ -112,9 +112,7 @@ const state = {
   previewGame: "",
   minBooks: true,
   volFilter: "game",
-  popupChartAll: false,
-  popupTab: "bet",
-  popupKey: "",
+  showMore: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -134,32 +132,12 @@ function breakEven() {
 }
 
 function bookNoVig(row) {
-  const line = Number(row.line);
   const vals = Object.values(mergeBooks(row.books) || {})
-    .filter((b) => {
-      if (!b) return false;
-      const bl = Number(b.line);
-      if (Number.isFinite(line) && Number.isFinite(bl) && Math.abs(bl - line) > 0.6) return false;
-      return true;
-    })
-    .map((b) => {
-      let n = Number(b?.no_vig);
-      const placeholder = !Number.isFinite(n) || n === 0.5 || n === 50;
-      if (Number.isFinite(n) && n > 0 && n <= 1) n = n * 100;
-      if (placeholder || !Number.isFinite(n) || n <= 5 || n >= 95) {
-        const ip = bookImplied(b?.price);
-        if (ip != null) n = ip;
-      }
-      return n;
-    })
-    .filter((n) => Number.isFinite(n) && n > 5 && n < 95);
+    .map((b) => Number(b?.no_vig))
+    .filter((n) => Number.isFinite(n));
   if (!vals.length) return null;
   vals.sort((a, b) => a - b);
-  const mid = vals[Math.floor(vals.length / 2)];
-  const tight = vals.filter((n) => Math.abs(n - mid) <= 8);
-  const pool = tight.length >= 2 ? tight : vals;
-  pool.sort((a, b) => a - b);
-  return +pool[Math.floor(pool.length / 2)].toFixed(1);
+  return +vals[Math.floor(vals.length / 2)].toFixed(1);
 }
 
 function offerImplied(row) {
@@ -177,47 +155,6 @@ function offerImplied(row) {
   const impl = prices.map(bookImplied).filter((n) => n != null);
   if (!impl.length) return null;
   return +Math.min(...impl).toFixed(1);
-}
-
-function exchangeFair(row, skip) {
-  const SHARP = new Set(["pinnacle", "circa", "bookmaker"]);
-  const vals = [];
-  Object.entries(mergeBooks(row.books) || {})
-    .filter(([k]) => k !== skip)
-    .forEach(([k, b]) => {
-      let n = Number(b?.no_vig);
-      if (Number.isFinite(n) && n > 0 && n <= 1) n = n * 100;
-      if (!Number.isFinite(n) || n <= 5 || n >= 95) {
-        const ip = bookImplied(b?.price);
-        if (ip != null && ip > 5 && ip < 95) n = ip;
-      }
-      if (!Number.isFinite(n) || n <= 8 || n >= 92) return;
-      vals.push(n);
-      if (SHARP.has(k)) vals.push(n);
-    });
-  if (vals.length < 2) return null;
-  vals.sort((a, b) => a - b);
-  const lo = Math.floor(vals.length * 0.1);
-  const hi = Math.ceil(vals.length * 0.9);
-  const pool = vals.slice(lo, hi);
-  const use = pool.length ? pool : vals;
-  return +(use.reduce((a, b) => a + b, 0) / use.length).toFixed(1);
-}
-
-function exchangeOffer(row) {
-  const key = state.view;
-  if (key === "kalshi") {
-    const k = kalshiOffer(row);
-    if (!k || k.cents == null) return null;
-    const c = Number(k.cents);
-    if (!Number.isFinite(c) || c < 3 || c > 97) return null;
-    return c;
-  }
-  const b = row.books?.[key];
-  if (!b || b.price == null) return null;
-  const px = Number(b.price);
-  if (!Number.isFinite(px) || Math.abs(px) > 500) return null;
-  return bookImplied(px);
 }
 
 function isWholeLine(n) {
@@ -267,14 +204,11 @@ function nvAtHalf(row, half) {
   const vals = [];
   Object.values(mergeBooks(row.books) || {}).forEach((b) => {
     if (!b || Math.abs(Number(b.line) - half) > 0.2) return;
-    let n = Number(b.no_vig);
-    const placeholder = !Number.isFinite(n) || n === 0.5 || n === 50;
-    if (Number.isFinite(n) && n > 0 && n <= 1) n = n * 100;
-    if (placeholder || !Number.isFinite(n) || n <= 5 || n >= 95) {
+    if (b.no_vig != null) vals.push(Number(b.no_vig));
+    else if (b.price != null) {
       const ip = bookImplied(b.price);
-      if (ip != null) n = ip;
+      if (ip != null) vals.push(ip);
     }
-    if (Number.isFinite(n) && n > 5 && n < 95) vals.push(n);
   });
   if (!vals.length) return null;
   vals.sort((a, b) => a - b);
@@ -302,29 +236,26 @@ function ppCashPct(row) {
       return +(poissonCdf(L - 1, lam) * 100).toFixed(1);
     }
   }
-  // Fallback when no nearby .5 line: use projection / average and exclude the push.
   const trueVal = Number(row.true_point ?? row.avg_line ?? row.projection ?? row.book_line);
   if (!Number.isFinite(trueVal)) return null;
   const under = String(row.side || "").toLowerCase() === "under";
-  const diff = trueVal - L;
-  // Rough: each point away from the line moves cash % by ~4, then strip a small push discount.
-  const raw = 50 + (under ? -diff : diff) * 4;
-  const cash = Math.max(8, Math.min(92, raw - 2));
-  return +cash.toFixed(1);
+  const lowCount = /td|touchdown|reception|goal|assist|hit|steal|block|sack/i.test(String(row.stat || ""));
+  const per = lowCount ? 2.2 : 4;
+  const raw = 50 + (under ? -(trueVal - L) : (trueVal - L)) * per;
+  return +Math.max(8, Math.min(92, raw - (lowCount ? 1 : 2))).toFixed(1);
 }
 
 function fantasyAdjustedPct(row) {
   if (!isFantasyStat(row.stat)) return null;
-  const cmp = fantasyCmp(row);
+  const cmp = row.fantasy_cmp || {};
   const trueVal = Number(row.true_point ?? row.avg_line ?? row.projection);
   if (!Number.isFinite(trueVal)) return null;
-  let line = null;
-  if (state.view === "ud") line = Number(cmp?.ud_as_pp ?? cmp?.ud ?? row.dfs?.underdog?.line ?? row.line);
-  else line = Number(cmp?.pp ?? row.dfs?.prizepicks?.line ?? row.line);
+  const line = state.view === "ud"
+    ? Number(cmp.ud_as_pp ?? cmp.ud ?? row.dfs?.underdog?.line)
+    : Number(cmp.pp ?? row.dfs?.prizepicks?.line ?? row.line);
   if (!Number.isFinite(line)) return null;
   const under = String(row.side || "").toLowerCase() === "under";
-  const diff = trueVal - line;
-  const raw = 50 + (under ? -diff : diff) * 1.8;
+  const raw = 50 + (under ? -(trueVal - line) : (trueVal - line)) * 1.6;
   return +Math.max(8, Math.min(92, raw)).toFixed(1);
 }
 
@@ -332,48 +263,60 @@ function hitPct(row) {
   if (state.view === "pp" || state.view === "ev") {
     const cash = ppCashPct(row);
     if (cash != null) return cash;
-    const nv = bookNoVig(row);
-    const sheet = Number(row.pct_to_hit);
-    if (nv != null && Number.isFinite(sheet) && Math.abs(sheet - nv) > 12) return nv;
-    if (Number.isFinite(sheet) && sheet > 5 && sheet < 95) return +sheet.toFixed(1);
-    if (nv != null) return nv;
   }
   if (state.view === "ud") {
     if (isFantasyStat(row.stat)) {
-      const adj = fantasyAdjustedPct(row);
-      if (adj != null) return adj;
       if (row.pct_ud != null) return row.pct_ud;
-      return bookNoVig(row);
+      return fantasyAdjustedPct(row) ?? bookNoVig(row);
     }
     const nv = bookNoVig(row);
+    if (row.pct_ud != null && !(Number(row.pct_ud) === 50 && nv != null)) return row.pct_ud;
     if (nv != null) return nv;
-    if (row.pct_ud != null && Number(row.pct_ud) !== 50) return row.pct_ud;
     if (row.pct_to_hit != null && Number(row.pct_to_hit) !== 50) return row.pct_to_hit;
   }
-  if (state.view === "pp" && isFantasyStat(row.stat)) {
+  if (state.view === "pp" && isFantasyStat(row.stat) && row.pct_to_hit == null) {
     const adj = fantasyAdjustedPct(row);
-    if (adj != null && row.pct_to_hit == null) return adj;
+    if (adj != null) return adj;
   }
-  if (["prophetx", "novig", "kalshi", "polymarket"].includes(state.view)) {
-    const fair = exchangeFair(row, state.view);
-    if (fair != null) return fair;
-    const offer = exchangeOffer(row);
-    return offer != null ? +offer.toFixed(1) : row.pct_to_hit;
+  if (state.view === "prophetx") {
+    const nv = bookNoVig(row);
+    if (nv != null) return nv;
+    const p = bookImplied(row.books?.prophetx?.price);
+    return p != null ? +p.toFixed(1) : row.pct_to_hit;
+  }
+  if (state.view === "novig") {
+    const nv = bookNoVig(row);
+    if (nv != null) return nv;
+    const p = bookImplied(row.books?.novig?.price);
+    return p != null ? +p.toFixed(1) : row.pct_to_hit;
+  }
+  if (state.view === "kalshi") {
+    const nv = bookNoVig(row);
+    if (nv != null) return nv;
+    return row.pct_to_hit;
+  }
+  if (state.view === "polymarket") {
+    const nv = bookNoVig(row);
+    if (nv != null) return nv;
+    return bookImplied(row.books?.polymarket?.price) ?? row.pct_to_hit;
   }
   return row.pct_to_hit;
 }
 
 function rowEdge(row) {
   if (state.view === "ud") {
-    const fair = isFantasyStat(row.stat) ? (hitPct(row) ?? bookNoVig(row)) : (bookNoVig(row) ?? hitPct(row));
+    const fair = hitPct(row);
     if (fair == null) return null;
     return +(fair - breakEven()).toFixed(1);
   }
   if (["prophetx", "novig", "kalshi", "polymarket"].includes(state.view)) {
-    const fair = exchangeFair(row, state.view);
-    const offer = exchangeOffer(row);
+    const fair = bookNoVig(row) ?? hitPct(row);
+    const offer = state.view === "kalshi"
+      ? bookImplied(kalshiOffer(row)?.price)
+      : state.view === "polymarket"
+        ? bookImplied(row.books?.polymarket?.price)
+        : offerImplied(row);
     if (fair == null || offer == null) return null;
-    if (sportsbookCount(row) < 2 && !isFantasyStat(row.stat)) return null;
     return +(fair - offer).toFixed(1);
   }
   const pct = hitPct(row);
@@ -410,6 +353,16 @@ function parseWhen(iso) {
   if (/^\d{4}-\d{2}-\d{2}T/.test(s) && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(s)) s += "Z";
   const d = new Date(s);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function fmtAgo(iso) {
+  const d = parseWhen(iso);
+  if (!d) return "";
+  const min = Math.max(0, Math.round((Date.now() - d.getTime()) / 60000));
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} min ago`;
+  const hr = Math.round(min / 60);
+  return hr === 1 ? "1 hr ago" : `${hr} hr ago`;
 }
 
 function fmtWhen(iso) {
@@ -588,14 +541,6 @@ function intelPlayer(name) {
   return intel.players[normName(name)] || null;
 }
 
-function intelStamp() {
-  const updated = state.intel?.updated || state.intel?.pulled_at;
-  const season = currentSeason();
-  const weeks = state.intel?.log_seasons?.length ? ` · logs through ${season}` : "";
-  if (!updated) return `Injuries / usage · ${season}${weeks}`;
-  return `Injuries / usage as of ${fmtWhen(updated)}${weeks}`;
-}
-
 function currentSeason() {
   if (state.intel?.injury_season) return Number(state.intel.injury_season);
   if (state.intel?.has_2026_logs) return 2026;
@@ -770,19 +715,6 @@ function upcomingOpp(focus) {
   return "";
 }
 
-function teamTargetShare(g) {
-  if (!g?.team || g.week == null) return null;
-  const tgt = Number(g.tgt || 0);
-  let teamTgt = 0;
-  Object.values(state.intel?.logs || {}).forEach((list) => {
-    (list || []).forEach((x) => {
-      if (x.team === g.team && x.week === g.week && x.season === g.season) teamTgt += Number(x.tgt || 0);
-    });
-  });
-  if (!teamTgt) return null;
-  return Math.round((tgt / teamTgt) * 100);
-}
-
 function logBarLabel(g) {
   if (g?.date) {
     const d = new Date(g.date);
@@ -800,10 +732,7 @@ function renderSplitChart(focus, recs) {
   if (!splits) return "";
   const oppSplit = vsOppSplit(recs, focus.stat, focus.line, focus.side, upcomingOpp(focus));
   const ln = focus.line == null ? null : Number(focus.line);
-  const all = recs.slice(-20);
-  const showAll = !!state.popupChartAll && all.length > 5;
-  const barsSrc = showAll ? all : all.slice(-5);
-  const bars = barsSrc.reverse().map((g) => {
+  const bars = recs.slice(-20).reverse().map((g) => {
     const v = logValue(g, focus.stat);
     let cls = "void";
     if (v == null || ln == null) cls = "void";
@@ -830,14 +759,9 @@ function renderSplitChart(focus, recs) {
       <em>${s.n} game${s.n === 1 ? "" : "s"}${s.avg != null ? ` · avg ${s.avg}` : ""}</em>
     </div>`;
   };
-  const slots = Math.max(bars.length, 1);
-  const more = all.length > 5
-    ? `<button type="button" class="chart-more" data-chart-more="${showAll ? "less" : "more"}" title="${showAll ? "Show last 5" : `Show last ${all.length}`}">${showAll ? "‹" : "›"}</button>`
-    : "";
   return `<h4 class="popup-h">Recent vs ${escapeHtml(focus.side || "")} ${focus.line ?? ""} ${escapeHtml(focus.stat || "")}</h4>
-    <div class="split-note">Green cleared the line · red missed · gray push. Showing ${showAll ? `all ${bars.length}` : `last ${bars.length}`} game${bars.length === 1 ? "" : "s"}.</div>
-    <div class="chart-row">
-    <div class="log-bars" style="--slots:${slots}">
+    <div class="split-note">Green cleared the line · red missed · gray push. Line marked across the bars.</div>
+    <div class="log-bars" style="--n:${Math.max(bars.length, 4)}">
       ${bars.map((b) => {
         const h = b.v == null ? 8 : Math.max(14, Math.round((Number(b.v) / maxV) * 100));
         return `<div class="log-col" title="${escapeHtml(b.lab)} vs ${escapeHtml(b.g.opp || "")}: ${b.v ?? "—"}">
@@ -849,8 +773,6 @@ function renderSplitChart(focus, recs) {
           <div class="log-opp">${escapeHtml(b.g.opp || "")}</div>
         </div>`;
       }).join("")}
-    </div>
-    ${more}
     </div>
     <div class="hit-grid">
       ${windows.map((s) => card(s.n >= recs.length ? `${currentSeason()} (${s.n})` : `Last ${s.n}`, s)).join("")}
@@ -968,8 +890,6 @@ function isStandardUd(r) {
   if (u.source !== "filter") return false;
   if (r.is_alternate) return false;
   if (isYesNoLongshot(r)) return false;
-  const nv = bookNoVig(r);
-  if (nv != null && (nv < 42 || nv > 58)) return false;
   return true;
 }
 
@@ -977,10 +897,8 @@ function isStandardExchange(r, key) {
   const b = r.books?.[key];
   if (!b || b.price == null) return false;
   if (r.is_alternate) return false;
-  const px = Math.abs(Number(b.price));
-  if (px >= 400 || px < 100) return false;
-  if (isYesNoLongshot(r) && px >= 180) return false;
-  if (sportsbookCount(r) < 2 && !isFantasyStat(r.stat)) return false;
+  if (Math.abs(Number(b.price)) >= 350) return false;
+  if (isYesNoLongshot(r) && Math.abs(Number(b.price)) >= 180) return false;
   return true;
 }
 
@@ -1030,7 +948,7 @@ function applyFilters(rows) {
     }
     if (hasStarted(r.commence_time)) return false;
     if (!matchesWhen(r.commence_time)) return false;
-    if (!q && state.minBooks && !isFantasyStat(r.stat) && state.view !== "pp" && sportsbookCount(r) < 2) return false;
+    if (!q && state.minBooks && !isFantasyStat(r.stat) && sportsbookCount(r) < 2) return false;
     if (team && !rowHasTeam(r, team)) return false;
     if (game && gameKeyOf(r) !== game && r.game !== game) return false;
     if (stat && r.stat !== stat) return false;
@@ -1157,16 +1075,6 @@ function fillWhen(all) {
   if ([...sel.options].some((o) => o.value === current)) sel.value = current;
 }
 
-function fillStats(pool) {
-  const base = (pool || []).filter((r) => matchesWhen(r.commence_time) && !hasStarted(r.commence_time));
-  const game = $("game")?.value || "";
-  const team = $("team")?.value || "";
-  const scoped = base.filter((r) => (!game || gameKeyOf(r) === game) && rowHasTeam(r, team));
-  const stats = unique(scoped.map((r) => r.stat).filter(Boolean));
-  const coreFirst = [...stats.filter((s) => CORE_STATS.has(s)).sort(), ...stats.filter((s) => !CORE_STATS.has(s)).sort()];
-  if ($("stat")) fillSelect($("stat"), coreFirst, "All props");
-}
-
 function fillSelect(sel, values, allLabel) {
   const current = sel.value;
   sel.innerHTML = `<option value="">${allLabel}</option>` +
@@ -1190,19 +1098,14 @@ function rowHasTeam(row, team) {
 }
 
 function fillGameAndTeam(pool) {
-  const base = (pool || []).filter((r) => matchesWhen(r.commence_time) && !hasStarted(r.commence_time));
-  const teams = unique(base.flatMap(teamNames)).sort((a, b) => a.localeCompare(b));
+  const teams = unique((pool || []).flatMap(teamNames)).sort((a, b) => a.localeCompare(b));
   if ($("team")) fillSelect($("team"), teams, "All teams");
   const team = $("team")?.value || "";
   const q = ($("gameQ")?.value || "").trim().toLowerCase();
-  let games = unique(base.filter((r) => rowHasTeam(r, team)).map((r) => gameKeyOf(r)).filter(Boolean))
+  let games = unique((pool || []).filter((r) => rowHasTeam(r, team)).map((r) => gameKeyOf(r)).filter(Boolean))
     .sort((a, b) => a.localeCompare(b));
   if (q) games = games.filter((g) => g.toLowerCase().includes(q));
-  if ($("game")) {
-    const prev = $("game").value;
-    fillSelect($("game"), games, games.length ? "All games" : "No matching games");
-    if (prev && ![...$("game").options].some((o) => o.value === prev)) $("game").value = "";
-  }
+  if ($("game")) fillSelect($("game"), games, games.length ? "All games" : "No matching games");
 }
 
 function visibleBooks() {
@@ -1245,15 +1148,10 @@ function renderHead() {
   });
 }
 
-function tierBadge(row) {
-  if (state.view === "pp" || state.view === "ev") {
-    const tier = row.pp_tier;
-    if (!tier) return `<span class="muted">—</span>`;
-    const cls = tier === "Demon" ? "tier demon" : tier === "Goblin" ? "tier goblin" : tier === "Alternate" ? "tier alt" : "tier std";
-    return `<span class="${cls}">${tier}</span>`;
-  }
-  if (row.is_alternate) return `<span class="tier alt">Alt</span>`;
-  return `<span class="tier std">Standard</span>`;
+function tierBadge(tier) {
+  if (!tier) return `<span class="muted">—</span>`;
+  const cls = tier === "Demon" ? "tier demon" : tier === "Goblin" ? "tier goblin" : tier === "Alternate" ? "tier alt" : "tier std";
+  return `<span class="${cls}">${tier}</span>`;
 }
 
 function bestCell(row) {
@@ -1451,33 +1349,22 @@ function renderSlip() {
   if (!bar) return;
   bar.hidden = state.section === "games" || state.slip.length === 0;
   if ($("slipCount")) $("slipCount").textContent = String(state.slip.length);
+  const names = state.slip.map((r) => r.player);
+  const dup = names.find((n, i) => names.indexOf(n) !== i);
   if ($("slipPicks")) {
     $("slipPicks").innerHTML = state.slip.map((r, i) =>
       `<button type="button" class="book-pick on" data-slip="${i}">${escapeHtml(r.player)} ${escapeHtml(r.side)} ${r.line ?? ""} ✕</button>`
-    ).join("");
+    ).join("") + (dup ? `<span class="line-note">Same player: ${escapeHtml(dup)}</span>` : "");
   }
   const open = $("slipOpen");
-  if (open) {
-    open.href = ppSlipLink(state.slip);
-  }
+  if (open) open.href = ppSlipLink(state.slip);
 }
 function addToSlip(row) {
-  if (!row?.dfs?.prizepicks) return;
-  const key = `${row.player}|${row.stat}|${row.side}|${row.line}`;
-  if (state.slip.some((s) => `${s.player}|${s.stat}|${s.side}|${s.line}` === key)) return;
-  if (state.slip.length >= 6) state.slip.shift();
+  if (state.slip.length >= 6) return;
+  const sig = `${row.player}|${row.stat}|${row.side}|${row.line}`;
+  if (state.slip.some((r) => `${r.player}|${r.stat}|${r.side}|${r.line}` === sig)) return;
   state.slip.push(row);
   renderSlip();
-  const note = $("slipNote");
-  if (note) {
-    note.textContent = `Added ${row.player} ${row.side} ${row.line ?? ""}`;
-    note.hidden = false;
-    setTimeout(() => { note.hidden = true; }, 1800);
-  }
-}
-
-function slipText() {
-  return state.slip.map((r) => `${r.player} ${r.side} ${r.line ?? ""} ${r.stat}`).join("\n");
 }
 
 function renderGames() {
@@ -1799,13 +1686,6 @@ function gameKeyOf(row) {
   return g.trim();
 }
 
-function teamPairKey(row) {
-  const key = gameKeyOf(row);
-  const parts = String(key || "").split("@").map((s) => s.trim()).filter(Boolean);
-  if (parts.length !== 2) return key;
-  return parts.slice().sort().join("|");
-}
-
 function richerGame(a, b) {
   const score = (r) => [r.spread, r.total, r.ml_home, r.ml_away, r.player, r.books].filter((x) => x != null && x !== "").length;
   return score(b) > score(a) ? b : a;
@@ -1819,8 +1699,7 @@ function upcomingGames() {
     if (r.commence_time && !matchesWhen(r.commence_time)) return;
     const key = gameKeyOf(r);
     if (!key || key === "@") return;
-    const pair = teamPairKey(r) || key;
-    map.set(pair, map.has(pair) ? richerGame(map.get(pair), r) : r);
+    map.set(key, map.has(key) ? richerGame(map.get(key), r) : r);
   };
   (state.data?.games || []).forEach(add);
   (state.data?.props || []).forEach(add);
@@ -1837,10 +1716,15 @@ function rowsForGame(game) {
 }
 
 function previewBest(rows) {
+  const view = state.view;
   return rows
-    .filter((r) => r.dfs?.prizepicks && (!r.pp_tier || r.pp_tier === "Standard") && !r.is_alternate)
+    .filter((r) => {
+      if (view === "ud") return r.dfs?.underdog && !r.is_alternate;
+      if (view === "pp" || view === "ev") return r.dfs?.prizepicks && (!r.pp_tier || r.pp_tier === "Standard") && !r.is_alternate;
+      return true;
+    })
     .map((r) => ({ r, edge: rowEdge(r) }))
-    .filter((x) => x.r.pct_to_hit != null)
+    .filter((x) => hitPct(x.r) != null)
     .sort((a, b) => (b.edge ?? -999) - (a.edge ?? -999))
     .slice(0, 12);
 }
@@ -1865,8 +1749,11 @@ function gameScript(sample) {
 
 function rankedOvers(rows, team, stats) {
   return rows
-    .filter((r) => r.side === "Over" && r.dfs?.prizepicks && (!stats || stats.has(r.stat)) && (!team || rowTeam(r) === team))
-    .sort((a, b) => (b.pct_to_hit || 0) - (a.pct_to_hit || 0));
+    .filter((r) => r.side === "Over" && (!stats || stats.has(r.stat)) && (!team || rowTeam(r) === team))
+    .map((r) => ({ r, edge: rowEdge(r) }))
+    .filter((x) => (x.edge ?? -999) >= 0)
+    .sort((a, b) => (b.edge ?? -999) - (a.edge ?? -999))
+    .map((x) => x.r);
 }
 
 function previewCorrelates(rows, sample) {
@@ -2020,7 +1907,7 @@ function previewUsage(sample) {
   const html = `${table(away, byTeam[away] || [])}${table(home, byTeam[home] || [])}`;
   if (!html) return "";
   return `<div class="preview-card snap-card">
-    <h3>Snaps by team <span class="muted" style="font-weight:400;font-size:12px">${escapeHtml(intelStamp())}</span></h3>
+    <h3>Snaps by team</h3>
     <div class="corr-why">${season} offensive snap %. Green / red is vs that player's own season average. QBs do not show routes.</div>
     ${html}
   </div>`;
@@ -2193,44 +2080,23 @@ function gameRosterNames(sample) {
   return names;
 }
 
-function kalshiNameMatch(title, name) {
-  const t = nameKey(title);
-  const n = nameKey(name);
-  if (!t || !n) return false;
-  if (t.includes(n)) return true;
-  const toks = n.split(" ");
-  if (toks.length < 2) return false;
-  const first = toks[0];
-  const last = toks[toks.length - 1];
-  if (last.length < 4) return false;
-  const initial = first[0];
-  return t.includes(last) && (t.includes(`${initial} ${last}`) || t.includes(`${initial}${last}`) || t.startsWith(`${initial} `));
-}
-
 function kalshiPropsForGame(sample) {
   const list = state.data?.kalshi?.props || [];
   if (!list.length || !sample) return [];
   const roster = gameRosterNames(sample);
   if (!roster.size) return [];
-  const teams = gameTeams(sample);
-  return list.filter((m) => {
-    const player = (m.title || "").split(":")[0];
-    const key = nameKey(player);
-    if (roster.has(key)) return true;
-    for (const name of roster) {
-      if (kalshiNameMatch(player, name)) return true;
-    }
-    const blob = `${m.title || ""} ${m.subtitle || ""}`.toUpperCase();
-    return [...teams].some((t) => blob.includes(` ${t} `) || blob.startsWith(`${t} `));
-  }).sort((a, b) => (b.dollar || 0) - (a.dollar || 0));
+  return list.filter((m) => roster.has(nameKey((m.title || "").split(":")[0]))).sort((a, b) => (b.dollar || 0) - (a.dollar || 0));
 }
 
 function kalshiPropsForPlayer(player) {
   const list = state.data?.kalshi?.props || [];
   const key = nameKey(player);
   if (!key) return [];
-  return list.filter((m) => kalshiNameMatch(`${m.title || ""} ${m.subtitle || ""}`, player))
-    .sort((a, b) => (b.dollar || 0) - (a.dollar || 0));
+  const last = key.split(" ").pop();
+  return list.filter((m) => {
+    const t = nameKey(`${m.title || ""} ${m.subtitle || ""}`);
+    return t.includes(key) || (last && last.length > 3 && t.includes(last));
+  }).sort((a, b) => (b.dollar || 0) - (a.dollar || 0));
 }
 
 function kalshiActionNote(m, best, sample) {
@@ -2443,7 +2309,7 @@ function renderPreview() {
     ${previewUsage(sample)}
     <div class="preview-grid">
       <div class="preview-card">
-        <h3>Injuries / availability <span class="muted" style="font-weight:400;font-size:12px">${escapeHtml(intelStamp())}</span></h3>
+        <h3>Injuries / availability</h3>
         ${inj.length ? inj.map((r) => `<div class="preview-inj">
           <button type="button" class="preview-inj-head" data-inj="1">
             <div class="player-row">${headshotTag(r.headshot)}
@@ -2471,7 +2337,7 @@ function renderPreview() {
       </div>
     </div>`;
   $("count").textContent = `${shown.length} games · ${rows.length} props`;
-  $("updated").textContent = `Updated ${fmtWhen(state.data?.updated)} · BE ${breakEven()}%`;
+  $("updated").textContent = `Updated ${fmtAgo(state.data?.updated) || fmtWhen(state.data?.updated)} · BE ${breakEven()}%`;
 }
 
 function showSectionWraps() {
@@ -2479,13 +2345,7 @@ function showSectionWraps() {
   const propsWrap = $("propsWrap");
   const books = document.querySelector(".books-bar");
   const filt = document.querySelector(".filters");
-  const arbWrap = $("arbStakeWrap");
-  if (arbWrap) arbWrap.hidden = state.view !== "arb" || state.section !== "props";
   if (propsWrap) propsWrap.style.display = state.section === "props" ? "block" : "none";
-  ["previewWrap", "gamesWrap", "volumeWrap", "newsWrap", "injWrap", "logsWrap", "stacksWrap"].forEach((id) => {
-    const el = $(id);
-    if (el) el.style.display = "none";
-  });
   if (books) books.style.display = state.section === "props" ? "flex" : "none";
   if (filt) [...filt.querySelectorAll("select, label, input")].forEach((el) => {
     if (el.id === "sport" || el.id === "section" || el.id === "q") return;
@@ -2514,65 +2374,6 @@ function indexKalshi() {
   state.kalshiByLast = byLast;
 }
 
-function bestBookEdge(row) {
-  const TRAD = ["draftkings", "fanduel", "betmgm", "williamhill_us", "betrivers", "espnbet", "bovada", "hardrockbet", "pinnacle"];
-  const fair = exchangeFair(row, "");
-  if (fair == null || fair < 15 || fair > 85) return null;
-  const rowLine = Number(row.line);
-  let best = null;
-  TRAD.forEach((k) => {
-    const b = row.books?.[k];
-    if (!b || b.price == null) return;
-    if (b.line != null && Math.abs(Number(b.line) - rowLine) > 0.6) return;
-    const px = Number(b.price);
-    if (!Number.isFinite(px) || px > 250 || px < -300) return;
-    const ip = bookImplied(px);
-    if (ip == null || ip < 20 || ip > 80) return;
-    const edge = +(fair - ip).toFixed(1);
-    if (edge > 12 || edge < -5) return;
-    if (!best || edge > best.edge) best = { book: k, price: px, ip, edge, fair };
-  });
-  return best && best.edge > 1 ? best : null;
-}
-
-function arbPairs(rows) {
-  const groups = new Map();
-  rows.forEach((r) => {
-    if (!r.player || r.line == null) return;
-    const key = `${nameKey(r.player)}|${r.stat}|${r.line}|${gameKeyOf(r)}`;
-    if (!groups.has(key)) groups.set(key, { over: null, under: null, sample: r });
-    const g = groups.get(key);
-    if (String(r.side).toLowerCase() === "over") g.over = r;
-    else if (String(r.side).toLowerCase() === "under") g.under = r;
-  });
-  const out = [];
-  const TRAD = ["draftkings", "fanduel", "betmgm", "williamhill_us", "betrivers", "espnbet", "bovada", "hardrockbet", "pinnacle", "novig", "prophetx"];
-  groups.forEach((g) => {
-    if (!g.over || !g.under) return;
-    let bestOver = null, bestUnder = null;
-    TRAD.forEach((k) => {
-      const o = g.over.books?.[k];
-      const u = g.under.books?.[k];
-      if (o?.price != null && Math.abs(Number(o.price)) < 400 && Math.abs(Number(o.price)) >= 100) {
-        const ip = bookImplied(o.price);
-        if (ip != null && (!bestOver || ip < bestOver.ip)) bestOver = { book: k, price: o.price, ip };
-      }
-      if (u?.price != null && Math.abs(Number(u.price)) < 400 && Math.abs(Number(u.price)) >= 100) {
-        const ip = bookImplied(u.price);
-        if (ip != null && (!bestUnder || ip < bestUnder.ip)) bestUnder = { book: k, price: u.price, ip };
-      }
-    });
-    if (!bestOver || !bestUnder || bestOver.book === bestUnder.book) return;
-    const sum = bestOver.ip + bestUnder.ip;
-    if (sum >= 99.5 || sum < 96) return;
-    const arb = +(100 - sum).toFixed(2);
-    const overStake = +(bestOver.ip / sum * 100).toFixed(1);
-    const underStake = +(bestUnder.ip / sum * 100).toFixed(1);
-    out.push({ ...g.sample, over: bestOver, under: bestUnder, arb, overStake, underStake });
-  });
-  return out.sort((a, b) => b.arb - a.arb);
-}
-
 function render(full) {
   if (!state.data && !state.intel) return;
   syncTabs();
@@ -2581,11 +2382,13 @@ function render(full) {
     const all = state.data?.props || [];
     fillWhen(all);
     if (state.data) {
-      $("updated").textContent = `Updated ${fmtWhen(state.data.updated)} · BE ${breakEven()}%`;
+      $("updated").textContent = `Updated ${fmtAgo(state.data.updated) || fmtWhen(state.data.updated)} · BE ${breakEven()}%`;
       const sport = ($("sport")?.value || state.sport || "all").toLowerCase();
       const pool = sport === "all" ? all : all.filter((r) => String(r.sport || "").toLowerCase() === sport);
       fillGameAndTeam(pool);
-      fillStats(pool);
+      const stats = unique(all.map((r) => r.stat));
+      const coreFirst = [...stats.filter((s) => CORE_STATS.has(s)).sort(), ...stats.filter((s) => !CORE_STATS.has(s)).sort()];
+      fillSelect($("stat"), coreFirst, "All props");
     }
     renderBookPicks();
     renderHead();
@@ -2604,75 +2407,16 @@ function render(full) {
   if (sec !== "props") return;
   if (!state.data) return;
   const all = state.liveProps || state.data.props || [];
-
-  if (state.view === "books") {
-    const hits = all.map((r) => ({ r, best: bestBookEdge(r) })).filter((x) => x.best && x.best.edge > 0.5);
-    hits.sort((a, b) => b.best.edge - a.best.edge);
-    $("count").textContent = `${hits.length} books edges`;
-    $("empty").style.display = hits.length ? "none" : "block";
-    $("empty").textContent = "No book is beating the market right now.";
-    $("headrow").innerHTML = `<th>Player</th><th>Stat</th><th>Line</th><th>Book</th><th>Price</th><th>Fair</th><th>Edge</th>`;
-    $("tbody").innerHTML = hits.slice(0, 200).map(({ r, best }) => {
-      const meta = BOOK_BY_KEY[best.book];
-      return `<tr>
-        <td><div class="player-row">${headshotTag(r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}${posTag(r)}</button></div>
-          <div class="game"><span class="sport-tag ${escapeHtml(String(r.sport || "").toLowerCase())}">${escapeHtml(r.sport || "")}</span> ${escapeHtml(matchup(r))}</div></td>
-        <td>${escapeHtml(r.stat)}</td>
-        <td class="line-cell"><div class="line-stack">${sideTag(r.side)}<div class="line-num">${r.line ?? ""}</div></div></td>
-        <td>${meta ? bookMark(meta, "sm") + " " + escapeHtml(meta.name) : best.book}</td>
-        <td>${american(best.price)}</td>
-        <td>${best.fair}%${r.avg_line != null ? `<div class="line-note">mkt ${r.avg_line}</div>` : ""}</td>
-        <td><span class="pct good">+${best.edge}</span><div class="line-note">${sportsbookCount(r)} books</div></td>
-      </tr>`;
-    }).join("");
-    return;
-  }
-
-  if (state.view === "arb") {
-    const wrap = $("arbStakeWrap");
-    if (wrap) wrap.hidden = false;
-    const pairs = arbPairs(all);
-    const stake = Number($("arbStake")?.value || 10);
-    $("count").textContent = `${pairs.length} arbs`;
-    $("empty").style.display = pairs.length ? "none" : "block";
-    $("empty").textContent = "No arbitrage pairs right now.";
-    $("headrow").innerHTML = `<th>Player</th><th>Stat</th><th>Line</th><th>Over</th><th>Under</th><th>Arb</th><th>$ on Over</th><th>$ on Under</th><th>Profit</th>`;
-    $("tbody").innerHTML = pairs.slice(0, 100).map((p) => {
-      const om = BOOK_BY_KEY[p.over.book];
-      const um = BOOK_BY_KEY[p.under.book];
-      const overDol = +(stake * p.overStake / 100).toFixed(2);
-      const underDol = +(stake * p.underStake / 100).toFixed(2);
-      const profit = +(stake * p.arb / 100).toFixed(2);
-      return `<tr>
-        <td><div class="player-row">${headshotTag(p.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(p.player)}" data-eid="${escapeHtml(p.event_id || "")}" data-market="${escapeHtml(p.market || "")}" data-side="Over">${escapeHtml(p.player)}${posTag(p)}</button></div>
-          <div class="game"><span class="sport-tag ${escapeHtml(String(p.sport || "").toLowerCase())}">${escapeHtml(p.sport || "")}</span> ${escapeHtml(matchup(p))}</div></td>
-        <td>${escapeHtml(p.stat)}</td>
-        <td class="line-num">${p.line ?? ""}</td>
-        <td>${om ? bookMark(om, "sm") : ""} ${american(p.over.price)}</td>
-        <td>${um ? bookMark(um, "sm") : ""} ${american(p.under.price)}</td>
-        <td><span class="pct good">${p.arb}%</span></td>
-        <td>$${overDol}</td>
-        <td>$${underDol}</td>
-        <td><span class="pct good">$${profit}</span></td>
-      </tr>`;
-    }).join("");
-    return;
-  }
-
   const rows = sortRows(applyFilters(all));
-  const cap = 200;
+  const cap = state.showMore ? 600 : 200;
   const view = rows.slice(0, cap);
-  $("count").textContent = rows.length > cap ? `${cap} of ${rows.length.toLocaleString()} shown` : `${rows.length.toLocaleString()} shown`;
+  $("count").textContent = rows.length > cap
+    ? `${cap} of ${rows.length.toLocaleString()} shown`
+    : `${rows.length.toLocaleString()} shown`;
 
   if (!rows.length) {
     $("tbody").innerHTML = "";
     $("empty").style.display = "block";
-    const emptyMsg = state.view === "pick6"
-      ? "Pick6 has no data source yet."
-      : state.view === "polymarket"
-        ? "Polymarket has no matched props yet."
-        : "No rows match these filters.";
-    $("empty").textContent = emptyMsg;
     return;
   }
   $("empty").style.display = "none";
@@ -2685,14 +2429,14 @@ function render(full) {
       <tr>
         <td>
           <div class="player-row">${headshotTag(r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">${escapeHtml(r.player)}${posTag(r)}</button>${venueIcon(r)}${weatherIcon(r)}${flagIcons(r)}</div>
-          <div class="game"><span class="sport-tag ${escapeHtml(String(r.sport || "").toLowerCase())}">${escapeHtml(r.sport || "")}</span> ${escapeHtml(matchup(r))} · ${escapeHtml(fmtWhen(r.commence_time))}</div>
+          <div class="game"><span class="sport-tag">${escapeHtml(r.sport || "")}</span> ${escapeHtml(matchup(r))} · ${escapeHtml(fmtWhen(r.commence_time))}</div>
           <div class="script">${scriptLine(r)}${r.broadcasts ? ` · ${escapeHtml(r.broadcasts)}` : ""}</div>
         </td>
         <td>${escapeHtml(r.stat)}</td>
         <td class="line-cell"><div class="line-stack"><span class="tag ${sideClass}">${escapeHtml(r.side)}</span><div class="line-num">${lineTxt ?? "—"}</div>${fantasyNote(r)}</div></td>
-        <td>${tierBadge(r)}</td>
+        <td>${tierBadge(r.pp_tier)}</td>
         <td><span class="${pctClass(hitPct(r))}">${hitPct(r) != null ? hitPct(r).toFixed(1) + "%" : "—"}</span></td>
-        <td class="${edge >= 0 ? "" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}${["prophetx", "novig", "kalshi", "polymarket"].includes(state.view) ? ` <span class="line-note">${sportsbookCount(r)} books</span>` : ""}${r.dfs?.prizepicks ? `<button type="button" class="slip-add" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">+ slip</button>` : ""}</td>
+        <td class="${edge >= 0 ? "" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}${r.dfs?.prizepicks ? `<button type="button" class="slip-add" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">+ slip</button>` : ""}</td>
         ${bestCell(r)}
         ${cols.map((b) => bookCell(r, b.key)).join("")}
       </tr>`;
@@ -2706,7 +2450,6 @@ document.querySelectorAll(".tab[data-view]").forEach((btn) => {
       state.section = "props";
       if ($("section")) $("section").value = "props";
     }
-    renderHead();
     render();
   });
 });
@@ -2761,7 +2504,6 @@ $("stacksBody")?.addEventListener("click", (e) => {
   const btn = e.target.closest(".player-btn");
   if (btn?.dataset.player) openPlayerPopup(btn.dataset.player, "", "", "");
 });
-$("arbStake")?.addEventListener("input", () => { if (state.view === "arb") render(); });
 $("minBooks")?.addEventListener("change", () => {
   state.minBooks = !!$("minBooks").checked;
   render();
@@ -2769,12 +2511,11 @@ $("minBooks")?.addEventListener("change", () => {
 let qTimer = null;
 ["game", "stat", "side", "tier", "picks", "minPct", "when", "team"].forEach((id) => {
   $(id)?.addEventListener("change", () => {
-    if (id === "when" || id === "team" || id === "game") {
+    if (id === "team") {
       const all = state.data?.props || [];
       const sport = ($("sport")?.value || state.sport || "all").toLowerCase();
       const pool = sport === "all" ? all : all.filter((r) => String(r.sport || "").toLowerCase() === sport);
       fillGameAndTeam(pool);
-      fillStats(pool);
     }
     render();
   });
@@ -2783,36 +2524,17 @@ $("q")?.addEventListener("input", () => {
   clearTimeout(qTimer);
   qTimer = setTimeout(() => render(), 180);
 });
-$("game")?.addEventListener("mousedown", (e) => {
-  e.preventDefault();
-  const drop = $("gameDrop");
-  if (!drop) return;
-  drop.hidden = !drop.hidden;
-  if (!drop.hidden) {
-    renderGameOpts();
-    $("gameQ")?.focus();
-  }
+$("gameQ")?.addEventListener("input", () => {
+  clearTimeout(qTimer);
+  qTimer = setTimeout(() => {
+    const all = state.data?.props || [];
+    const sport = ($("sport")?.value || state.sport || "all").toLowerCase();
+    const pool = sport === "all" ? all : all.filter((r) => String(r.sport || "").toLowerCase() === sport);
+    fillGameAndTeam(pool);
+    render();
+  }, 120);
 });
-function renderGameOpts() {
-  const sel = $("game");
-  const box = $("gameOpts");
-  if (!sel || !box) return;
-  const q = ($("gameQ")?.value || "").trim().toLowerCase();
-  const opts = [...sel.options].filter((o) => !q || o.textContent.toLowerCase().includes(q) || o.value.toLowerCase().includes(q));
-  box.innerHTML = opts.map((o) => `<button type="button" class="game-opt${o.value === sel.value ? " on" : ""}" data-val="${escapeHtml(o.value)}">${escapeHtml(o.textContent)}</button>`).join("");
-}
-$("gameOpts")?.addEventListener("click", (e) => {
-  const btn = e.target.closest(".game-opt");
-  if (!btn) return;
-  $("game").value = btn.dataset.val;
-  $("gameDrop").hidden = true;
-  $("gameQ").value = "";
-  render();
-});
-$("gameQ")?.addEventListener("input", renderGameOpts);
-document.addEventListener("click", (e) => {
-  if (!e.target.closest("#gameCombo")) $("gameDrop").hidden = true;
-});
+
 
 function closePopup() {
   const el = $("popup");
@@ -2931,7 +2653,7 @@ function contextLog(recs, focus) {
   const groups = [`<th class="grp" colspan="3">Fantasy / game</th>`];
   const sub = ["<th>Week</th><th>Fpts</th><th>Matchup</th>"];
   if (passOn) { groups.push(`<th class="grp" colspan="5">Passing</th>`); sub.push("<th>Cmp</th><th>Att</th><th>Yds</th><th>TD</th><th>INT</th>"); }
-  if (recOn) { groups.push(`<th class="grp" colspan="7">Receiving</th>`); sub.push("<th>Rec</th><th>Tar</th><th>Yds</th><th>TD</th><th>Tgt%</th><th>Catch%</th><th>Rte%</th>"); }
+  if (recOn) { groups.push(`<th class="grp" colspan="6">Receiving</th>`); sub.push("<th>Rec</th><th>Tar</th><th>Yds</th><th>TD</th><th>Catch%</th><th>Rte%</th>"); }
   if (rushOn) { groups.push(`<th class="grp" colspan="4">Rushing</th>`); sub.push("<th>Att</th><th>Yds</th><th>Avg</th><th>TD</th>"); }
   groups.push(`<th class="grp" colspan="2">Snaps</th>`);
   sub.push("<th>Snp</th><th>Snp%</th>");
@@ -2944,7 +2666,7 @@ function contextLog(recs, focus) {
       `<td class="match">${escapeHtml(match)}</td>`,
     ];
     if (passOn) bits.push(`<td>${g.cmp ?? 0}</td><td>${g.att ?? 0}</td><td>${g.pass_yds ?? 0}</td><td>${g.pass_td ?? 0}</td><td>${g.int ?? 0}</td>`);
-    if (recOn) bits.push(`<td>${g.rec ?? 0}</td><td>${g.tgt ?? 0}</td><td>${g.rec_yds ?? 0}</td><td>${g.rec_td ?? 0}</td><td>${teamTargetShare(g) != null ? `${teamTargetShare(g)}%` : "—"}</td><td>${catchPct(g) != null ? `${catchPct(g)}%` : "—"}</td><td>${g.route_pct != null ? `${Math.round(g.route_pct)}%` : "—"}</td>`);
+    if (recOn) bits.push(`<td>${g.rec ?? 0}</td><td>${g.tgt ?? 0}</td><td>${g.rec_yds ?? 0}</td><td>${g.rec_td ?? 0}</td><td>${catchPct(g) != null ? `${catchPct(g)}%` : "—"}</td><td>${g.route_pct != null ? `${Math.round(g.route_pct)}%` : "—"}</td>`);
     if (rushOn) bits.push(`<td>${g.car ?? 0}</td><td>${g.rush_yds ?? 0}</td><td>${avg}</td><td>${g.rush_td ?? 0}</td>`);
     bits.push(`<td>${g.off_snaps ?? "—"}</td><td>${g.off_pct != null ? `${Math.round(g.off_pct)}%` : "—"}</td>`);
     return `<tr>${bits.join("")}</tr>`;
@@ -3011,56 +2733,7 @@ function usageDetail(recs, pos, focus) {
     </table></div>`;
 }
 
-function dvpFor(row) {
-  if (sportOf(row) !== "NFL" || !state.intel?.logs || !state.intel?.players) return null;
-  const meta = intelPlayer(row.player);
-  const pos = String(row.position || meta?.pos || "").toUpperCase();
-  if (!pos || !["QB", "RB", "WR", "TE"].includes(pos)) return null;
-  const oppRaw = row.home ? row.away_team : row.home_team;
-  const oppAb = abbr(oppRaw, row);
-  if (!oppAb) return null;
-  const stat = String(row.stat || "");
-  const statKey = /pass td/i.test(stat) ? "pass_td"
-    : /pass yds|passing/i.test(stat) ? "pass_yds"
-    : /rush td/i.test(stat) ? "rush_td"
-    : /rush yds|rushing/i.test(stat) ? "rush_yds"
-    : /rush att|carries/i.test(stat) ? "car"
-    : /rec td/i.test(stat) ? "rec_td"
-    : /receptions|^rec$/i.test(stat) ? "rec"
-    : /targets/i.test(stat) ? "tgt"
-    : /rec yds|receiving/i.test(stat) ? "rec_yds"
-    : /completions/i.test(stat) ? "cmp"
-    : /pass att/i.test(stat) ? "att"
-    : "ppr";
-  const byOpp = {};
-  Object.values(state.intel.players).forEach((p) => {
-    if (String(p.pos || "").toUpperCase() !== pos) return;
-    (state.intel.logs[p.gsis_id] || []).forEach((g) => {
-      const o = abbr(g.opp, row);
-      if (!o) return;
-      const gameKey = `${g.season}|${g.week}|${o}`;
-      if (!byOpp[o]) byOpp[o] = {};
-      if (!byOpp[o][gameKey]) byOpp[o][gameKey] = 0;
-      const v = Number(g[statKey]);
-      if (Number.isFinite(v)) byOpp[o][gameKey] += v;
-    });
-  });
-  const ranks = Object.entries(byOpp).map(([o, games]) => {
-    const totals = Object.values(games);
-    return { opp: o, avg: totals.reduce((a, b) => a + b, 0) / totals.length, n: totals.length };
-  }).sort((a, b) => b.avg - a.avg);
-  const hit = ranks.find((r) => r.opp === oppAb);
-  if (!hit) return null;
-  return { pos, opp: oppAb, avg: +hit.avg.toFixed(1), rank: ranks.indexOf(hit) + 1, of: ranks.length, stat: row.stat || statKey };
-}
-
 function openPlayerPopup(player, eventId, market, side) {
-  const popupKey = `${player}|${eventId || ""}|${market || ""}|${side || ""}`;
-  if (state.popupKey !== popupKey) {
-    state.popupChartAll = false;
-    state.popupTab = state.popupTab && state.popupKey.startsWith(`${player}|`) ? state.popupTab : "bet";
-  }
-  state.popupKey = popupKey;
   const all = state.data?.props || [];
   const key = nameKey(player);
   const mine = all.filter((r) => r.player === player || nameKey(r.player) === key);
@@ -3123,7 +2796,6 @@ function openPlayerPopup(player, eventId, market, side) {
       <button type="button" class="pop-tab" data-pop-tab="chart">Chart</button>
       <button type="button" class="pop-tab" data-pop-tab="log">Game log</button>
       <button type="button" class="pop-tab" data-pop-tab="usage">Usage</button>
-      <button type="button" class="pop-tab" data-pop-tab="dvp">DVP</button>
       <button type="button" class="pop-tab" data-pop-tab="lines">Lines</button>
     </div>
     <div class="pop-body">
@@ -3146,17 +2818,6 @@ function openPlayerPopup(player, eventId, market, side) {
     </div>
     <div class="pop-pane" data-pop-pane="usage" hidden>
     ${usageDetail(recs, pos || meta?.pos, focus)}
-    </div>
-    <div class="pop-pane" data-pop-pane="dvp" hidden>
-    ${(() => {
-      const d = dvpFor(focus);
-      if (!d) return `<div class="muted">DVP is NFL only, and needs an opponent plus a QB/RB/WR/TE position.</div>`;
-      const soft = d.rank <= 10;
-      return `<div class="popup-stat"><b>${escapeHtml(d.opp)} vs ${escapeHtml(d.pos)}</b>
-        Allows ${d.avg} ${escapeHtml(d.stat)} per game to ${escapeHtml(d.pos)} · rank ${d.rank} of ${d.of}
-        <div class="corr-why">${soft ? "Soft matchup (top 10 allowed)." : "Tougher matchup."}</div>
-      </div>`;
-    })()}
     </div>
     <div class="pop-pane" data-pop-pane="lines" hidden>
     ${newsBlock}
@@ -3262,10 +2923,6 @@ function openPlayerPopup(player, eventId, market, side) {
   $("popupClose").onclick = closePopup;
   const slipBtn = $("popupSlip");
   if (slipBtn) slipBtn.onclick = () => addToSlip(focus);
-  if (state.popupTab && state.popupTab !== "bet") {
-    $("popupCard")?.querySelectorAll("[data-pop-tab]").forEach((b) => b.classList.toggle("on", b.dataset.popTab === state.popupTab));
-    $("popupCard")?.querySelectorAll("[data-pop-pane]").forEach((p) => { p.hidden = p.dataset.popPane !== state.popupTab; });
-  }
 }
 
 document.addEventListener("click", (e) => {
@@ -3297,12 +2954,7 @@ $("tbody").addEventListener("click", (e) => {
   const add = e.target.closest(".slip-add");
   if (add) {
     const all = state.data?.props || [];
-    const row = all.find((r) =>
-      r.player === add.dataset.player &&
-      r.event_id === add.dataset.eid &&
-      r.market === add.dataset.market &&
-      r.side === add.dataset.side
-    ) || all.find((r) => r.player === add.dataset.player && r.side === add.dataset.side);
+    const row = all.find((r) => r.player === add.dataset.player && r.event_id === add.dataset.eid && r.market === add.dataset.market && r.side === add.dataset.side);
     if (row) addToSlip(row);
     return;
   }
@@ -3316,27 +2968,12 @@ $("slipPicks")?.addEventListener("click", (e) => {
   state.slip.splice(Number(btn.dataset.slip), 1);
   renderSlip();
 });
-$("slipOpen")?.addEventListener("click", async () => {
-  const text = slipText();
-  if (text) {
-    try { await navigator.clipboard.writeText(text); } catch (_) {}
-  }
-  window.open("https://app.prizepicks.com/", "_blank", "noopener");
-});
+$("slipClear")?.addEventListener("click", () => { state.slip = []; renderSlip(); });
 $("popup")?.addEventListener("click", (e) => {
   if (e.target.id === "popup") closePopup();
-  const more = e.target.closest("[data-chart-more]");
-  if (more) {
-    state.popupChartAll = more.dataset.chartMore !== "less";
-    state.popupTab = "chart";
-    const [player, eventId, market, side] = (state.popupKey || "").split("|");
-    if (player) openPlayerPopup(player, eventId, market, side);
-    return;
-  }
   const tab = e.target.closest("[data-pop-tab]");
   if (!tab) return;
   const name = tab.dataset.popTab;
-  state.popupTab = name;
   $("popupCard")?.querySelectorAll("[data-pop-tab]").forEach((b) => b.classList.toggle("on", b === tab));
   $("popupCard")?.querySelectorAll("[data-pop-pane]").forEach((p) => { p.hidden = p.dataset.popPane !== name; });
 });
@@ -3422,31 +3059,29 @@ async function loadData() {
     }
     const sport = $("sport")?.value || state.sport || "all";
     state.sport = sport;
-    state.boardCache = state.boardCache || {};
-    const keys = sport === "all" ? Object.keys(DATA_URLS) : [sport];
-    const missing = keys.filter((k) => !state.boardCache[k]);
-    if (missing.length) {
-      const results = await Promise.allSettled(missing.map((k) => fetchBoard(DATA_URLS[k], version)));
-      results.forEach((res, i) => {
-        const key = missing[i];
-        state.boardCache[key] = res.status === "fulfilled"
-          ? tagSport(res.value, SPORT_LABEL[key] || key.toUpperCase())
-          : { props: [], games: [], kalshi: {} };
-      });
+    if (sport === "all") {
+      const keys = Object.keys(DATA_URLS);
+      const results = await Promise.allSettled(keys.map((k) => fetchBoard(DATA_URLS[k], version)));
+      const boards = results.map((res, i) => res.status === "fulfilled"
+        ? tagSport(res.value, SPORT_LABEL[keys[i]])
+        : { props: [], games: [], kalshi: {} });
+      state.data = {
+        updated: boards.find((b) => b.updated)?.updated,
+        sport: "ALL",
+        props: boards.flatMap((b) => b.props || []),
+        games: boards.flatMap((b) => b.games || []),
+        kalshi: {
+          ml: boards.flatMap((b) => b.kalshi?.ml || []),
+          spread: boards.flatMap((b) => b.kalshi?.spread || []),
+          total: boards.flatMap((b) => b.kalshi?.total || []),
+          props: boards.flatMap((b) => b.kalshi?.props || []),
+        },
+      };
+    } else {
+      const label = SPORT_LABEL[sport] || sport.toUpperCase();
+      const data = await fetchBoard(DATA_URLS[sport] || DATA_URLS.nfl, version);
+      state.data = tagSport(data, label);
     }
-    const boards = keys.map((k) => state.boardCache[k] || { props: [], games: [], kalshi: {} });
-    state.data = {
-      updated: boards.find((b) => b.updated)?.updated,
-      sport: sport === "all" ? "ALL" : (SPORT_LABEL[sport] || sport.toUpperCase()),
-      props: boards.flatMap((b) => b.props || []),
-      games: boards.flatMap((b) => b.games || []),
-      kalshi: {
-        ml: boards.flatMap((b) => b.kalshi?.ml || []),
-        spread: boards.flatMap((b) => b.kalshi?.spread || []),
-        total: boards.flatMap((b) => b.kalshi?.total || []),
-        props: boards.flatMap((b) => b.kalshi?.props || []),
-      },
-    };
     state.liveProps = (state.data.props || []).filter((r) => !hasStarted(r.commence_time));
     state.uiReady = false;
     render(true);
@@ -3462,3 +3097,4 @@ async function loadData() {
 }
 
 loadData();
+Grok finished responding
