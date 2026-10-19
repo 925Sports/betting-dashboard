@@ -106,7 +106,7 @@ CBB_UD_CSV = os.environ.get(
 )
 NBA_SHEET_CSV = os.environ.get(
     "NBA_SHEET_CSV",
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vRYY3lCP1jiJ3x4cHr87LhcNraa7KGZRKFo1jOa9EoS5VuUEehS2faNZTTM0mhKutJ-t1CDeZF0leXh/pub?gid=0&single=true&output=csv",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vRYY3lCP1jiJ3x4cHr87LhcNraa7KGZRKFo1jOa9EoS5VuUEehS2faNZTTM0mhKutJ-t1CDeZF0leXh/pub?gid=1009829399&single=true&output=csv",
 )
 NBA_UD_CSV = os.environ.get(
     "NBA_UD_CSV",
@@ -1346,3 +1346,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+Grok finished responding
