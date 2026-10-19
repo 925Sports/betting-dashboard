@@ -23,7 +23,7 @@
     <div class="brand">
       <div>
         <div class="brand-title">+EV Optimizer</div>
-        <div class="brand-sub">NineToFiveSports</div>
+        <div class="brand-sub">All sports · PP Standard</div>
       </div>
     </div>
     <nav class="tabs">
@@ -34,8 +34,6 @@
       <button class="tab" data-view="novig" type="button">Novig</button>
       <button class="tab" data-view="kalshi" type="button">Kalshi</button>
       <button class="tab" data-view="polymarket" type="button">Polymarket</button>
-      <button class="tab" data-view="books" type="button">Trad Books</button>
-      <button class="tab" data-view="arb" type="button">Arb</button>
       <button class="tab" data-view="ev" type="button">+EV Only</button>
       <button class="tab" data-view="all" type="button">All Props</button>
       <button class="tab" data-section="preview" type="button">Game Preview</button>
@@ -67,14 +65,7 @@
         <option value="logs">NFL player logs</option>
         <option value="stacks">NFL stacks</option>
       </select>
-      <select id="team"></select>
-      <div class="pick-combo" id="gameCombo">
-        <select id="game"></select>
-        <div class="game-drop" id="gameDrop" hidden>
-          <input type="search" id="gameQ" placeholder="Search games…" autocomplete="off" />
-          <div class="game-opts" id="gameOpts"></div>
-        </div>
-      </div>
+      <select id="game"></select>
       <select id="stat"></select>
       <select id="side">
         <option value="ou">Over / Under</option>
@@ -104,7 +95,6 @@
         <option value="tomorrow">Tomorrow</option>
       </select>
       <label class="chk">Min % <input type="number" id="minPct" value="50" min="0" max="100" step="0.5" /></label>
-      <label class="chk" id="arbStakeWrap" hidden>Stake $ <input type="number" id="arbStake" value="10" min="1" step="1" style="width:60px" /></label>
       <label class="chk" title="Ignore Fantasy Score. Requires two sportsbook prices.">
         <input type="checkbox" id="minBooks" checked /> 2+ books
       </label>
@@ -131,14 +121,12 @@
         <tbody id="tbody"></tbody>
       </table>
       <div class="empty" id="empty" style="display:none">No rows match these filters.</div>
-      <button type="button" id="showMore" class="book-pick" style="display:none;margin:12px auto">Show more</button>
     </div>
 
     <div class="slip-bar" id="slipBar" hidden>
       <div class="slip-label">PP slip <span id="slipCount">0</span></div>
       <div class="slip-picks" id="slipPicks"></div>
-      <span id="slipNote" class="line-note" hidden></span>
-      <button type="button" class="tab on" id="slipOpen">Copy + open PrizePicks</button>
+      <a class="tab on" id="slipOpen" href="https://app.prizepicks.com/" target="_blank" rel="noopener">Open in PrizePicks</a>
       <button type="button" class="tab" id="slipClear">Clear</button>
     </div>
 
@@ -154,7 +142,7 @@
         </thead>
         <tbody id="newsBody"></tbody>
       </table>
-      <div class="empty" id="newsEmpty" style="display:none">No news yet.</div>
+      <div class="empty" id="newsEmpty" style="display:none">No NFL news yet. Run the Action.</div>
     </div>
 
     <div class="table-wrap intel-wrap" id="injWrap" style="display:none">
@@ -242,7 +230,7 @@
         </thead>
         <tbody id="volumeBody"></tbody>
       </table>
-      <div class="empty" id="volumeEmpty" style="display:none">No volume yet.</div>
+      <div class="empty" id="volumeEmpty" style="display:none">No Kalshi volume yet. Run the Action after pushing the volume fields.</div>
     </div>
     <div class="table-wrap" id="gamesWrap" style="display:none">
       <table>
@@ -261,7 +249,7 @@
         </thead>
         <tbody id="gamesBody"></tbody>
       </table>
-      <div class="empty" id="gamesEmpty" style="display:none">No game lines yet.</div>
+      <div class="empty" id="gamesEmpty" style="display:none">No game lines yet. Run the Action.</div>
     </div>
   </div>
   <div id="popup" class="popup" hidden>
