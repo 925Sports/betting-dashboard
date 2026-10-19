@@ -1,8 +1,3 @@
-betting-dashboard
-
-app.js
-
-Files
 const DATA_URLS = {
   nfl: "./data/nfl-props.json",
   cfb: "./data/cfb-props.json",
@@ -288,36 +283,95 @@ function nvAtHalf(row, half) {
   return vals[Math.floor(vals.length / 2)];
 }
 
+function lineNv(row) {
+  const line = Number(row.line);
+  const vals = [];
+  Object.values(mergeBooks(row.books) || {}).forEach((b) => {
+    if (!b || Math.abs(Number(b.line) - line) > 0.2) return;
+    let n = Number(b.no_vig);
+    const placeholder = !Number.isFinite(n) || n === 0.5 || n === 50;
+    if (Number.isFinite(n) && n > 0 && n <= 1) n = n * 100;
+    if (placeholder || !Number.isFinite(n) || n <= 5 || n >= 95) {
+      const ip = bookImplied(b.price);
+      if (ip != null) n = ip;
+    }
+    if (Number.isFinite(n) && n > 5 && n < 95) vals.push(n);
+  });
+  if (!vals.length) return null;
+  vals.sort((a, b) => a - b);
+  return vals[Math.floor(vals.length / 2)];
+}
+
+function halfBuckets() {
+  const props = state.data?.props || [];
+  if (state._halfSrc === props && state._halfBuckets) return state._halfBuckets;
+  const map = new Map();
+  for (const r of props) {
+    const line = Number(r.line);
+    if (!Number.isFinite(line) || isWholeLine(line)) continue;
+    const key = `${normName(r.player)}|${normName(r.stat)}`;
+    let list = map.get(key);
+    if (!list) { list = []; map.set(key, list); }
+    list.push(r);
+  }
+  state._halfSrc = props;
+  state._halfBuckets = map;
+  return map;
+}
+
+function siblingOverPct(row) {
+  const L = Number(row.line);
+  const list = halfBuckets().get(`${normName(row.player)}|${normName(row.stat)}`);
+  if (!list) return null;
+  let best = null;
+  for (const r of list) {
+    const line = Number(r.line);
+    const dist = Math.abs(line - L);
+    if (dist > 0.6) continue;
+    const nv = lineNv(r);
+    if (nv == null) continue;
+    const pOver = String(r.side || "").toLowerCase() === "under" ? 100 - nv : nv;
+    if (!best || dist < best.dist || (dist === best.dist && String(r.side || "").toLowerCase() === "over")) {
+      best = { half: line, pOver, dist };
+    }
+  }
+  return best;
+}
+
 function ppCashPct(row) {
-  if (isFantasyStat(row.stat)) return null;
-  if (row.hit_model === "cash_no_push" && row.pct_to_hit != null) return row.pct_to_hit;
-  if (!isWholeLine(row.line)) return null;
+  if (isFantasyStat(row.stat) || !isWholeLine(row.line)) return null;
   const L = Math.round(Number(row.line));
-  const half = nearestHalfLine(row);
-  const nv = half != null ? (nvAtHalf(row, half) ?? row.pct_to_hit) : null;
-  if (half != null && nv != null) {
+  const sib = siblingOverPct(row);
+  const half = sib?.half ?? nearestHalfLine(row);
+  let pOver = sib?.pOver;
+  if (pOver == null && half != null) {
+    const nv = nvAtHalf(row, half);
+    if (nv != null) {
+      const under = String(row.side || "").toLowerCase() === "under";
+      pOver = under ? 100 - nv : nv;
+    }
+  }
+  if (half != null && pOver != null && pOver > 3 && pOver < 97) {
     const under = String(row.side || "").toLowerCase() === "under";
-    const pOver = (under ? 100 - nv : nv) / 100;
+    const p = Math.min(0.97, Math.max(0.03, pOver / 100));
     if (Math.abs(half - (L - 0.5)) <= 0.2) {
-      if (under) return +Number(nv).toFixed(1);
-      const lam = lambdaFromCdf(L - 1, Math.min(0.97, Math.max(0.03, 1 - pOver)));
+      if (under) return +((1 - p) * 100).toFixed(1);
+      const lam = lambdaFromCdf(L - 1, 1 - p);
       return +((1 - poissonCdf(L, lam)) * 100).toFixed(1);
     }
     if (Math.abs(half - (L + 0.5)) <= 0.2) {
-      if (!under) return +Number(nv).toFixed(1);
-      const lam = lambdaFromCdf(L, Math.min(0.97, Math.max(0.03, nv / 100)));
+      if (!under) return +(p * 100).toFixed(1);
+      const lam = lambdaFromCdf(L, 1 - p);
       return +(poissonCdf(L - 1, lam) * 100).toFixed(1);
     }
   }
-  // Fallback when no nearby .5 line: use projection / average and exclude the push.
-  const trueVal = Number(row.true_point ?? row.avg_line ?? row.projection ?? row.book_line);
+  if (row.hit_model === "cash_no_push" && row.pct_to_hit != null) return +Number(row.pct_to_hit).toFixed(1);
+  const trueVal = Number(row.true_point ?? row.avg_line ?? row.projection);
   if (!Number.isFinite(trueVal)) return null;
   const under = String(row.side || "").toLowerCase() === "under";
   const diff = trueVal - L;
-  // Rough: each point away from the line moves cash % by ~4, then strip a small push discount.
   const raw = 50 + (under ? -diff : diff) * 4;
-  const cash = Math.max(8, Math.min(92, raw - 2));
-  return +cash.toFixed(1);
+  return +Math.max(8, Math.min(92, raw - 2)).toFixed(1);
 }
 
 function fantasyAdjustedPct(row) {
@@ -337,18 +391,7 @@ function fantasyAdjustedPct(row) {
 
 function hitPct(row) {
   if (state.view === "pp" || state.view === "ev") {
-    // Whole number: always use the cash conversion, never a borrowed .5 no-vig.
-    if (isWholeLine(row.line)) {
-      const cash = ppCashPct(row);
-      if (cash != null) return cash;
-      const sheet = Number(row.pct_to_hit);
-      if (Number.isFinite(sheet) && sheet > 5 && sheet < 95) {
-        const under = String(row.side || "").toLowerCase() === "under";
-        const raw = under ? 100 - sheet : sheet;
-        return +Math.max(8, Math.min(92, raw - 4)).toFixed(1);
-      }
-      return null;
-    }
+    if (isWholeLine(row.line)) return ppCashPct(row);
     const cash = ppCashPct(row);
     if (cash != null) return cash;
     const nv = bookNoVig(row);
@@ -3502,4 +3545,3 @@ async function loadData() {
 }
 
 loadData();
-Grok finished responding
