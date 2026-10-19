@@ -585,7 +585,7 @@ def attach_pp(row, p):
 
     if is_fantasy:
         row["pct_to_hit"] = edge
-    elif nv is not None:
+    elif nv is not None and (line is None or avg is None or abs(float(line) - float(avg)) <= 0.6):
         row["pct_to_hit"] = nv
     elif edge is not None:
         row["pct_to_hit"] = edge
@@ -1346,3 +1346,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+Grok finished responding
