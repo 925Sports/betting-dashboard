@@ -524,6 +524,51 @@ def apply_strict_hit(row):
     row["book_line"] = half
 
 
+def apply_sibling_cash(rows):
+    """Whole-number PrizePicks cash from a sibling .5 line that actually has book prices."""
+    buckets = defaultdict(list)
+    for r in rows:
+        if "fantasy" in str(r.get("stat") or "").lower():
+            continue
+        buckets[(norm_name(r.get("player") or ""), str(r.get("stat") or "").lower())].append(r)
+    fixed = 0
+    for group in buckets.values():
+        halves = []
+        for r in group:
+            line = base.to_float(r.get("line"))
+            if line is None or is_whole_line(line):
+                continue
+            nv = half_line_nv(r, line)
+            if nv is None:
+                continue
+            side = str(r.get("side") or "").title()
+            p_over = (100.0 - float(nv)) if side == "Under" else float(nv)
+            halves.append((line, p_over))
+        if not halves:
+            continue
+        for r in group:
+            if not is_whole_line(r.get("line")):
+                continue
+            L = int(round(float(r["line"])))
+            near = [(h, p) for h, p in halves if abs(h - L) <= 0.6]
+            if not near:
+                continue
+            near.sort(key=lambda x: abs(x[0] - L))
+            half, p_over = near[0]
+            out = cash_from_half(r.get("side"), L, half, p_over)
+            if not out or out[0] is None:
+                continue
+            cash, push, lam = out
+            r["pct_raw"] = r.get("pct_to_hit")
+            r["pct_to_hit"] = cash
+            r["pct_push"] = push
+            r["hit_lambda"] = lam
+            r["hit_model"] = "cash_no_push"
+            r["book_line"] = half
+            fixed += 1
+    print(f"Whole-line cash from sibling .5 = {fixed}")
+
+
 def fill_headshots(rows, *sources):
     shots = {}
 
@@ -583,11 +628,14 @@ def attach_pp(row, p):
         except (TypeError, ValueError):
             diff = None
 
+    pp_line = base.to_float(p.get("line"))
+    row_line = base.to_float(row.get("line"))
+    same_line = pp_line is None or row_line is None or abs(pp_line - row_line) <= 0.26
     if is_fantasy:
         row["pct_to_hit"] = edge
-    elif nv is not None and (line is None or avg is None or abs(float(line) - float(avg)) <= 0.6):
+    elif same_line and nv is not None:
         row["pct_to_hit"] = nv
-    elif edge is not None:
+    elif same_line and edge is not None:
         row["pct_to_hit"] = edge
     cur = row.get("pct_to_hit")
     if cur is not None and (cur > 99 or cur < 1):
@@ -751,6 +799,7 @@ def enrich_props(rows, pp_rows, ud_rows):
         if hit is not None and (hit > 99 or hit < 1):
             row["pct_to_hit"] = sane_pct(row.get("pp_sheet_edge"))
         apply_strict_hit(row)
+    apply_sibling_cash(rows)
     attach_fantasy_compare(rows)
     return rows
 
