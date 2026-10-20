@@ -220,8 +220,10 @@ tr:hover td { background: rgba(255,255,255,0.025); }
     );
 }
 .loader.out {
-  opacity: 0; pointer-events: none;
-  transition: opacity 0.45s ease;
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 0.35s ease, visibility 0.35s;
 }
 .field {
   width: 160px; height: 90px; position: relative;
@@ -342,8 +344,42 @@ tr:hover td { background: rgba(255,255,255,0.025); }
 }
 .pop-tab.on { color: #fff; border-color: #3d6fd6; background: #173056; }
 .pop-body { flex: 1; min-height: 0; overflow: auto; }
-.popup-bet { margin-top: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; }
-.popup-bet .pct { min-width: 0; padding: 3px 7px; }
+.popup-bet {
+  margin-top: 12px;
+  background: #121a2b;
+  border: 1px solid #2a3d5c;
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+.popup-bet .bet-kicker {
+  font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #8b9bb4; font-weight: 700;
+}
+.popup-bet .bet-main { display: flex; align-items: center; gap: 12px; margin-top: 6px; flex-wrap: wrap; }
+.popup-bet .bet-main .tag { font-size: 16px; padding: 5px 12px; }
+.popup-bet .bet-line { font-size: 42px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; }
+.popup-bet .bet-stat { font-size: 20px; font-weight: 750; margin-top: 4px; }
+.popup-bet .bet-meta { margin-top: 8px; color: #8b9bb4; font-size: 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.like-btn, .bet-add, .like-line {
+  background: #173056; color: #cfe0ff; border: 1px solid #2b4b80;
+  border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.like-line { padding: 1px 7px; font-size: 11px; margin-left: 6px; }
+.bet-add { display: block; margin-top: 4px; padding: 2px 7px; font-size: 10px; }
+.like-btn.on, .bet-add.on, .like-line.on { background: #173d2a; color: #b7f0cf; border-color: #2f6b48; }
+.bets-panel { padding: 16px 20px 48px; }
+.bets-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.bet-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.bet-card .who { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 16px; }
+.bet-card img { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; }
+.bet-card .play { display: flex; align-items: baseline; gap: 10px; }
+.bet-card .play .tag { font-size: 14px; }
+.bet-card .num { font-size: 36px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; }
+.bet-card .stat { font-size: 16px; font-weight: 700; }
+.bet-card .where { color: var(--muted); font-size: 13px; }
+.bet-card .drop { align-self: flex-start; margin-top: 4px; }
 .log-scroll { overflow-x: auto; }
 .dfs-log th { white-space: nowrap; }
 .snap-card { margin-top: 12px; }
