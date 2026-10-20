@@ -34,6 +34,7 @@
       </div>
       <nav class="tabs tool-tabs">
         <button class="tab" data-section="slip" type="button">Bet Slips</button>
+        <button class="tab" data-section="bets" type="button">My Bets</button>
         <button class="tab" data-section="volume" type="button">Volume</button>
       </nav>
       <div class="meta" id="updated">Loading…</div>
@@ -71,6 +72,7 @@
       </select>
       <select id="section">
         <option value="props">Player props</option>
+        <option value="bets">My Bets</option>
         <option value="slip">Bet slips</option>
         <option value="preview">Game preview</option>
         <option value="games">Game lines</option>
@@ -173,6 +175,18 @@
         </table>
         <div class="empty" id="slipEmpty" style="display:none"></div>
       </div>
+    </div>
+
+    <div id="betsPanel" class="bets-panel" hidden>
+      <div class="slip-head">
+        <div>
+          <div class="brand-title">My bets</div>
+          <div class="line-note">Saved from the board or a player profile. Built to read on camera at the end of a video.</div>
+        </div>
+        <button type="button" class="book-pick" id="betsClear">Clear</button>
+      </div>
+      <div id="betsGrid" class="bets-grid"></div>
+      <div class="empty" id="betsEmpty">No bets saved yet. Use + bet on a row, or add a book line from a player profile.</div>
     </div>
 
     <div class="table-wrap intel-wrap" id="newsWrap" style="display:none">
