@@ -114,6 +114,7 @@ const state = {
   booksOn: new Set(DEFAULT_ON),
   slip: [],
   slipSize: 5,
+  picks: [],
   previewGame: "",
   minBooks: true,
   volFilter: "game",
@@ -3097,6 +3098,8 @@ function showSectionWraps() {
   if (propsWrap) propsWrap.style.display = state.section === "props" ? "block" : "none";
   const slip = $("slipPanel");
   if (slip) slip.hidden = state.section !== "slip";
+  const bets = $("betsPanel");
+  if (bets) bets.hidden = state.section !== "bets";
   ["previewWrap", "gamesWrap", "volumeWrap", "newsWrap", "injWrap", "logsWrap", "stacksWrap"].forEach((id) => {
     const el = $(id);
     if (el) el.style.display = "none";
@@ -3108,7 +3111,7 @@ function showSectionWraps() {
       el.style.display = intel || state.section === "stacks" ? "none" : "";
       return;
     }
-    el.style.display = intel || ["games", "stacks", "preview", "volume", "slip"].includes(state.section) ? "none" : "";
+    el.style.display = intel || ["games", "stacks", "preview", "volume", "slip", "bets"].includes(state.section) ? "none" : "";
   });
 }
 
@@ -3190,6 +3193,114 @@ function arbPairs(rows) {
   return out.sort((a, b) => b.arb - a.arb);
 }
 
+function viewOffer(row) {
+  const dfsView = { pp: "prizepicks", ud: "underdog", pick6: "pick6", dabble: "dabble", betr: "betr" };
+  const v = state.view;
+  if (dfsView[v]) {
+    const src = bookOffer(row, dfsView[v]);
+    if (src) return { bookKey: dfsView[v], line: src.line ?? row.line, price: src.price };
+  }
+  if (v === "ev" || v === "all") {
+    const src = bookOffer(row, "prizepicks");
+    if (src) return { bookKey: "prizepicks", line: src.line ?? displayLine(row), price: src.price };
+  }
+  if (v === "novig" || v === "prophetx" || v === "kalshi" || v === "polymarket") {
+    const src = bookOffer(row, v);
+    if (src) return { bookKey: v, line: src.line ?? row.line, price: src.price };
+  }
+  if (v === "books") {
+    const best = bestBookEdge(row);
+    if (best) return { bookKey: best.book, line: row.line, price: best.price };
+  }
+  return { bookKey: "board", line: displayLine(row) ?? row.line, price: null };
+}
+
+function pickId(p) {
+  return [normName(p.player), normName(p.stat), String(p.side || "").toLowerCase(), String(p.line), p.bookKey].join("|");
+}
+
+function pickFromRow(row, offer) {
+  const bookKey = offer?.bookKey || "board";
+  const meta = BOOK_BY_KEY[bookKey];
+  return {
+    player: row.player || "",
+    stat: row.stat || "",
+    side: row.side || "",
+    line: offer?.line ?? row.line,
+    bookKey,
+    book: meta?.name || (bookKey === "board" ? "Shown line" : bookKey),
+    price: offer?.price ?? null,
+    sport: row.sport || "",
+    game: matchup(row),
+    when: row.commence_time || "",
+    headshot: row.headshot || "",
+  };
+}
+
+function savePicks() {
+  try { localStorage.setItem("ev_my_bets", JSON.stringify(state.picks)); } catch (_) {}
+}
+
+function restorePicks() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("ev_my_bets") || "[]");
+    state.picks = Array.isArray(saved) ? saved.filter((p) => p && p.player) : [];
+  } catch (_) {
+    state.picks = [];
+  }
+}
+
+function updateBetsTab() {
+  const tab = document.querySelector('.tab[data-section="bets"]');
+  if (tab) tab.textContent = state.picks.length ? `My Bets (${state.picks.length})` : "My Bets";
+}
+
+function togglePick(pick) {
+  if (!pick?.player) return;
+  const id = pickId(pick);
+  const had = state.picks.some((p) => p.id === id);
+  state.picks = had ? state.picks.filter((p) => p.id !== id) : state.picks.concat([{ ...pick, id }]);
+  savePicks();
+  updateBetsTab();
+  toast(had ? "Removed from My Bets" : "Added to My Bets");
+  if (state.section === "bets") renderBets();
+  else if (state.section === "props") render();
+  if (!$("popup")?.hidden && state.popupKey) {
+    const [player, eventId, market, side] = state.popupKey.split("|");
+    if (player) openPlayerPopup(player, eventId, market, side);
+  }
+}
+
+function likeButton(pick, kind) {
+  const id = pickId(pick);
+  const on = state.picks.some((p) => p.id === id);
+  const text = kind === "hero" ? (on ? "On My Bets" : "Add to My Bets") : kind === "row" ? (on ? "Saved" : "+ bet") : (on ? "✓" : "+");
+  const cls = kind === "row" ? "bet-add" : kind === "hero" ? "like-btn" : "like-line";
+  return `<button type="button" class="${cls}${on ? " on" : ""}" data-pick="${encodeURIComponent(JSON.stringify(pick))}">${text}</button>`;
+}
+
+function renderBets() {
+  updateBetsTab();
+  const grid = $("betsGrid");
+  const empty = $("betsEmpty");
+  const rows = state.picks || [];
+  if (empty) empty.style.display = rows.length ? "none" : "block";
+  if (!grid) return;
+  grid.innerHTML = rows.map((p, i) => {
+    const sideClass = p.side === "Over" || p.side === "Yes" ? "over" : "under";
+    const meta = BOOK_BY_KEY[p.bookKey];
+    return `<article class="bet-card">
+      <div class="who">${headshotTag(p.headshot)}<span>${escapeHtml(p.player)}</span></div>
+      <div class="play"><span class="tag ${sideClass}">${escapeHtml(p.side || "")}</span><span class="num">${p.line ?? ""}</span></div>
+      <div class="stat">${escapeHtml(p.stat || "")}</div>
+      <div class="where">${meta ? bookMark(meta, "sm") + " " : ""}${escapeHtml(p.book || "")}${p.price != null ? ` · ${american(p.price)}` : ""}</div>
+      <div class="where">${escapeHtml(p.sport || "")}${p.game ? ` · ${escapeHtml(p.game)}` : ""}${p.when ? ` · ${escapeHtml(fmtWhen(p.when))}` : ""}</div>
+      <button type="button" class="book-pick drop" data-bet-i="${i}">Remove</button>
+    </article>`;
+  }).join("");
+  $("count").textContent = `${rows.length} saved bet${rows.length === 1 ? "" : "s"}`;
+}
+
 function render(full) {
   if (!state.data && !state.intel) return;
   syncTabs();
@@ -3214,6 +3325,7 @@ function render(full) {
   }
   const sec = state.section;
   if (sec === "slip") { renderSlip(); return; }
+  if (sec === "bets") { renderBets(); return; }
   if (sec === "preview") { renderPreview(); return; }
   if (sec === "games") { renderGames(); return; }
   if (sec === "volume") { renderVolume(); return; }
@@ -3322,7 +3434,7 @@ function render(full) {
         <td class="line-cell"><div class="line-stack"><span class="tag ${sideClass}">${escapeHtml(r.side)}</span><div class="line-num">${lineTxt ?? "—"}</div>${fantasyNote(r)}</div></td>
         <td>${tierBadge(r)}</td>
         <td><span class="${pctClass(hitPct(r))}">${hitPct(r) != null ? hitPct(r).toFixed(1) + "%" : "—"}</span></td>
-        <td class="${edge >= 0 ? "" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}${edgeNote(r)}${r.dfs?.prizepicks ? `<button type="button" class="slip-add" data-eid="${escapeHtml(r.event_id || "")}" data-player="${escapeHtml(r.player)}" data-stat="${escapeHtml(r.stat)}" data-line="${r.line ?? ""}" data-side="${escapeHtml(r.side)}">+ slip</button>` : ""}</td>
+        <td class="${edge >= 0 ? "" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}${edgeNote(r)}${r.dfs?.prizepicks ? `<button type="button" class="slip-add" data-eid="${escapeHtml(r.event_id || "")}" data-player="${escapeHtml(r.player)}" data-stat="${escapeHtml(r.stat)}" data-line="${r.line ?? ""}" data-side="${escapeHtml(r.side)}">+ slip</button>` : ""}${likeButton(pickFromRow(r, viewOffer(r)), "row")}</td>
         ${bestCell(r)}
         ${cols.map((b) => bookCell(r, b.key)).join("")}
       </tr>`;
@@ -3747,18 +3859,22 @@ function lineBoardHtml(rows, focus) {
     const meta = BOOK_BY_KEY[r.book];
     const overCls = r.over != null && r.over === bestOver.get(r.line) ? "best-pay" : "";
     const underCls = r.under != null && r.under === bestUnder.get(r.line) ? "best-pay" : "";
+    const overSide = yesNo ? "Yes" : "Over";
+    const underSide = yesNo ? "No" : "Under";
+    const overBtn = r.over != null && focus ? likeButton(pickFromRow({ ...focus, side: overSide, line: r.line }, { bookKey: r.book, line: r.line, price: r.over }), "cell") : "";
+    const underBtn = r.under != null && focus ? likeButton(pickFromRow({ ...focus, side: underSide, line: r.line }, { bookKey: r.book, line: r.line, price: r.under }), "cell") : "";
     return `<tr>
       <td>${meta ? bookMark(meta, "sm") + " " + escapeHtml(meta.name) : escapeHtml(r.book)}</td>
       <td>${r.line}</td>
-      <td class="${overCls}">${american(r.over)}</td>
-      <td class="${underCls}">${american(r.under)}</td>
+      <td class="${overCls}">${american(r.over)}${overBtn}</td>
+      <td class="${underCls}">${american(r.under)}${underBtn}</td>
     </tr>`;
   }).join("");
   return `<table class="popup-table">
       <thead><tr><th>Book</th><th>Line</th><th>${overLab}</th><th>${underLab}</th></tr></thead>
       <tbody>${body}</tbody>
     </table>
-    <div class="corr-why">One row per book and line. Over 1.5 and Under 0.5 stay on separate rows. Green is the best price at that line. PrizePicks is not used here.</div>`;
+    <div class="corr-why">One row per book and line. Green is the best price at that line. + saves that book, side, and number to My Bets.</div>`;
 }
 
 function openPlayerPopup(player, eventId, market, side) {
@@ -3828,7 +3944,12 @@ function openPlayerPopup(player, eventId, market, side) {
       <div>
         <div class="popup-name">${headshotTag(focus.headshot)} ${escapeHtml(focus.player)}${posTag(focus)}${liveInj ? injPill(liveInj) : ""}</div>
         <div class="popup-sub">${escapeHtml(matchup(focus))} · ${escapeHtml(fmtWhen(focus.commence_time))}${scriptLine(focus) ? ` · ${escapeHtml(scriptLine(focus))}` : ""}</div>
-        <div class="popup-bet">${sideTag(focus.side)} <b>${shownLine ?? ""}</b> ${escapeHtml(focus.stat || "")}${hitPct(focus) != null ? ` · <span class="${pctClass(hitPct(focus))}">${hitPct(focus).toFixed(1)}%</span>` : ""}${edge != null ? ` · <span class="${edgeClass(edge)}">${edge > 0 ? "+" : ""}${edge.toFixed(1)}</span>` : ""}</div>
+        <div class="popup-bet">
+          <div class="bet-kicker">This bet${(() => { const o = viewOffer(focus); const meta = BOOK_BY_KEY[o.bookKey]; return meta ? ` · ${meta.name}` : ""; })()}</div>
+          <div class="bet-main">${sideTag(focus.side)} <span class="bet-line">${shownLine ?? "—"}</span></div>
+          <div class="bet-stat">${escapeHtml(focus.stat || "")}</div>
+          <div class="bet-meta">${hitPct(focus) != null ? `<span class="${pctClass(hitPct(focus))}">${hitPct(focus).toFixed(1)}% to hit</span>` : ""}${edge != null ? `<span class="${edgeClass(edge)}">${edge > 0 ? "+" : ""}${edge.toFixed(1)} edge</span>` : ""} ${likeButton(pickFromRow(focus, viewOffer(focus)), "hero")}</div>
+        </div>
       </div>
       <button type="button" class="popup-x" id="popupClose">✕</button>
     </div>
@@ -3883,7 +4004,9 @@ function openPlayerPopup(player, eventId, market, side) {
         const ov = oppRow?.dfs?.[k];
         const px = k === "prizepicks" ? -117 : v.price;
         const opx = k === "prizepicks" ? -117 : ov?.price;
-        return `${meta ? bookMark(meta, "sm") : k} ${escapeHtml(focus.side || "")} ${v.line ?? "—"} ${american(px)}${ov ? ` · ${escapeHtml(oppSide)} ${ov.line ?? "—"} ${american(opx)}` : ""}`;
+        const mine = likeButton(pickFromRow({ ...focus, side: focus.side, line: v.line ?? shownLine }, { bookKey: k, line: v.line ?? shownLine, price: px }), "cell");
+        const other = ov && oppSide ? likeButton(pickFromRow({ ...focus, side: oppSide, line: ov.line ?? shownLine }, { bookKey: k, line: ov.line ?? shownLine, price: opx }), "cell") : "";
+        return `${meta ? bookMark(meta, "sm") : k} ${escapeHtml(focus.side || "")} ${v.line ?? "—"} ${american(px)} ${mine}${ov ? ` · ${escapeHtml(oppSide)} ${ov.line ?? "—"} ${american(opx)} ${other}` : ""}`;
       }).join("<br>") : "—"}
       ${focus.fantasy_cmp ? `<div class="corr-why" style="margin-top:6px">
         Scoring convert: ${
@@ -3981,6 +4104,11 @@ $("tbody").addEventListener("click", (e) => {
     else toast("Could not find that prop");
     return;
   }
+  const liked = e.target.closest("[data-pick]");
+  if (liked) {
+    try { togglePick(JSON.parse(decodeURIComponent(liked.getAttribute("data-pick")))); } catch (_) {}
+    return;
+  }
   const btn = e.target.closest(".player-btn");
   if (!btn) return;
   openPlayerPopup(btn.dataset.player, btn.dataset.eid, btn.dataset.market, btn.dataset.side);
@@ -4005,6 +4133,11 @@ document.addEventListener("click", (e) => {
   }
 });
 $("popup")?.addEventListener("click", (e) => {
+  const liked = e.target.closest("[data-pick]");
+  if (liked) {
+    try { togglePick(JSON.parse(decodeURIComponent(liked.getAttribute("data-pick")))); } catch (_) {}
+    return;
+  }
   if (e.target.id === "popup") closePopup();
   const more = e.target.closest("[data-chart-more]");
   if (more) {
@@ -4198,4 +4331,24 @@ async function loadData() {
   }
 }
 
+document.addEventListener("click", (e) => {
+  const rm = e.target.closest("[data-bet-i]");
+  if (rm && e.target.closest("#betsPanel")) {
+    state.picks.splice(Number(rm.dataset.betI), 1);
+    savePicks();
+    updateBetsTab();
+    renderBets();
+    return;
+  }
+  if (e.target.closest("#betsClear")) {
+    state.picks = [];
+    savePicks();
+    updateBetsTab();
+    renderBets();
+    toast("My Bets cleared");
+  }
+});
+
+restorePicks();
+updateBetsTab();
 loadData();
