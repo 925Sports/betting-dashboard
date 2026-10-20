@@ -1664,8 +1664,130 @@ function headshotTag(url) {
 }
 function ppId(row) {
   const raw = String(row?.pp_id || row?.dfs?.prizepicks?.id || "").trim();
-  if (!raw || raw.startsWith("http")) return "";
+  if (!raw || raw.startsWith("http") || !/^\d+$/.test(raw)) return "";
   return raw;
+}
+
+const SLIP_STAT_ALIAS = {
+  "pass completions": "completions", "pass completion": "completions", "passing completions": "completions", "completions": "completions",
+  "pass attempts": "pass att", "passing attempts": "pass att", "pass att": "pass att",
+  "rush attempts": "rush att", "rushing attempts": "rush att", "rush att": "rush att",
+  "ints": "ints", "int": "ints", "interceptions": "ints", "ints thrown": "ints",
+  "receiving yards": "rec yds", "rec yards": "rec yds", "rec yds": "rec yds",
+  "pass yards": "pass yds", "passing yards": "pass yds", "pass yds": "pass yds",
+  "rush yards": "rush yds", "rushing yards": "rush yds", "rush yds": "rush yds",
+  "kicking points": "kicking pts", "kicking pts": "kicking pts",
+  "fg made": "field goals", "field goals made": "field goals", "field goals": "field goals",
+  "anytime td": "anytime td", "anytime tds": "anytime td",
+  "receptions": "receptions",
+};
+
+function slipStatKey(stat) {
+  const raw = String(stat || "").replace(/[_+]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  return SLIP_STAT_ALIAS[raw] || raw;
+}
+
+function slipLegKey(player, stat, line) {
+  const n = Number(line);
+  return `${normName(player)}|${slipStatKey(stat)}|${Number.isFinite(n) ? n.toFixed(1) : ""}`;
+}
+
+const PP_SHEET_CSV = {
+  NFL: "https://docs.google.com/spreadsheets/d/e/2PACX-1vR5CGYxMTghCulNtsHaMDKjkkbbYKaEWt0tJ2ie7iu-Mx2YpBClXzIZaZeYRdkg7LJlt8r_6nrxdqYa/pub?gid=2102978132&single=true&output=csv",
+  CFB: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSV0x8a_qRCwt9t2MRmRph7MwHioKNrZTN00niOF2spzpMzxrlaz3cKr5oE_soDhjkeH8NbU4UxsIqe/pub?gid=2102978132&single=true&output=csv",
+  MLB: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSLw3UZqoWqheDXCENlKhAGk8adRqvYH8LFik2LFAhKV4785KLw3a4e6jACDYPoKzqfquYDn5Tg1pB0/pub?gid=0&single=true&output=csv",
+  WNBA: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRsopuNNvgPQEQBFP3JGqYf9LXHTO1sGdip73gkFTEjFw_RVVie4_ycGHC7g6RuunLvCk7yJdFp4ZxQ/pub?gid=0&single=true&output=csv",
+  NBA: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSptSZasyTv6ao6maRZ2lUPu3My2_T1gi5gm--1nQ2aGWHO2sVKjxHUPDe461SRXtVCt4iWJ3sl6lqX/pub?gid=0&single=true&output=csv",
+  CBB: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQx_BIRvb4w8yfASiJAmasowTnHHrHZQbKyQ6G-Nc7t1Igzx1IH-SLiOizclSV8zgThZ9qMbu7fKclo/pub?gid=0&single=true&output=csv",
+  SOCCER: "https://docs.google.com/spreadsheets/d/e/2PACX-1vR9cof5aKuKsPbVlQ8rvoVrF2-ROXq096CrSIxIOO9swtl3smSUJ2JOtNcbdpX46RVx1HuqdIGeY57S/pub?gid=0&single=true&output=csv",
+};
+let ppCatalog = new Map();
+let ppCatalogPending = null;
+const ppCatalogDone = new Set();
+
+function parseCsvRows(text) {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let q = false;
+  const src = String(text || "");
+  for (let i = 0; i < src.length; i += 1) {
+    const c = src[i];
+    if (q) {
+      if (c === '"') {
+        if (src[i + 1] === '"') { cell += '"'; i += 1; }
+        else q = false;
+      } else cell += c;
+    } else if (c === '"') q = true;
+    else if (c === ",") { row.push(cell); cell = ""; }
+    else if (c === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; }
+    else if (c !== "\r") cell += c;
+  }
+  if (cell.length || row.length) { row.push(cell); rows.push(row); }
+  if (!rows.length) return [];
+  const headers = rows[0].map((h) => h.trim());
+  return rows.slice(1).filter((r) => r.some((c) => c !== "")).map((r) => {
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = r[i] || ""; });
+    return obj;
+  });
+}
+
+function rememberPpId(player, stat, line, id) {
+  if (!/^\d+$/.test(String(id || ""))) return;
+  ppCatalog.set(slipLegKey(player, stat, line), String(id));
+}
+
+function indexLoadedPpIds() {
+  for (const r of state.data?.props || []) {
+    const id = ppId(r);
+    if (!id) continue;
+    rememberPpId(r.player, r.stat, slipLine(r), id);
+  }
+}
+
+async function ensurePpCatalog(rows) {
+  indexLoadedPpIds();
+  const sports = [...new Set((rows || []).flatMap((r) => {
+    const s = String(r.sport || "").toUpperCase();
+    return s && PP_SHEET_CSV[s] ? [s] : ["NFL", "CFB", "NBA"];
+  }))].filter((s) => PP_SHEET_CSV[s]);
+  const needed = sports.filter((s) => !ppCatalogDone.has(s) && (rows || []).some((r) => {
+    const rs = String(r.sport || "").toUpperCase();
+    const sportOk = rs ? rs === s : true;
+    return sportOk && !ppId(r) && !ppCatalog.get(slipLegKey(r.player, r.stat, slipLine(r)));
+  }));
+  if (!needed.length) return ppCatalog;
+  if (ppCatalogPending) return ppCatalogPending;
+  needed.forEach((s) => ppCatalogDone.add(s));
+  ppCatalogPending = Promise.all(needed.map(async (sport) => {
+    try {
+      const res = await fetch(PP_SHEET_CSV[sport]);
+      if (!res.ok) return;
+      const parsed = parseCsvRows(await res.text());
+      parsed.forEach((row) => {
+        const id = String(row["Data ID"] || "").trim();
+        if (!/^\d+$/.test(id)) return;
+        rememberPpId(row["Player Name"], row["Stat Type"], row["Line Score"], id);
+      });
+    } catch (_) {}
+  })).then(() => {
+    ppCatalogPending = null;
+    return ppCatalog;
+  });
+  return ppCatalogPending;
+}
+
+function findPpId(row) {
+  const direct = ppId(row);
+  if (direct) return direct;
+  const hit = ppCatalog.get(slipLegKey(row.player, row.stat, slipLine(row)));
+  if (hit) {
+    row.pp_id = hit;
+    if (row.dfs?.prizepicks) row.dfs.prizepicks.id = hit;
+    return hit;
+  }
+  return "";
 }
 const SLIP_PAY = {
   2: { label: "3X", be: 1 / 3 },
@@ -1683,7 +1805,7 @@ function slipLine(r) {
 
 function ppShareLink(rows) {
   const parts = rows.map((r) => {
-    const id = ppId(r);
+    const id = findPpId(r);
     if (!id || !/^\d+$/.test(id)) return "";
     const dir = String(r.side || "").toLowerCase() === "under" ? "u" : "o";
     const line = slipLine(r) ?? "";
@@ -1801,13 +1923,23 @@ function renderSlip() {
   const body = $("slipBody");
   const empty = $("slipEmpty");
   const rows = slipCombos(state.slipSize);
+  const slipRows = state.slip || [];
+  const unresolved = slipRows.filter((r) => !findPpId(r));
+  if (unresolved.length && !ppCatalogPending) {
+    const sportsLeft = [...new Set(unresolved.flatMap((r) => {
+      const s = String(r.sport || "").toUpperCase();
+      return s && PP_SHEET_CSV[s] ? [s] : ["NFL", "CFB", "NBA"];
+    }))].filter((s) => PP_SHEET_CSV[s] && !ppCatalogDone.has(s));
+    if (sportsLeft.length) ensurePpCatalog(slipRows).then(() => renderSlip());
+  }
   if (body) {
     body.innerHTML = rows.map((c) => {
       const legs = c.combo.map((x) => `${x.r.player} ${x.r.side} ${slipLine(x.r) ?? ""} ${x.r.stat}`).join("<br>");
       const href = ppShareLink(c.combo.map((x) => x.r));
+      const missing = c.combo.filter((x) => !findPpId(x.r)).map((x) => x.r.player);
       const link = href
         ? `<a href="${escapeHtml(href)}" target="_blank" rel="noopener">Place bet</a>`
-        : `<span class="line-note">No projection id</span>`;
+        : `<span class="line-note">${ppCatalogPending ? "Loading projection id…" : missing.length ? `No projection id: ${escapeHtml(missing.join(", "))}` : "No projection id"}</span>`;
       const cls = c.edge >= 0 ? "pct good" : "pct bad";
       return `<tr>
         <td>${link}</td>
@@ -3227,14 +3359,21 @@ $("minBooks")?.addEventListener("change", () => {
 let qTimer = null;
 ["game", "stat", "side", "tier", "picks", "minPct", "when", "team"].forEach((id) => {
   $(id)?.addEventListener("change", () => {
-    if (id === "when" || id === "team" || id === "game") {
-      const all = state.data?.props || [];
-      const sport = ($("sport")?.value || state.sport || "all").toLowerCase();
-      const pool = sport === "all" ? all : all.filter((r) => String(r.sport || "").toLowerCase() === sport);
-      fillGameAndTeam(pool);
-      fillStats(pool);
+    const run = () => {
+      if (id === "when" || id === "team" || id === "game") {
+        const all = state.data?.props || [];
+        const sport = ($("sport")?.value || state.sport || "all").toLowerCase();
+        const pool = sport === "all" ? all : all.filter((r) => String(r.sport || "").toLowerCase() === sport);
+        fillGameAndTeam(pool);
+        fillStats(pool);
+      }
+      render();
+    };
+    if (id === "when") {
+      paintThen(`Loading ${whenLoadLabel()}…`, run);
+      return;
     }
-    render();
+    run();
   });
 });
 $("q")?.addEventListener("input", () => {
@@ -3867,11 +4006,36 @@ function setLoader(msg) {
   const el = $("loaderText");
   if (el && msg) el.textContent = msg;
 }
+function showLoader(msg) {
+  const el = $("loader");
+  if (!el) return;
+  if (msg) setLoader(msg);
+  el.classList.remove("out");
+  el.hidden = false;
+}
 function hideLoader() {
   const el = $("loader");
   if (!el) return;
   el.classList.add("out");
-  setTimeout(() => el.remove(), 500);
+}
+function sportLoadLabel() {
+  const sport = ($("sport")?.value || state.sport || "all").toLowerCase();
+  if (sport === "all") return "every sport";
+  return SPORT_LABEL[sport] || sport.toUpperCase();
+}
+function whenLoadLabel() {
+  const sel = $("when");
+  const v = sel?.value || "";
+  if (!v) return "every date";
+  if (v === "today") return "today";
+  if (v === "tomorrow") return "tomorrow";
+  return sel?.selectedOptions?.[0]?.textContent?.trim() || "that date";
+}
+function paintThen(msg, fn) {
+  showLoader(msg);
+  requestAnimationFrame(() => setTimeout(() => {
+    try { fn(); } finally { hideLoader(); }
+  }, 40));
 }
 
 let lineIdx = 0;
@@ -3893,7 +4057,12 @@ async function fetchBoard(url, version) {
   return res.json();
 }
 
+let loadGen = 0;
 async function loadData() {
+  const gen = ++loadGen;
+  showLoader(`Loading ${sportLoadLabel()}…`);
+  await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 30)));
+  if (gen !== loadGen) return;
   try {
     setLoader("Checking the books…");
     let version = "";
@@ -3901,6 +4070,7 @@ async function loadData() {
       const meta = await fetch("./data/meta.json", { cache: "no-cache" }).then((r) => r.ok ? r.json() : null);
       version = meta?.updated || "";
     } catch (_) {}
+    if (gen !== loadGen) return;
     setLoader("Hiking the props…");
     try {
       state.intel = await fetchBoard(INTEL_URL, version);
@@ -3926,6 +4096,7 @@ async function loadData() {
       });
     };
     await pull(keys);
+    if (gen !== loadGen) return;
     const liveCount = (list) => list.reduce((n, k) => {
       const props = state.boardCache[k]?.props || [];
       return n + props.filter((r) => !hasStarted(r.commence_time)).length;
@@ -3938,6 +4109,7 @@ async function loadData() {
         keys = keys.concat(extra);
       }
     }
+    if (gen !== loadGen) return;
     const boards = keys.map((k) => state.boardCache[k] || { props: [], games: [], kalshi: {} });
     const newest = boards.map((b) => b.updated).filter(Boolean).sort().at(-1);
     state.data = {
@@ -3955,15 +4127,19 @@ async function loadData() {
     state.liveProps = (state.data.props || []).filter((r) => !hasStarted(r.commence_time));
     restoreSlip();
     state.uiReady = false;
+    setLoader("Building the board…");
     render(true);
   } catch (err) {
+    if (gen !== loadGen) return;
     $("updated").textContent = "Could not load props JSON";
     $("empty").style.display = "block";
     $("empty").textContent = "No data yet. Run the GitHub Action.";
     console.error(err);
   } finally {
-    clearInterval(lineTimer);
-    hideLoader();
+    if (gen === loadGen) {
+      clearInterval(lineTimer);
+      hideLoader();
+    }
   }
 }
 
