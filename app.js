@@ -1820,7 +1820,59 @@ function ppSlipLink(row) {
   return href || "https://app.prizepicks.com/";
 }
 
+function slipLines(row) {
+  return [row?.line, row?.pp_line, row?.dfs?.prizepicks?.line]
+    .map(Number)
+    .filter((n) => Number.isFinite(n));
+}
+
+function sameSlipLeg(a, b) {
+  if (!a || !b) return false;
+  if (normName(a.player) !== normName(b.player)) return false;
+  if (slipStatKey(a.stat) !== slipStatKey(b.stat)) return false;
+  if (String(a.side || "").toLowerCase() !== String(b.side || "").toLowerCase()) return false;
+  const al = slipLines(a);
+  const bl = slipLines(b);
+  if (!al.length || !bl.length) return true;
+  return al.some((x) => bl.some((y) => Math.abs(x - y) <= 0.26));
+}
+
+function boardProps() {
+  const out = [];
+  const seen = new Set();
+  const push = (r) => {
+    if (!r || seen.has(r)) return;
+    seen.add(r);
+    out.push(r);
+  };
+  (state.data?.props || []).forEach(push);
+  Object.values(state.boardCache || {}).forEach((b) => (b?.props || []).forEach(push));
+  return out;
+}
+
+function hydrateSlipRow(row) {
+  if (!row) return row;
+  const sheet = Number(row.pct_to_hit);
+  if (Number.isFinite(sheet) && sheet > 5 && sheet < 95 && row.books) return row;
+  const hit = boardProps().find((p) => sameSlipLeg(row, p) && p.pct_to_hit != null);
+  if (!hit) return row;
+  const id = ppId(row) || ppId(hit);
+  row.pct_to_hit = row.pct_to_hit ?? hit.pct_to_hit;
+  row.true_point = row.true_point ?? hit.true_point;
+  row.books = row.books || hit.books;
+  row.sport = row.sport || hit.sport;
+  if (!row.dfs?.prizepicks && hit.dfs?.prizepicks) row.dfs = { ...(row.dfs || {}), prizepicks: { ...hit.dfs.prizepicks } };
+  if (id) {
+    row.pp_id = id;
+    if (!row.dfs) row.dfs = {};
+    if (!row.dfs.prizepicks) row.dfs.prizepicks = {};
+    row.dfs.prizepicks.id = id;
+  }
+  return row;
+}
+
 function slipProb(row) {
+  hydrateSlipRow(row);
   const prev = state.view;
   state.view = "pp";
   const p = hitPct(row);
@@ -1880,6 +1932,7 @@ function saveSlip() {
       pp_line: slipLine(r),
       pp_id: ppId(r), sport: r.sport, game: r.game, headshot: r.headshot,
       event_id: r.event_id, market: r.market,
+      pct_to_hit: r.pct_to_hit, true_point: r.true_point,
     }))));
   } catch (_) {}
 }
@@ -1889,10 +1942,9 @@ function restoreSlip() {
   let saved = [];
   try { saved = JSON.parse(localStorage.getItem("ev_pp_slip") || "[]"); } catch (_) { return; }
   if (!Array.isArray(saved) || !saved.length) return;
-  const props = state.data?.props || [];
-  state.slip = saved.map((s) => props.find((r) =>
-    r.player === s.player && r.stat === s.stat && r.side === s.side && String(r.line) === String(s.line)
-  ) || s).filter(Boolean).slice(0, 10);
+  const props = boardProps();
+  state.slip = saved.map((s) => props.find((r) => sameSlipLeg(s, r)) || s).filter(Boolean).slice(0, 10);
+  state.slip.forEach(hydrateSlipRow);
 }
 
 function renderSlip() {
@@ -1953,12 +2005,15 @@ function renderSlip() {
   }
   if (empty) {
     const need = state.slipSize - state.slip.length;
+    const quiet = state.slip.filter((r) => slipProb(r) == null).map((r) => r.player);
     empty.style.display = rows.length ? "none" : "block";
     empty.textContent = state.slip.length < 2
       ? "Add at least 2 props with + slip."
       : need > 0
         ? `Add ${need} more leg${need === 1 ? "" : "s"} for a ${state.slipSize}-pick.`
-        : "No combo at this size. Two props on the same player are not paired.";
+        : quiet.length
+          ? `${quiet.join(", ")} ${quiet.length === 1 ? "has" : "have"} no hit rate, so a ${state.slipSize}-pick cannot include ${quiet.length === 1 ? "that leg" : "those legs"}.`
+          : "No combo at this size. Two props on the same player are not paired.";
   }
   saveSlip();
 }
