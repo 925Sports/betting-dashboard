@@ -1,13 +1,13 @@
 {
-  "updated": "2026-10-21T12:22:25Z",
+  "updated": "2026-10-21T17:25:06Z",
   "source": "google_sheet_csv+kalshi",
-  "row_count": 3675,
-  "cfb_rows": 5469,
-  "mlb_rows": 2557,
-  "soccer_rows": 45660,
-  "wnba_rows": 476,
+  "row_count": 4182,
+  "cfb_rows": 6161,
+  "mlb_rows": 2555,
+  "soccer_rows": 46886,
+  "wnba_rows": 611,
   "cbb_rows": 0,
-  "nba_rows": 25437,
-  "nhl_rows": 620,
+  "nba_rows": 25859,
+  "nhl_rows": 773,
   "game_count": 28
 }
