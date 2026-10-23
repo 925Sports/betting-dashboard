@@ -360,12 +360,19 @@ tr:hover td { background: rgba(255,255,255,0.025); }
 .popup-bet .bet-stat { font-size: 22px; font-weight: 750; margin-top: 2px; }
 .popup-bet .bet-sub { color: var(--muted); font-size: 13px; }
 .bet-hero { display: flex; justify-content: space-between; gap: 16px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
-.bet-rail { display: grid; grid-template-columns: repeat(3, minmax(92px, 1fr)); gap: 8px; flex: 1; min-width: 280px; }
+.bet-rail { display: grid; grid-template-columns: repeat(2, minmax(128px, 1fr)); gap: 8px; flex: 1; min-width: 220px; }
 .bet-rail div {
-  background: #0b1220; border: 1px solid #1c2a3f; border-radius: 12px; padding: 10px 12px;
+  background: #0b1220; border: 1px solid #1c2a3f; border-radius: 12px; padding: 12px 14px;
 }
-.bet-rail span { display: block; color: var(--muted); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; }
-.bet-rail b { font-size: 22px; }
+.bet-rail span { display: block; color: var(--muted); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+.bet-rail b { font-size: 32px; letter-spacing: -0.03em; line-height: 1; }
+.bet-form { margin-top: 10px; color: var(--muted); font-size: 13px; }
+.hot-toggle { display: flex; gap: 6px; margin: 0 0 8px; }
+.hot-btn {
+  background: #182236; color: #8b9bb4; border: 1px solid #1c2a3f;
+  border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.hot-btn.on { color: #fff; border-color: #3d6fd6; background: #173056; }
 .bet-foot { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
 .popup-bet .like-btn { padding: 10px 16px; font-size: 14px; }
 .popup-bet .bet-meta { margin-top: 10px; color: #8b9bb4; font-size: 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
