@@ -1373,6 +1373,8 @@ function fantasyNote(row) {
 function bookCell(row, key) {
   const src = bookOffer(row, key);
   if (!src) return `<td class="muted">—</td>`;
+  const px = Number(src.price);
+  if (!Number.isFinite(px) || Math.abs(px) < 100 || Math.abs(px) >= 2500) return `<td class="muted">—</td>`;
   const shown = displayLine(row);
   const cmp = fantasyCmp(row);
   let offerLine = src.line;
