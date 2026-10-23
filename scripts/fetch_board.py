@@ -134,7 +134,8 @@ STAT_ALIASES = {
     "rush+rec yds": "Rush+Rec Yds", "rush + rec yards": "Rush+Rec Yds", "rush + rec yds": "Rush+Rec Yds",
     "pass+rush yds": "Pass+Rush Yds", "pass + rush yards": "Pass+Rush Yds", "pass + rush yds": "Pass+Rush Yds",
     "pass tds": "Pass TDs", "passing tds": "Pass TDs",
-    "anytime td": "Anytime TD", "anytime touchdown": "Anytime TD",
+    "anytime td": "Anytime TD", "anytime tds": "Anytime TD", "anytime touchdown": "Anytime TD",
+    "anytime touchdowns": "Anytime TD",
     "fantasy score": "Fantasy Score", "fantasy pts": "Fantasy Score",
     "fantasy points": "Fantasy Score", "fantasy points scored": "Fantasy Score",
     "ud fantasy points": "Fantasy Score", "fantasy pt": "Fantasy Score",
@@ -156,12 +157,17 @@ STAT_ALIASES = {
     "pitcher outs": "Outs", "outs": "Outs", "earned runs": "ER", "earned runs allowed": "ER",
     "hits allowed": "Hits Allowed", "walks allowed": "Walks Allowed",
     "ints thrown": "INTs", "int": "INTs", "interceptions": "INTs",
-    "pass attempts": "Pass Att", "completions": "Completions", "rush attempts": "Rush Att",
+    "pass attempts": "Pass Att", "passing attempts": "Pass Att",
+    "completions": "Completions", "pass completions": "Completions",
+    "pass completion": "Completions", "passing completions": "Completions",
+    "rush attempts": "Rush Att", "rushing attempts": "Rush Att",
     "longest reception": "Longest Rec", "longest completion": "Longest Pass",
     "1q rec yards": "1Q Rec Yds", "1h rec yards": "1H Rec Yds",
     "1q pass yards": "1Q Pass Yds", "1h pass yards": "1H Pass Yds",
     "1q rush yards": "1Q Rush Yds", "1h rush yards": "1H Rush Yds",
     "rec targets": "Targets", "sacks": "Sacks",
+    "kicking points": "Kicking Pts", "fg made": "Field Goals", "field goals made": "Field Goals",
+    "tackles + assists": "Tackles+Ast", "tackles assists": "Tackles+Ast",
     "shots": "Shots", "sot": "Shots On Target", "shots on target": "Shots On Target",
     "goals": "Goals", "assists": "Assists", "g+a": "Goal + Assist",
     "g + a": "Goal + Assist", "goals + assists": "Goal + Assist",
@@ -682,6 +688,53 @@ def apply_ud(row, ud_list):
     return False
 
 
+def line_key(v):
+    n = base.to_float(v)
+    if n is None:
+        return None
+    return round(float(n), 2)
+
+
+def link_combo_books(rows):
+    """Copy combo-sheet book prices onto tool rows that came in without them."""
+    by = defaultdict(list)
+    for r in rows:
+        if r.get("books"):
+            by[(norm_name(r.get("player")), norm_stat(r.get("stat")), r.get("side"))].append(r)
+    copied = 0
+    for r in rows:
+        if r.get("books"):
+            continue
+        if not (r.get("dfs") or {}):
+            continue
+        key = (norm_name(r.get("player")), norm_stat(r.get("stat")), r.get("side"))
+        line = base.to_float(r.get("line"))
+        best, best_diff = None, 1e9
+        for src in by.get(key, []):
+            diff = abs((base.to_float(src.get("line")) or 0) - (line or 0))
+            if diff < best_diff:
+                best_diff, best = diff, src
+        if not best or best_diff > 0.51:
+            continue
+        r["books"] = {k: dict(v) for k, v in (best.get("books") or {}).items()}
+        if r.get("avg_line") is None:
+            r["avg_line"] = best.get("avg_line")
+        if r.get("book_line") is None:
+            r["book_line"] = best.get("book_line") or best.get("avg_line")
+        copied += 1
+    print(f"Linked combo books onto {copied} tool rows")
+    return rows
+
+
+def stamp_pp_id(row, pp_id):
+    if not str(pp_id or "").isdigit():
+        return
+    row["pp_id"] = str(pp_id)
+    pp = (row.get("dfs") or {}).get("prizepicks")
+    if pp is not None:
+        pp["id"] = str(pp_id)
+
+
 def enrich_props(rows, pp_rows, ud_rows):
     pp_by = defaultdict(list)
     ud_by = defaultdict(list)
@@ -693,23 +746,35 @@ def enrich_props(rows, pp_rows, ud_rows):
     have_stat = set()
     for row in rows:
         key = norm_name(row["player"])
-        have_stat.add((key, row["stat"], row.get("side")))
-        best_pp, best_diff = None, 1e9
+        have_stat.add((key, norm_stat(row["stat"]), row.get("side"), line_key(row.get("line"))))
+        same_near = []
+        other_id = None
+        far, far_diff = None, 1e9
         for p in pp_by.get(key, []):
             if not same_stat(p["stat"], row["stat"]):
                 continue
-            if p.get("side") and row.get("side") and p["side"] != row["side"]:
-                continue
             diff = abs((p["line"] or 0) - (row.get("line") or 0))
-            if diff < best_diff:
-                best_diff, best_pp = diff, p
-        if best_pp:
-            attach_pp(row, best_pp)
+            same_side = not (p.get("side") and row.get("side") and p["side"] != row["side"])
+            has_id = str(p.get("pp_id") or "").isdigit()
+            if same_side and diff < far_diff:
+                far_diff, far = diff, p
+            if diff <= 0.26:
+                if same_side:
+                    same_near.append((0 if has_id else 1, diff, p))
+                elif has_id and other_id is None:
+                    other_id = p.get("pp_id")
+        if same_near:
+            same_near.sort(key=lambda x: (x[0], x[1]))
+            attach_pp(row, same_near[0][2])
+        elif far is not None and not (row.get("dfs") or {}).get("prizepicks"):
+            attach_pp(row, far)
+        if not str(row.get("pp_id") or "").isdigit() and other_id:
+            stamp_pp_id(row, other_id)
         apply_ud(row, ud_by.get(key, []))
 
     extra = 0
     for p in pp_rows:
-        sig = (p["player_key"], p["stat"], p.get("side"))
+        sig = (p["player_key"], norm_stat(p["stat"]), p.get("side"), line_key(p.get("line")))
         if sig in have_stat:
             continue
         have_stat.add(sig)
@@ -742,6 +807,27 @@ def enrich_props(rows, pp_rows, ud_rows):
         })
         apply_ud(rows[-1], ud_by.get(p["player_key"], []))
     print(f"Added {extra} extra PP stat rows (combo/fantasy/etc)")
+    id_by_leg = {}
+    for row in rows:
+        pid = str(row.get("pp_id") or "")
+        if not pid.isdigit():
+            continue
+        pp_line = ((row.get("dfs") or {}).get("prizepicks") or {}).get("line")
+        id_by_leg[(norm_name(row.get("player") or ""), norm_stat(row.get("stat") or ""), line_key(pp_line if pp_line is not None else row.get("line")))] = pid
+    copied = 0
+    for row in rows:
+        if str(row.get("pp_id") or "").isdigit():
+            continue
+        pp = (row.get("dfs") or {}).get("prizepicks") or {}
+        if not pp:
+            continue
+        line = pp.get("line") if pp.get("line") is not None else row.get("line")
+        hit = id_by_leg.get((norm_name(row.get("player") or ""), norm_stat(row.get("stat") or ""), line_key(line)))
+        if hit:
+            stamp_pp_id(row, hit)
+            copied += 1
+    if copied:
+        print(f"Copied projection ids onto {copied} opposite-side rows")
     for row in rows:
         apply_ud(row, ud_by.get(norm_name(row.get("player") or ""), []))
     extra_ud = 0
@@ -1211,6 +1297,8 @@ def load_game_map(url: str):
                 rec["total_proj"] = proj
         # h2h point is 0.5 (to win). Over Price = away ML, Under Price = home ML.
         is_ml = market in {"h2h", "moneyline", "ml"}
+        if market == "h2h_lay":
+            continue
         home_ml = under_p if is_ml else None
         away_ml = over_p if is_ml else None
         if is_ml:
@@ -1241,7 +1329,19 @@ def load_game_map(url: str):
                     if sp["line"] is None:
                         sp["line"] = line
             elif market == "totals" and line is not None:
-                slot["total"] = {"line": line, "over": over_p, "under": under_p}
+                tot = slot.setdefault("total", {"line": line, "over": None, "under": None})
+                lab = (label or "").lower()
+                if lab == "over" and price is not None:
+                    tot["over"] = price
+                elif lab == "under" and price is not None:
+                    tot["under"] = price
+                else:
+                    if over_p is not None:
+                        tot["over"] = over_p
+                    if under_p is not None:
+                        tot["under"] = under_p
+                if tot.get("line") is None:
+                    tot["line"] = line
             elif is_ml:
                 ml = slot.setdefault("ml", {})
                 if home_ml is not None:
@@ -1316,6 +1416,17 @@ def build_sport(label, sheet_url, game_url, pp_url, ud_url, out_name):
         )
     games = load_game_map(game_url) if game_url else {}
     raw = base.collect_raw(sheet_rows, base.HOURS_AHEAD) if sheet_rows else []
+    if not raw and sheet_url:
+        print(f"{label} combo sheet empty, retrying download")
+        text = safe_download(sheet_url, f"{label} props retry")
+        if text:
+            sheet_rows = (
+                base.parse_csv_text(text, "id,commence_time,bookmaker")
+                or base.parse_csv_text(text, "commence_time,bookmaker,last_update")
+                or base.parse_csv_text(text, "sport_key,id,commence_time")
+                or base.parse_csv_text(text)
+            )
+            raw = base.collect_raw(sheet_rows, base.HOURS_AHEAD) if sheet_rows else []
     if not raw and label == "SOCCER":
         text2 = safe_download(SOCCER_PROPS_CSV, "SOCCER player props fallback")
         extra = base.parse_csv_text(text2, "id,commence_time,bookmaker") if text2 else []
@@ -1324,6 +1435,7 @@ def build_sport(label, sheet_url, game_url, pp_url, ud_url, out_name):
     base.attach_no_vig(raw)
     rows = base.build_dashboard_rows(raw, games) if raw else []
     rows = enrich_props(rows, load_pp(pp_url), load_ud(ud_url))
+    rows = link_combo_books(rows)
     for row in rows:
         row["sport"] = label
         g = games.get(base.game_key(row.get("away_team"), row.get("home_team")))
