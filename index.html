@@ -33,6 +33,7 @@
         <button type="button" class="mgroup" data-group="books" title="Sportsbooks and arbitrage">Traditional</button>
       </div>
       <nav class="tabs tool-tabs">
+        <button class="tab" data-section="preview" type="button">Game Preview</button>
         <button class="tab" data-section="slip" type="button">Bet Slips</button>
         <button class="tab" data-section="bets" type="button">My Bets</button>
         <button class="tab" data-section="volume" type="button">Volume</button>
@@ -124,6 +125,10 @@
         <input type="checkbox" id="minBooks" checked /> 2+ books
       </label>
       <input type="search" id="q" placeholder="Search players…" />
+      <div class="layout-switch" role="tablist" aria-label="Layout">
+        <button type="button" class="layout-btn on" data-layout="table">Table</button>
+        <button type="button" class="layout-btn" data-layout="cards">Player cards</button>
+      </div>
       <div class="count" id="count"></div>
     </div>
 
@@ -148,6 +153,7 @@
       <div class="empty" id="empty" style="display:none">No rows match these filters.</div>
       <button type="button" id="showMore" class="book-pick" style="display:none;margin:12px auto">Show more</button>
     </div>
+    <div class="card-grid" id="cardGrid" hidden></div>
 
     <div id="slipPanel" class="slip-panel" hidden>
       <div class="slip-head">
