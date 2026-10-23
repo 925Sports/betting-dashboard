@@ -9,6 +9,7 @@ const DATA_URLS = {
   nhl: "./data/nhl-props.json",
 };
 const INTEL_URL = "./data/nfl-intel.json";
+const NBA_INTEL_URL = "./data/nba-intel.json";
 const SPORT_LABEL = { nfl: "NFL", cfb: "CFB", mlb: "MLB", soccer: "SOCCER", wnba: "WNBA", nba: "NBA", cbb: "CBB", nhl: "NHL" };
 
 const BOOKS = [
@@ -119,7 +120,7 @@ const state = {
   minBooks: true,
   volFilter: "game",
   popupChartAll: false,
-  popupTab: "bet",
+  layout: localStorage.getItem("ev_layout") || "table",
   popupKey: "",
 };
 
@@ -1126,6 +1127,22 @@ function kalshiOffer(row) {
   };
 }
 
+function siblingBooks(row) {
+  if (row?.books && Object.keys(row.books).length) return row.books;
+  const pool = state.liveProps || state.data?.props || [];
+  const key = normName(row?.player);
+  const stat = normName(row?.stat);
+  const side = row?.side;
+  const line = Number(displayLine(row) ?? row?.line);
+  if (!key || !Number.isFinite(line)) return row?.books || {};
+  const hit = pool.find((m) =>
+    m && m !== row && m.books && Object.keys(m.books).length &&
+    normName(m.player) === key && normName(m.stat) === stat && m.side === side &&
+    Math.abs(Number(m.line) - line) <= 0.51
+  );
+  return hit?.books || row?.books || {};
+}
+
 function bookOffer(row, key) {
   if (key === "kalshi") return kalshiOffer(row);
   const meta = BOOK_BY_KEY[key];
@@ -1135,7 +1152,7 @@ function bookOffer(row, key) {
     if (key === "prizepicks") return { ...src, price: -117 };
     return src;
   }
-  const books = mergeBooks(row.books);
+  const books = mergeBooks(siblingBooks(row));
   return books[key] || row.books?.[key] || null;
 }
 
@@ -2349,7 +2366,7 @@ function setTab(view) {
 
 function syncTabs() {
   const group = groupOf(state.view);
-  const sectionOn = ["preview", "slip", "volume"].includes(state.section);
+  const sectionOn = ["preview", "slip", "bets", "volume"].includes(state.section);
   document.querySelectorAll(".mgroup").forEach((b) => b.classList.toggle("on", !sectionOn && b.dataset.group === group));
   document.querySelectorAll(".tab[data-view]").forEach((b) => {
     const g = b.dataset.group;
@@ -2644,10 +2661,10 @@ function bestGameBook(books, market, side) {
   let best = null;
   Object.entries(books || {}).forEach(([k, pack]) => {
     const rec = pack?.[market];
-    const price = rec?.[side];
-    if (price == null) return;
+    const price = Number(rec?.[side]);
+    if (!Number.isFinite(price) || Math.abs(price) < 100 || Math.abs(price) > 2000) return;
     const book = canonBook(k);
-    if (!best || Number(price) > Number(best.price)) best = { book, price, line: rec.line };
+    if (!best || price > Number(best.price)) best = { book, price, line: rec.line };
   });
   return best;
 }
@@ -2670,20 +2687,47 @@ function marketSideCard(label, best, hot, kalshiM, share, marketWord) {
   </div>`;
 }
 
+function sameGame(a, b) {
+  if (!a || !b) return false;
+  if (gameKeyOf(a) && gameKeyOf(a) === gameKeyOf(b)) return true;
+  const an = [normName(a.away_team), normName(a.home_team)];
+  const bn = [normName(b.away_team), normName(b.home_team)];
+  const hit = (x, y) => x && y && (x === y || x.endsWith(y) || y.endsWith(x));
+  return (hit(an[0], bn[0]) && hit(an[1], bn[1])) || (hit(an[0], bn[1]) && hit(an[1], bn[0]));
+}
+
+function espnGame(sample) {
+  return (state.nbaIntel?.game_odds || []).find((g) => sameGame(g, sample)) || null;
+}
+
 function previewGameMarkets(sample) {
-  const listed = (state.data?.games || []).find((g) =>
-    gameKeyOf(g) === gameKeyOf(sample) || (g.home_team === sample.home_team && g.away_team === sample.away_team)
-  ) || sample;
+  const listed = (state.data?.games || []).find((g) => sameGame(g, sample)) || sample;
+  const espn = espnGame(sample);
   const home = abbr(listed.home_team) || listed.home_team || "Home";
   const away = abbr(listed.away_team) || listed.away_team || "Away";
-  const books = listed.books || {};
+  const books = { ...(listed.books || {}) };
+  if (espn) {
+    const dk = books.draftkings || {};
+    if (espn.ml_home != null || espn.ml_away != null) {
+      dk.ml = { home: espn.ml_home, away: espn.ml_away };
+      if (listed.ml_home == null) listed.ml_home = espn.ml_home;
+      if (listed.ml_away == null) listed.ml_away = espn.ml_away;
+    }
+    if (espn.total_over != null || espn.total_under != null) {
+      dk.total = { ...(dk.total || {}), line: espn.total ?? dk.total?.line, over: espn.total_over, under: espn.total_under };
+    }
+    if (espn.spread_home != null || espn.spread_away != null) {
+      dk.spread = { ...(dk.spread || {}), line: espn.spread ?? dk.spread?.line, home: espn.spread_home, away: espn.spread_away };
+    }
+    books.draftkings = dk;
+  }
   const hasBooks = Object.keys(books).length > 0;
   const n = listed.spread != null ? Number(listed.spread) : null;
   const t = listed.total != null ? Number(listed.total) : null;
   const homeSpread = n == null ? home : (n > 0 ? `${home} +${n}` : `${home} ${n}`);
   const awaySpread = n == null ? away : (n > 0 ? `${away} ${-n}` : `${away} +${Math.abs(n)}`);
   const rows = [];
-  if (n != null || bestGameBook(books, "spread", "home") || bestGameBook(books, "spread", "away")) {
+  if (n != null || bestGameBook(books, "spread", "home") || bestGameBook(books, "spread", "away") || espn) {
     rows.push({
       market: "Spread",
       a: homeSpread,
@@ -2694,7 +2738,7 @@ function previewGameMarkets(sample) {
       ka: null, kb: null, kkind: "cover",
     });
   }
-  if (t != null || bestGameBook(books, "total", "over") || bestGameBook(books, "total", "under")) {
+  if (t != null || bestGameBook(books, "total", "over") || bestGameBook(books, "total", "under") || espn) {
     rows.push({
       market: "Total",
       a: t != null ? `Over ${t}` : "Over",
@@ -2706,7 +2750,7 @@ function previewGameMarkets(sample) {
   }
   const mlHome = bestGameBook(books, "ml", "home");
   const mlAway = bestGameBook(books, "ml", "away");
-  if (listed.ml_home != null || listed.ml_away != null || mlHome || mlAway) {
+  if (listed.ml_home != null || listed.ml_away != null || mlHome || mlAway || espn) {
     rows.push({
       market: "Moneyline",
       a: `${home} ${listed.ml_home != null ? american(listed.ml_home) : ""}`.trim(),
@@ -2966,6 +3010,102 @@ function previewKalshi(sample) {
   return `<div class="preview-card" style="margin-top:10px"><h3>Kalshi</h3>${table}${propHtml}</div>`;
 }
 
+function nbaTeam(name) {
+  const intel = state.nbaIntel;
+  if (!intel || !name) return null;
+  const n = normName(name);
+  return (intel.teams || []).find((t) => {
+    const full = normName(t.name);
+    const short = normName(t.short);
+    return full === n || short === n || full.endsWith(n) || n.endsWith(short);
+  });
+}
+
+function nbaLineup(name) {
+  const team = nbaTeam(name);
+  return team ? (state.nbaIntel?.lineups || {})[team.abbr] || [] : [];
+}
+
+function nbaLogs(name) {
+  return (state.nbaIntel?.logs || {})[normName(name)] || [];
+}
+
+function nbaInjuriesFor(sample) {
+  const teams = [normName(sample.away_team), normName(sample.home_team)];
+  return (state.nbaIntel?.injuries || []).filter((i) => teams.includes(normName(i.team)));
+}
+
+function nbaNewsFor(sample) {
+  const away = nbaTeam(sample.away_team);
+  const home = nbaTeam(sample.home_team);
+  const tokens = [sample.away_team, sample.home_team, away?.short, home?.short, away?.abbr, home?.abbr]
+    .filter(Boolean).map((s) => String(s).toLowerCase());
+  return (state.nbaIntel?.news || []).filter((n) => {
+    const blob = `${n.headline || ""} ${n.description || ""}`.toLowerCase();
+    return tokens.some((t) => t.length > 2 && blob.includes(t));
+  }).slice(0, 6);
+}
+
+function dvpCell(cell) {
+  if (!cell) return "—";
+  const soft = cell.rank <= Math.ceil(cell.of / 3);
+  const tough = cell.rank > Math.ceil((cell.of * 2) / 3);
+  const cls = soft ? "pct good" : tough ? "pct bad" : "";
+  return `<span class="${cls}">${cell.avg}</span> <span class="line-note">${cell.rank}/${cell.of}</span>`;
+}
+
+function previewNba(sample) {
+  if (sportOf(sample) !== "NBA" || !state.nbaIntel) return "";
+  const sides = [
+    { name: sample.away_team, team: nbaTeam(sample.away_team) },
+    { name: sample.home_team, team: nbaTeam(sample.home_team) },
+  ];
+  const lineup = (side) => {
+    const rows = nbaLineup(side.name);
+    if (!rows.length) return `<div class="muted">No projected lineup yet.</div>`;
+    return rows.map((p) => {
+      const log = nbaLogs(p.name)[0];
+      const last = log ? `${log.pts ?? "—"}/${log.reb ?? "—"}/${log.ast ?? "—"} vs ${log.opp || ""}` : "no recent log";
+      return `<div class="preview-prop">
+        <div class="player-row">${headshotTag(p.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(p.name)}">${escapeHtml(p.name)}</button></div>
+        <div><span class="tag">${escapeHtml(p.pos)}</span><div class="corr-why">${escapeHtml(last)}</div></div>
+      </div>`;
+    }).join("");
+  };
+  const dvpTable = (side) => {
+    const abbr = side.team?.abbr;
+    const board = abbr ? state.nbaIntel.dvp?.[abbr] : null;
+    if (!board) return `<div class="muted">No DVP yet.</div>`;
+    const rows = ["G", "F", "C"].map((pos) => {
+      const slot = board.pos?.[pos] || {};
+      return `<tr><td>${pos}</td><td>${dvpCell(slot.pts)}</td><td>${dvpCell(slot.reb)}</td><td>${dvpCell(slot.ast)}</td></tr>`;
+    }).join("");
+    return `<table class="popup-table">
+      <thead><tr><th>Pos</th><th>Pts</th><th>Reb</th><th>Ast</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="corr-why">${board.games || 0} games. Rank 1 allows the most. Green is a soft matchup.</div>`;
+  };
+  const logs = sides.map((side) => {
+    const rows = nbaLineup(side.name).map((p) => {
+      const games = nbaLogs(p.name).slice(0, 5);
+      if (!games.length) return "";
+      return `<div class="preview-prop">
+        <b>${escapeHtml(p.name)}</b> <span class="tag">${escapeHtml(p.pos)}</span>
+        <div class="corr-why">${games.map((g) => `${g.opp || "?"} ${g.pts ?? "—"}/${g.reb ?? "—"}/${g.ast ?? "—"}`).join(" · ")}</div>
+      </div>`;
+    }).join("");
+    return `<div><h3>${escapeHtml(side.team?.abbr || side.name || "")}</h3>${rows || `<div class="muted">No starter logs yet.</div>`}</div>`;
+  }).join("");
+  return `<div class="preview-grid">
+    ${sides.map((side) => `<div class="preview-card"><h3>Projected lineup · ${escapeHtml(side.team?.abbr || side.name || "")}</h3>${lineup(side)}</div>`).join("")}
+  </div>
+  <div class="preview-grid">
+    ${sides.map((side) => `<div class="preview-card"><h3>DVP allowed · ${escapeHtml(side.team?.abbr || side.name || "")}</h3>${dvpTable(side)}</div>`).join("")}
+  </div>
+  <div class="preview-card"><h3>Starter logs</h3><div class="preview-grid">${logs}</div></div>`;
+}
+
 function previewNews(sample) {
   const rows = rowsForGame(gameKeyOf(sample));
   const names = rows.map((r) => String(r.player || "").toLowerCase()).filter(Boolean);
@@ -3007,8 +3147,11 @@ function renderPreview() {
   const rows = rowsForGame(state.previewGame);
   const best = previewBest(rows);
   const corr = previewCorrelates(rows, sample);
-  const inj = previewInjuries(sample);
-  const news = previewNews(sample);
+  const inj = sportOf(sample) === "NBA" ? nbaInjuriesFor(sample).map((r) => ({
+    name: r.name, team: r.team, pos: r.pos, headshot: r.headshot,
+    report_status: r.status, report_injury: r.injury || r.detail, practice_status: r.detail,
+  })) : previewInjuries(sample);
+  const news = sportOf(sample) === "NBA" ? nbaNewsFor(sample) : previewNews(sample);
   const listed = (state.data?.games || []).find((g) =>
     gameKeyOf(g) === gameKeyOf(sample) || (g.home_team === sample.home_team && g.away_team === sample.away_team)
   ) || sample;
@@ -3033,6 +3176,7 @@ function renderPreview() {
       <div class="preview-lines">${lineBits || `<span class="muted">No consensus game line yet</span>`}</div>
     </div>
     ${previewGameMarkets(sample)}
+    ${previewNba(sample)}
     ${previewAction(sample, best)}
     <div class="preview-grid">
       <div class="preview-card">
@@ -3074,7 +3218,7 @@ function renderPreview() {
             <div class="corr-why">${r.season || ""}w${r.week || ""} · click name in logs for full card</div>
             <button type="button" class="player-btn" data-player="${escapeHtml(r.name || "")}">Open ${escapeHtml(r.name || "")} popup</button>
           </div>
-        </div>`).join("") : `<div class="muted">${sample.sport === "NFL" || !sample.sport ? "No matching injury rows." : "Injury feed is NFL-only right now."}</div>`}
+        </div>`).join("") : `<div class="muted">${sportOf(sample) === "NBA" ? "No injury rows for these teams." : sample.sport === "NFL" || !sample.sport ? "No matching injury rows." : "Injury feed is NFL-only right now."}</div>`}
       </div>
       <div class="preview-card">
         <h3>News</h3>
@@ -3095,7 +3239,9 @@ function showSectionWraps() {
   const filt = document.querySelector(".filters");
   const arbWrap = $("arbStakeWrap");
   if (arbWrap) arbWrap.hidden = state.view !== "arb" || state.section !== "props";
-  if (propsWrap) propsWrap.style.display = state.section === "props" ? "block" : "none";
+  if (propsWrap) propsWrap.style.display = state.section === "props" && state.layout !== "cards" ? "block" : "none";
+  const cards = $("cardGrid");
+  if (cards) cards.hidden = !(state.section === "props" && state.layout === "cards");
   const slip = $("slipPanel");
   if (slip) slip.hidden = state.section !== "slip";
   const bets = $("betsPanel");
@@ -3418,6 +3564,12 @@ function render(full) {
     return;
   }
   $("empty").style.display = "none";
+  setLayout(state.layout);
+  if (state.layout === "cards") {
+    const grid = $("cardGrid");
+    if (grid) grid.innerHTML = playerCards(view);
+    return;
+  }
   const cols = visibleBooks();
   $("tbody").innerHTML = view.map((r) => {
     const sideClass = r.side === "Over" || r.side === "Yes" ? "over" : (r.side === "Under" || r.side === "No" ? "under" : "");
@@ -3441,6 +3593,64 @@ function render(full) {
   }).join("");
 }
 
+function setLayout(mode) {
+  state.layout = mode === "cards" ? "cards" : "table";
+  localStorage.setItem("ev_layout", state.layout);
+  document.querySelectorAll(".layout-btn").forEach((b) => b.classList.toggle("on", b.dataset.layout === state.layout));
+  showSectionWraps();
+}
+
+function playerCards(rows) {
+  const groups = new Map();
+  rows.forEach((r) => {
+    const key = nameKey(r.player);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  });
+  const cards = [...groups.values()].map((list) => {
+    list.sort((a, b) => (rowEdge(b) ?? -99) - (rowEdge(a) ?? -99));
+    return { best: rowEdge(list[0]), list };
+  }).sort((a, b) => (b.best ?? -99) - (a.best ?? -99));
+  return cards.slice(0, 80).map(({ list }) => {
+    const top = list[0];
+    const lines = list.slice(0, 8).map((r) => {
+      const edge = rowEdge(r);
+      const offer = viewOffer(r);
+      const meta = BOOK_BY_KEY[offer.bookKey];
+      return `<div class="pline" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">
+        <div>
+          <div class="pline-stat">${sideTag(r.side)} ${escapeHtml(r.stat || "")}</div>
+          <div class="pline-meta">${meta ? bookMark(meta, "sm") : ""} ${escapeHtml(meta?.name || offer.bookKey || "")} ${offer.price != null ? american(offer.price) : ""}${r.dfs?.prizepicks ? `<button type="button" class="slip-add" data-eid="${escapeHtml(r.event_id || "")}" data-player="${escapeHtml(r.player)}" data-stat="${escapeHtml(r.stat)}" data-line="${r.line ?? ""}" data-side="${escapeHtml(r.side)}">+ slip</button>` : ""} ${likeButton(pickFromRow(r, offer), "cell")}</div>
+        </div>
+        <div class="line-num">${displayLine(r) ?? "—"}</div>
+        <div class="pline-edge ${edge >= 0 ? "pct good" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}<small>${hitPct(r) != null ? hitPct(r).toFixed(1) + "%" : ""}</small></div>
+      </div>`;
+    }).join("");
+    return `<article class="pcard">
+      <div class="pcard-top">
+        ${headshotTag(top.headshot)}
+        <div>
+          <div class="pcard-name"><button type="button" class="player-btn" data-player="${escapeHtml(top.player)}" data-eid="${escapeHtml(top.event_id || "")}" data-market="${escapeHtml(top.market || "")}" data-side="${escapeHtml(top.side)}">${escapeHtml(top.player)}</button>${posTag(top)}</div>
+          <div class="pcard-sub">${escapeHtml(matchup(top))} · ${escapeHtml(fmtWhen(top.commence_time))}</div>
+        </div>
+      </div>
+      <div class="pcard-lines">${lines}</div>
+    </article>`;
+  }).join("");
+}
+
+document.querySelectorAll(".layout-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    setLayout(btn.dataset.layout);
+    render();
+  });
+});
+$("cardGrid")?.addEventListener("click", (e) => {
+  if (e.target.closest(".slip-add") || e.target.closest(".like-btn")) return;
+  const line = e.target.closest(".pline, .player-btn");
+  if (!line?.dataset.player) return;
+  openPlayerPopup(line.dataset.player, line.dataset.eid || "", line.dataset.market || "", line.dataset.side || "");
+});
 document.querySelectorAll(".tab[data-view]").forEach((btn) => {
   btn.addEventListener("click", () => {
     state.view = btn.dataset.view;
@@ -3820,24 +4030,30 @@ function dvpFor(row) {
 }
 
 function bookLineBoard(rows) {
-  const skip = new Set(["prizepicks", "underdog", "pick6", "betr", "dabble", "kalshi"]);
+  const dfsKeys = new Set(["prizepicks", "underdog", "pick6", "betr", "dabble"]);
   const map = new Map();
+  const put = (book, line, side, price, dfs) => {
+    const px = Number(price);
+    const n = Number(line);
+    if (!book || !Number.isFinite(n) || !Number.isFinite(px) || Math.abs(px) < 100 || Math.abs(px) > 2500) return;
+    const key = `${book}|${n}`;
+    if (!map.has(key)) map.set(key, { book, line: n, over: null, under: null, dfs: !!dfs });
+    const slot = map.get(key);
+    const overish = side === "over" || side === "yes";
+    if (overish) {
+      if (slot.over == null || px > slot.over) slot.over = px;
+    } else if (slot.under == null || px > slot.under) slot.under = px;
+  };
   (rows || []).forEach((r) => {
     const side = String(r.side || "").toLowerCase();
-    const overish = side === "over" || side === "yes";
-    const underish = side === "under" || side === "no";
-    if (!overish && !underish) return;
+    if (!["over", "under", "yes", "no"].includes(side)) return;
     Object.entries(mergeBooks(r.books) || {}).forEach(([k, b]) => {
-      if (!b || skip.has(k)) return;
-      const line = Number(b.line != null && b.line !== "" ? b.line : r.line);
-      const px = Number(b.price);
-      if (!Number.isFinite(line) || !Number.isFinite(px) || Math.abs(px) < 100 || Math.abs(px) > 2500) return;
-      const key = `${k}|${line}`;
-      if (!map.has(key)) map.set(key, { book: k, line, over: null, under: null });
-      const slot = map.get(key);
-      if (overish) {
-        if (slot.over == null || px > slot.over) slot.over = px;
-      } else if (slot.under == null || px > slot.under) slot.under = px;
+      if (!b || dfsKeys.has(k) || k === "kalshi") return;
+      put(k, b.line != null && b.line !== "" ? b.line : r.line, side, b.price, false);
+    });
+    Object.entries(r.dfs || {}).forEach(([k, b]) => {
+      if (!b) return;
+      put(k, b.line != null && b.line !== "" ? b.line : r.line, side, k === "prizepicks" ? -117 : b.price, true);
     });
   });
   return [...map.values()].sort((a, b) => a.line - b.line || String(a.book).localeCompare(String(b.book)));
@@ -3846,35 +4062,107 @@ function bookLineBoard(rows) {
 function lineBoardHtml(rows, focus) {
   const board = bookLineBoard(rows);
   const yesNo = focus && (focus.side === "Yes" || focus.side === "No");
-  const overLab = yesNo ? "Yes price" : "Over price";
-  const underLab = yesNo ? "No price" : "Under price";
-  if (!board.length) return `<div class="muted">No sportsbook prices at a posted line.</div>`;
-  const bestOver = new Map();
-  const bestUnder = new Map();
+  const overLab = yesNo ? "Yes" : "Over";
+  const underLab = yesNo ? "No" : "Under";
+  const focusSide = String(focus?.side || "");
+  const focusLine = Number(displayLine(focus) ?? focus?.line);
+  if (!board.length) return `<div class="muted">No posted lines to compare.</div>`;
+
+  const byLine = new Map();
   board.forEach((r) => {
-    if (r.over != null) bestOver.set(r.line, Math.max(bestOver.get(r.line) ?? -Infinity, r.over));
-    if (r.under != null) bestUnder.set(r.line, Math.max(bestUnder.get(r.line) ?? -Infinity, r.under));
+    if (!byLine.has(r.line)) byLine.set(r.line, []);
+    byLine.get(r.line).push(r);
   });
-  const body = board.map((r) => {
-    const meta = BOOK_BY_KEY[r.book];
-    const overCls = r.over != null && r.over === bestOver.get(r.line) ? "best-pay" : "";
-    const underCls = r.under != null && r.under === bestUnder.get(r.line) ? "best-pay" : "";
-    const overSide = yesNo ? "Yes" : "Over";
-    const underSide = yesNo ? "No" : "Under";
-    const overBtn = r.over != null && focus ? likeButton(pickFromRow({ ...focus, side: overSide, line: r.line }, { bookKey: r.book, line: r.line, price: r.over }), "cell") : "";
-    const underBtn = r.under != null && focus ? likeButton(pickFromRow({ ...focus, side: underSide, line: r.line }, { bookKey: r.book, line: r.line, price: r.under }), "cell") : "";
-    return `<tr>
-      <td>${meta ? bookMark(meta, "sm") + " " + escapeHtml(meta.name) : escapeHtml(r.book)}</td>
-      <td>${r.line}</td>
-      <td class="${overCls}">${american(r.over)}${overBtn}</td>
-      <td class="${underCls}">${american(r.under)}${underBtn}</td>
-    </tr>`;
+  const lines = [...byLine.keys()].sort((a, b) => {
+    const af = Number.isFinite(focusLine) && a === focusLine ? -1 : 0;
+    const bf = Number.isFinite(focusLine) && b === focusLine ? -1 : 0;
+    return af - bf || a - b;
+  });
+
+  const bestAt = (list, side) => {
+    const vals = list.map((r) => r[side]).filter((n) => n != null);
+    return vals.length ? Math.max(...vals) : null;
+  };
+  const focusList = Number.isFinite(focusLine) ? byLine.get(focusLine) || [] : [];
+  const bestOver = bestAt(focusList, "over");
+  const bestUnder = bestAt(focusList, "under");
+  const bestBook = (side, price) => focusList.find((r) => r[side] === price);
+  const summary = Number.isFinite(focusLine) ? `<div class="line-summary">
+    <div><span>This line</span><b>${focusLine}</b></div>
+    <div><span>Best ${overLab}</span><b class="pct good">${bestOver == null ? "—" : american(bestOver)}</b>${bestBook("over", bestOver) ? `<small>${escapeHtml(BOOK_BY_KEY[bestBook("over", bestOver).book]?.name || "")}</small>` : ""}</div>
+    <div><span>Best ${underLab}</span><b class="pct good">${bestUnder == null ? "—" : american(bestUnder)}</b>${bestBook("under", bestUnder) ? `<small>${escapeHtml(BOOK_BY_KEY[bestBook("under", bestUnder).book]?.name || "")}</small>` : ""}</div>
+  </div>` : "";
+
+  const groups = lines.map((line) => {
+    const list = byLine.get(line);
+    const onFocus = Number.isFinite(focusLine) && line === focusLine;
+    const sideKey = focusSide === "Under" || focusSide === "No" ? "under" : "over";
+    list.sort((a, b) => (b[sideKey] ?? -9999) - (a[sideKey] ?? -9999) || (a.dfs === b.dfs ? 0 : a.dfs ? 1 : -1));
+    const overBest = bestAt(list, "over");
+    const underBest = bestAt(list, "under");
+    const body = list.map((r) => {
+      const meta = BOOK_BY_KEY[r.book];
+      const overBtn = r.over != null && focus ? likeButton(pickFromRow({ ...focus, side: overLab, line }, { bookKey: r.book, line, price: r.over }), "cell") : "";
+      const underBtn = r.under != null && focus ? likeButton(pickFromRow({ ...focus, side: underLab, line }, { bookKey: r.book, line, price: r.under }), "cell") : "";
+      return `<tr class="${r.dfs ? "dfs-row" : ""}">
+        <td>${meta ? bookMark(meta, "sm") + " " + escapeHtml(meta.name) : escapeHtml(r.book)}${r.dfs ? ` <span class="line-note">DFS</span>` : ""}</td>
+        <td class="${r.over != null && r.over === overBest ? "best-pay" : ""}">${r.over == null ? "—" : american(r.over)}${overBtn}</td>
+        <td class="${r.under != null && r.under === underBest ? "best-pay" : ""}">${r.under == null ? "—" : american(r.under)}${underBtn}</td>
+      </tr>`;
+    }).join("");
+    return `<div class="line-group${onFocus ? " on" : ""}">
+      <div class="line-head"><b>${line}</b>${onFocus ? `<span>your line</span>` : `<span class="line-note">${line > focusLine ? "higher" : "lower"} number</span>`}</div>
+      <table class="popup-table">
+        <thead><tr><th>Book</th><th>${overLab}</th><th>${underLab}</th></tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>`;
   }).join("");
-  return `<table class="popup-table">
-      <thead><tr><th>Book</th><th>Line</th><th>${overLab}</th><th>${underLab}</th></tr></thead>
-      <tbody>${body}</tbody>
-    </table>
-    <div class="corr-why">One row per book and line. Green is the best price at that line. + saves that book, side, and number to My Bets.</div>`;
+
+  return `${summary}<div class="line-groups">${groups}</div>
+    <div class="corr-why">Grouped by number. Your line is first. Green is the best price at that number. + saves that book, side, and line to My Bets.</div>`;
+}
+
+function nbaLogBlock(name) {
+  const recs = nbaLogs(name);
+  if (!recs.length) return "";
+  const row = (g) => `<tr>
+    <td>${escapeHtml((g.date || "").slice(5, 10))}</td>
+    <td>${g.starter ? "S" : ""}</td>
+    <td class="match">${escapeHtml(g.opp || "")}</td>
+    <td>${g.min ?? "—"}</td>
+    <td>${g.pts ?? "—"}</td>
+    <td>${g.reb ?? "—"}</td>
+    <td>${g.ast ?? "—"}</td>
+    <td>${g.stl ?? "—"}</td>
+    <td>${g.blk ?? "—"}</td>
+    <td>${g.to ?? "—"}</td>
+    <td>${g.fg3 ?? "—"}</td>
+  </tr>`;
+  return `<div class="dfs-wrap">
+    <div class="popup-h">Recent games</div>
+    <div class="log-scroll"><table class="popup-table popup-logs dfs-log">
+      <thead><tr>
+        <th>Date</th><th></th><th>Opp</th><th>Min</th><th>Pts</th><th>Reb</th><th>Ast</th><th>Stl</th><th>Blk</th><th>TO</th><th>3PT</th>
+      </tr></thead>
+      <tbody>${recs.map(row).join("")}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function nbaDvpFor(focus) {
+  if (!state.nbaIntel || sportOf(focus) !== "NBA") return null;
+  const logs = nbaLogs(focus.player);
+  const family = { PG: "G", SG: "G", G: "G", SF: "F", PF: "F", F: "F", C: "C" };
+  const pos = family[(logs[0]?.pos || nbaLineup(focus.home_team).concat(nbaLineup(focus.away_team)).find((p) => normName(p.name) === normName(focus.player))?.pos || "").toUpperCase()];
+  if (!pos) return null;
+  const mine = logs[0]?.team;
+  const home = nbaTeam(focus.home_team);
+  const away = nbaTeam(focus.away_team);
+  const opp = mine && home?.abbr === mine ? away : home;
+  const board = opp ? state.nbaIntel.dvp?.[opp.abbr]?.pos?.[pos] : null;
+  if (!board) return null;
+  return { opp: opp.abbr, pos, games: state.nbaIntel.dvp[opp.abbr].games, board };
 }
 
 function openPlayerPopup(player, eventId, market, side) {
@@ -3893,13 +4181,17 @@ function openPlayerPopup(player, eventId, market, side) {
   if (!focus) {
     const meta = intelPlayer(player);
     const inj = (state.intel?.injuries || []).find((i) => i.name === player || i.gsis_id === meta?.gsis_id);
-    if (!meta && !inj) return;
+    const nba = nbaLogs(player);
+    const nbaInj = (state.nbaIntel?.injuries || []).find((i) => normName(i.name) === normName(player));
+    if (!meta && !inj && !nba.length && !nbaInj) return;
     focus = {
       player,
-      headshot: meta?.headshot || inj?.headshot,
+      sport: nba.length || nbaInj ? "NBA" : "",
+      headshot: meta?.headshot || inj?.headshot || nbaInj?.headshot,
       gsis_id: meta?.gsis_id || inj?.gsis_id,
-      game: meta ? `${meta.team} ${meta.pos}` : "",
-      injury: inj ? { status: inj.report_status, injury: inj.report_injury, week: inj.week, season: inj.season } : null,
+      game: meta ? `${meta.team} ${meta.pos}` : (nbaInj?.team || ""),
+      injury: inj ? { status: inj.report_status, injury: inj.report_injury, week: inj.week, season: inj.season }
+        : nbaInj ? { status: nbaInj.status, injury: nbaInj.injury } : null,
       books: {}, dfs: {},
     };
   }
@@ -3924,15 +4216,22 @@ function openPlayerPopup(player, eventId, market, side) {
   const pos = focus.position || focus.nfl_pos || meta?.pos || "";
   const gsis = focus.gsis_id || meta?.gsis_id;
   const recs = intelLogs(gsis);
-  const relatedNews = (state.intel?.news || []).filter((n) => (n.players || []).includes(gsis) || (n.headline || "").toLowerCase().includes(String(player).toLowerCase()));
+  const nbaRecs = nbaLogs(player);
+  const relatedNews = sportOf(focus) === "NBA"
+    ? nbaNewsFor(focus)
+    : (state.intel?.news || []).filter((n) => (n.players || []).includes(gsis) || (n.headline || "").toLowerCase().includes(String(player).toLowerCase()));
   const liveInj = focus.injury?.status ? focus.injury : (() => {
+    if (sportOf(focus) === "NBA") {
+      const hit = (state.nbaIntel?.injuries || []).find((i) => normName(i.name) === normName(player));
+      return hit ? { status: hit.status, injury: hit.injury || hit.detail } : null;
+    }
     const hit = (state.intel?.injuries || []).find((i) => i.gsis_id === gsis || nameKey(i.name) === nameKey(player));
     if (!hit || (hit.season && Number(hit.season) !== currentSeason())) return null;
     return { status: hit.report_status, injury: hit.report_injury, week: hit.week, season: hit.season };
   })();
   if (liveInj && !focus.injury) focus.injury = liveInj;
   const kProps = kalshiPropsForPlayer(player);
-  const logBlock = recs.length ? contextLog(recs, focus) : `<div class="muted">No game log yet.</div>`;
+  const logBlock = nbaRecs.length ? nbaLogBlock(player) : recs.length ? contextLog(recs, focus) : `<div class="muted">No game log yet.</div>`;
   const newsBlock = relatedNews.length ? `<h4 class="popup-h">News</h4>
     ${relatedNews.slice(0, 6).map((n) => `<div class="popup-stat" style="margin-bottom:8px"><b>${escapeHtml(n.source || "")} · ${escapeHtml(n.published || "")}</b>
       <a href="${escapeHtml(n.url || "#")}" target="_blank" rel="noopener">${escapeHtml(n.headline || "")}</a></div>`).join("")}` : "";
@@ -3985,8 +4284,17 @@ function openPlayerPopup(player, eventId, market, side) {
     </div>
     <div class="pop-pane" data-pop-pane="dvp" hidden>
     ${(() => {
+      const nba = nbaDvpFor(focus);
+      if (nba) {
+        const pts = nba.board.pts;
+        const soft = pts && pts.rank <= Math.ceil(pts.of / 3);
+        return `<div class="popup-stat"><b>${escapeHtml(nba.opp)} vs ${escapeHtml(nba.pos)}</b>
+          Allows ${pts?.avg ?? "—"} pts · ${nba.board.reb?.avg ?? "—"} reb · ${nba.board.ast?.avg ?? "—"} ast per game to ${escapeHtml(nba.pos)}
+          <div class="corr-why">Pts rank ${pts?.rank ?? "—"} of ${pts?.of ?? "—"}. ${soft ? "Soft matchup." : "Tougher matchup."} ${nba.games || 0} games in the sample.</div>
+        </div>`;
+      }
       const d = dvpFor(focus);
-      if (!d) return `<div class="muted">DVP is NFL only, and needs an opponent plus a QB/RB/WR/TE position.</div>`;
+      if (!d) return `<div class="muted">DVP needs an opponent and a position. NFL uses QB/RB/WR/TE. NBA uses G/F/C from the recent logs.</div>`;
       const soft = d.rank <= 10;
       return `<div class="popup-stat"><b>${escapeHtml(d.opp)} vs ${escapeHtml(d.pos)}</b>
         Allows ${d.avg} ${escapeHtml(d.stat)} per game to ${escapeHtml(d.pos)} · rank ${d.rank} of ${d.of}
@@ -3996,35 +4304,22 @@ function openPlayerPopup(player, eventId, market, side) {
     </div>
     <div class="pop-pane" data-pop-pane="lines" hidden>
     ${newsBlock}
-    <div class="popup-stat" style="margin-bottom:12px">
-      <b>DFS lines</b>
-      <div class="game">PrizePicks is listed here only. It is not in the book prices below.</div>
-      ${dfs.length ? dfs.map(([k, v]) => {
-        const meta = BOOK_BY_KEY[k];
-        const ov = oppRow?.dfs?.[k];
-        const px = k === "prizepicks" ? -117 : v.price;
-        const opx = k === "prizepicks" ? -117 : ov?.price;
-        const mine = likeButton(pickFromRow({ ...focus, side: focus.side, line: v.line ?? shownLine }, { bookKey: k, line: v.line ?? shownLine, price: px }), "cell");
-        const other = ov && oppSide ? likeButton(pickFromRow({ ...focus, side: oppSide, line: ov.line ?? shownLine }, { bookKey: k, line: ov.line ?? shownLine, price: opx }), "cell") : "";
-        return `${meta ? bookMark(meta, "sm") : k} ${escapeHtml(focus.side || "")} ${v.line ?? "—"} ${american(px)} ${mine}${ov ? ` · ${escapeHtml(oppSide)} ${ov.line ?? "—"} ${american(opx)} ${other}` : ""}`;
-      }).join("<br>") : "—"}
-      ${focus.fantasy_cmp ? `<div class="corr-why" style="margin-top:6px">
-        Scoring convert: ${
-          focus.fantasy_cmp.mode === "ppr_vs_half"
-            ? `football PPR vs half-PPR using true rec avg ${focus.fantasy_cmp.recs}`
-            : focus.fantasy_cmp.mode === "ppr_vs_half_no_recs"
-              ? "football PPR vs half-PPR (no receptions true line yet)"
-              : focus.fantasy_cmp.mode === "mlb_hitter"
-                ? `MLB convert using true avgs BB ${focus.fantasy_cmp.walks ?? 0} / 2B ${focus.fantasy_cmp.doubles ?? 0} / SB ${focus.fantasy_cmp.steals ?? 0}`
-                : focus.fantasy_cmp.mode === "mlb_hitter_no_avgs"
-                  ? "MLB scorer differs on BB / 2B / SB — no true lines yet"
-                  : "same scoring"
-        }.
-        PP ${focus.fantasy_cmp.pp ?? "—"} · UD ${focus.fantasy_cmp.ud ?? "—"}
-        · UD as PP ${focus.fantasy_cmp.ud_as_pp ?? "—"}
-        · PP as UD ${focus.fantasy_cmp.pp_as_ud ?? "—"}.
-      </div>` : ""}
-    </div>
+    ${focus.fantasy_cmp ? `<div class="corr-why" style="margin-bottom:8px">
+      Scoring convert: ${
+        focus.fantasy_cmp.mode === "ppr_vs_half"
+          ? `football PPR vs half-PPR using true rec avg ${focus.fantasy_cmp.recs}`
+          : focus.fantasy_cmp.mode === "ppr_vs_half_no_recs"
+            ? "football PPR vs half-PPR (no receptions true line yet)"
+            : focus.fantasy_cmp.mode === "mlb_hitter"
+              ? `MLB convert using true avgs BB ${focus.fantasy_cmp.walks ?? 0} / 2B ${focus.fantasy_cmp.doubles ?? 0} / SB ${focus.fantasy_cmp.steals ?? 0}`
+              : focus.fantasy_cmp.mode === "mlb_hitter_no_avgs"
+                ? "MLB scorer differs on BB / 2B / SB — no true lines yet"
+                : "same scoring"
+      }.
+      PP ${focus.fantasy_cmp.pp ?? "—"} · UD ${focus.fantasy_cmp.ud ?? "—"}
+      · UD as PP ${focus.fantasy_cmp.ud_as_pp ?? "—"}
+      · PP as UD ${focus.fantasy_cmp.pp_as_ud ?? "—"}.
+    </div>` : ""}
     ${lineBoardHtml(quoteRows, focus)}
     <div style="margin:12px 0 8px;display:flex;gap:8px;flex-wrap:wrap">
       <button type="button" class="tab on" id="popupSlip">Add to PP slip</button>
@@ -4264,6 +4559,11 @@ async function loadData() {
       state.intel = await fetchBoard(INTEL_URL, version);
     } catch (_) {
       state.intel = null;
+    }
+    try {
+      state.nbaIntel = await fetchBoard(NBA_INTEL_URL, version);
+    } catch (_) {
+      state.nbaIntel = null;
     }
     const sport = $("sport")?.value || state.sport || "all";
     state.sport = sport;
