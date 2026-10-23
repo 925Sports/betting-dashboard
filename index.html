@@ -20,26 +20,42 @@
   </div>
 
   <header class="bar">
-    <div class="brand">
-      <div>
-        <div class="brand-title">+EV Optimizer</div>
-        <div class="brand-sub">All sports · PP Standard</div>
+    <div class="bar-top">
+      <div class="brand">
+        <div>
+          <div class="brand-title">+EV Optimizer</div>
+          <div class="brand-sub">NineToFiveSports</div>
+        </div>
       </div>
+      <div class="market-switch" role="tablist" aria-label="Book type">
+        <button type="button" class="mgroup on" data-group="dfs" title="PrizePicks, Underdog, Pick6, Dabble, Betr">DFS</button>
+        <button type="button" class="mgroup" data-group="exchanges" title="ProphetX, Novig, Kalshi, Polymarket">Exchanges</button>
+        <button type="button" class="mgroup" data-group="books" title="Sportsbooks and arbitrage">Traditional</button>
+      </div>
+      <nav class="tabs tool-tabs">
+        <button class="tab" data-section="preview" type="button">Game Preview</button>
+        <button class="tab" data-section="slip" type="button">Bet Slips</button>
+        <button class="tab" data-section="bets" type="button">My Bets</button>
+        <button class="tab" data-section="volume" type="button">Volume</button>
+      </nav>
+      <div class="meta" id="updated">Loading…</div>
     </div>
-    <nav class="tabs">
-      <button class="tab on" data-view="pp" type="button">PrizePicks</button>
-      <button class="tab" data-view="ud" type="button">Underdog</button>
-      <button class="tab" data-view="pick6" type="button">Pick6</button>
-      <button class="tab" data-view="prophetx" type="button">ProphetX</button>
-      <button class="tab" data-view="novig" type="button">Novig</button>
-      <button class="tab" data-view="kalshi" type="button">Kalshi</button>
-      <button class="tab" data-view="polymarket" type="button">Polymarket</button>
-      <button class="tab" data-view="ev" type="button">+EV Only</button>
-      <button class="tab" data-view="all" type="button">All Props</button>
-      <button class="tab" data-section="preview" type="button">Game Preview</button>
-      <button class="tab" data-section="volume" type="button">Volume</button>
+    <nav class="tabs" id="viewTabs">
+      <button class="tab on" data-view="pp" data-group="dfs" type="button">PrizePicks</button>
+      <button class="tab" data-view="ud" data-group="dfs" type="button">Underdog</button>
+      <button class="tab" data-view="pick6" data-group="dfs" type="button">Pick6</button>
+      <button class="tab" data-view="dabble" data-group="dfs" type="button">Dabble</button>
+      <button class="tab" data-view="betr" data-group="dfs" type="button">Betr</button>
+      <button class="tab" data-view="ev" data-group="dfs" type="button">+EV</button>
+      <button class="tab" data-view="all" data-group="dfs" type="button">All props</button>
+      <button class="tab" data-view="prophetx" data-group="exchanges" type="button" hidden>ProphetX</button>
+      <button class="tab" data-view="novig" data-group="exchanges" type="button" hidden>Novig</button>
+      <button class="tab" data-view="kalshi" data-group="exchanges" type="button" hidden>Kalshi</button>
+      <button class="tab" data-view="polymarket" data-group="exchanges" type="button" hidden>Polymarket</button>
+      <button class="tab" data-view="books" data-group="books" type="button" hidden>Best price</button>
+      <button class="tab" data-view="arb" data-group="books" type="button" hidden>Arb</button>
     </nav>
-    <div class="meta" id="updated">Loading…</div>
+    <div class="group-note" id="groupNote" hidden>Edge is traditional books at this exact line, minus what this exchange pays. One book cannot make the edge. A book more than 8 points off the rest is ignored.</div>
   </header>
 
   <div class="wrap">
@@ -57,6 +73,8 @@
       </select>
       <select id="section">
         <option value="props">Player props</option>
+        <option value="bets">My Bets</option>
+        <option value="slip">Bet slips</option>
         <option value="preview">Game preview</option>
         <option value="games">Game lines</option>
         <option value="volume">Kalshi volume</option>
@@ -65,7 +83,14 @@
         <option value="logs">NFL player logs</option>
         <option value="stacks">NFL stacks</option>
       </select>
-      <select id="game"></select>
+      <select id="team"></select>
+      <div class="pick-combo" id="gameCombo">
+        <select id="game"></select>
+        <div class="game-drop" id="gameDrop" hidden>
+          <input type="search" id="gameQ" placeholder="Search games…" autocomplete="off" />
+          <div class="game-opts" id="gameOpts"></div>
+        </div>
+      </div>
       <select id="stat"></select>
       <select id="side">
         <option value="ou">Over / Under</option>
@@ -94,11 +119,16 @@
         <option value="today">Today</option>
         <option value="tomorrow">Tomorrow</option>
       </select>
-      <label class="chk">Min % <input type="number" id="minPct" value="50" min="0" max="100" step="0.5" /></label>
+      <label class="chk" id="minPctLabel"><span class="min-name">Min %</span> <input type="number" id="minPct" value="50" min="-20" max="100" step="0.5" /></label>
+      <label class="chk" id="arbStakeWrap" hidden>Stake $ <input type="number" id="arbStake" value="10" min="1" step="1" style="width:60px" /></label>
       <label class="chk" title="Ignore Fantasy Score. Requires two sportsbook prices.">
         <input type="checkbox" id="minBooks" checked /> 2+ books
       </label>
       <input type="search" id="q" placeholder="Search players…" />
+      <div class="layout-switch" role="tablist" aria-label="Layout">
+        <button type="button" class="layout-btn on" data-layout="table">Table</button>
+        <button type="button" class="layout-btn" data-layout="cards">Player cards</button>
+      </div>
       <div class="count" id="count"></div>
     </div>
 
@@ -121,13 +151,48 @@
         <tbody id="tbody"></tbody>
       </table>
       <div class="empty" id="empty" style="display:none">No rows match these filters.</div>
+      <button type="button" id="showMore" class="book-pick" style="display:none;margin:12px auto">Show more</button>
+    </div>
+    <div class="card-grid" id="cardGrid" hidden></div>
+
+    <div id="slipPanel" class="slip-panel" hidden>
+      <div class="slip-head">
+        <div>
+          <div class="brand-title">PrizePicks slips</div>
+          <div class="line-note">Legs multiply into a cash %. A size is a good bet when that cash % beats the payout break-even.</div>
+        </div>
+        <button type="button" class="book-pick" id="slipClear">Clear</button>
+      </div>
+      <div id="slipList" class="slip-legs"></div>
+      <div id="slipSizes" class="slip-sizes"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Place bet</th>
+              <th>Legs</th>
+              <th>Cash %</th>
+              <th>Break-even</th>
+              <th>Edge</th>
+              <th>Payout</th>
+            </tr>
+          </thead>
+          <tbody id="slipBody"></tbody>
+        </table>
+        <div class="empty" id="slipEmpty" style="display:none"></div>
+      </div>
     </div>
 
-    <div class="slip-bar" id="slipBar" hidden>
-      <div class="slip-label">PP slip <span id="slipCount">0</span></div>
-      <div class="slip-picks" id="slipPicks"></div>
-      <a class="tab on" id="slipOpen" href="https://app.prizepicks.com/" target="_blank" rel="noopener">Open in PrizePicks</a>
-      <button type="button" class="tab" id="slipClear">Clear</button>
+    <div id="betsPanel" class="bets-panel" hidden>
+      <div class="slip-head">
+        <div>
+          <div class="brand-title">My bets</div>
+          <div class="line-note">Saved from the board or a player profile. Built to read on camera at the end of a video.</div>
+        </div>
+        <button type="button" class="book-pick" id="betsClear">Clear</button>
+      </div>
+      <div id="betsGrid" class="bets-grid"></div>
+      <div class="empty" id="betsEmpty">No bets saved yet. Use + bet on a row, or add a book line from a player profile.</div>
     </div>
 
     <div class="table-wrap intel-wrap" id="newsWrap" style="display:none">
@@ -142,7 +207,7 @@
         </thead>
         <tbody id="newsBody"></tbody>
       </table>
-      <div class="empty" id="newsEmpty" style="display:none">No NFL news yet. Run the Action.</div>
+      <div class="empty" id="newsEmpty" style="display:none">No news yet.</div>
     </div>
 
     <div class="table-wrap intel-wrap" id="injWrap" style="display:none">
@@ -230,7 +295,7 @@
         </thead>
         <tbody id="volumeBody"></tbody>
       </table>
-      <div class="empty" id="volumeEmpty" style="display:none">No Kalshi volume yet. Run the Action after pushing the volume fields.</div>
+      <div class="empty" id="volumeEmpty" style="display:none">No volume yet.</div>
     </div>
     <div class="table-wrap" id="gamesWrap" style="display:none">
       <table>
@@ -249,7 +314,7 @@
         </thead>
         <tbody id="gamesBody"></tbody>
       </table>
-      <div class="empty" id="gamesEmpty" style="display:none">No game lines yet. Run the Action.</div>
+      <div class="empty" id="gamesEmpty" style="display:none">No game lines yet.</div>
     </div>
   </div>
   <div id="popup" class="popup" hidden>
