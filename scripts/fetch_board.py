@@ -312,6 +312,8 @@ def load_pp(url: str):
             "pp_id": pp_id,
             "projection": base.to_float(r.get("Projection")),
             "pp_edge": edge,
+            "edge_over": pct_num(r.get("Edge % Over")),
+            "edge_under": pct_num(r.get("Edge % Under")),
             "true_point": base.to_float(r.get("True Point")),
             "avg_line": base.to_float(r.get("Average Line")),
             "nv_pct": nv,
@@ -553,6 +555,8 @@ def apply_sibling_cash(rows):
         if not halves:
             continue
         for r in group:
+            if str(r.get("sport") or "").upper() == "NBA":
+                continue
             if not is_whole_line(r.get("line")):
                 continue
             L = int(round(float(r["line"])))
@@ -603,7 +607,17 @@ def fill_headshots(rows, *sources):
     print(f"Loose headshot fills={filled}")
 
 
-def attach_pp(row, p):
+def side_sheet_hit(p, side):
+    """PP sheet Edge % Over / Under is the model's hit rate for that line."""
+    over = sane_pct(p.get("edge_over"))
+    under = sane_pct(p.get("edge_under"))
+    side = str(side or "").title()
+    if side == "Under":
+        return under if under is not None else sane_pct(p.get("pp_edge"))
+    return over if over is not None else sane_pct(p.get("pp_edge"))
+
+
+def attach_pp(row, p, take_hit=True):
     row["headshot"] = p.get("headshot") or row.get("headshot")
     row["projection"] = p.get("projection")
     row["pp_sheet_edge"] = p.get("pp_edge")
@@ -623,6 +637,23 @@ def attach_pp(row, p):
     }
     stat = str(p.get("stat") or row.get("stat") or "")
     is_fantasy = "fantasy" in stat.lower()
+    nba = str(row.get("sport") or "").upper() == "NBA"
+    if nba and not is_fantasy:
+        pp_line = base.to_float(p.get("line"))
+        row_line = base.to_float(row.get("line"))
+        same = pp_line is None or row_line is None or abs(pp_line - row_line) <= 0.26
+        if take_hit and same:
+            hit = side_sheet_hit(p, row.get("side"))
+            if hit is not None:
+                row["pct_to_hit"] = hit
+                row["pp_sheet_edge"] = hit
+            row["sheet_over"] = sane_pct(p.get("edge_over"))
+            row["sheet_under"] = sane_pct(p.get("edge_under"))
+        else:
+            row["pp_sheet_edge"] = None
+        if row.get("book_line") is None:
+            row["book_line"] = p.get("avg_line")
+        return
     edge = sane_pct(p.get("pp_edge"))
     nv = sane_pct(p.get("nv_pct"))
     line = p.get("line") if p.get("line") is not None else row.get("line")
@@ -735,7 +766,10 @@ def stamp_pp_id(row, pp_id):
         pp["id"] = str(pp_id)
 
 
-def enrich_props(rows, pp_rows, ud_rows):
+def enrich_props(rows, pp_rows, ud_rows, sport=""):
+    if str(sport).upper() == "NBA":
+        for row in rows:
+            row["sport"] = "NBA"
     pp_by = defaultdict(list)
     ud_by = defaultdict(list)
     for r in pp_rows:
@@ -767,7 +801,8 @@ def enrich_props(rows, pp_rows, ud_rows):
             same_near.sort(key=lambda x: (x[0], x[1]))
             attach_pp(row, same_near[0][2])
         elif far is not None and not (row.get("dfs") or {}).get("prizepicks"):
-            attach_pp(row, far)
+            same_line = abs((far.get("line") or 0) - (row.get("line") or 0)) <= 0.26
+            attach_pp(row, far, take_hit=same_line)
         if not str(row.get("pp_id") or "").isdigit() and other_id:
             stamp_pp_id(row, other_id)
         apply_ud(row, ud_by.get(key, []))
@@ -792,17 +827,25 @@ def enrich_props(rows, pp_rows, ud_rows):
             "pct_to_hit": (
                 sane_pct(p.get("pp_edge"))
                 if "fantasy" in str(p.get("stat") or "").lower()
-                else (sane_pct(p.get("nv_pct")) or sane_pct(p.get("pp_edge")))
+                else (
+                    side_sheet_hit(p, p.get("side") or "Over")
+                    if str(sport).upper() == "NBA"
+                    else (sane_pct(p.get("nv_pct")) or sane_pct(p.get("pp_edge")))
+                )
             ),
             "ev": None, "pp_tier": p.get("pp_tier"),
             "book_line": p.get("avg_line"), "best": None,
             "spread": p.get("spread"), "total": p.get("total"),
             "dfs": {"prizepicks": {"line": p.get("line"), "price": -117, "multiplier": None, "id": p.get("pp_id") or ""}},
             "books": {}, "headshot": p.get("headshot"), "projection": p.get("projection"),
-            "pp_sheet_edge": p.get("pp_edge"), "true_point": p.get("true_point"),
+            "pp_sheet_edge": side_sheet_hit(p, p.get("side") or "Over") if str(sport).upper() == "NBA" else p.get("pp_edge"),
+            "sheet_over": sane_pct(p.get("edge_over")) if str(sport).upper() == "NBA" else None,
+            "sheet_under": sane_pct(p.get("edge_under")) if str(sport).upper() == "NBA" else None,
+            "true_point": p.get("true_point"),
             "proj_vs_line": p.get("proj_vs_line"),
             "correlates": p.get("correlates"), "pp_id": p.get("pp_id"),
             "sheet_only": True,
+            "sport": sport or "",
             "broadcasts": p.get("broadcasts") or "",
         })
         apply_ud(rows[-1], ud_by.get(p["player_key"], []))
@@ -884,7 +927,29 @@ def enrich_props(rows, pp_rows, ud_rows):
         hit = row.get("pct_to_hit")
         if hit is not None and (hit > 99 or hit < 1):
             row["pct_to_hit"] = sane_pct(row.get("pp_sheet_edge"))
-        apply_strict_hit(row)
+        if str(row.get("sport") or "").upper() != "NBA":
+            apply_strict_hit(row)
+    if str(sport).upper() == "NBA":
+        stamped = {}
+        for row in rows:
+            if row.get("sheet_over") is None and row.get("sheet_under") is None:
+                continue
+            key = (norm_name(row.get("player") or ""), norm_stat(row.get("stat") or ""), line_key(row.get("line")))
+            stamped[key] = row
+        for row in rows:
+            key = (norm_name(row.get("player") or ""), norm_stat(row.get("stat") or ""), line_key(row.get("line")))
+            src = stamped.get(key)
+            if not src:
+                continue
+            if row.get("sheet_over") is None:
+                row["sheet_over"] = src.get("sheet_over")
+            if row.get("sheet_under") is None:
+                row["sheet_under"] = src.get("sheet_under")
+            side = str(row.get("side") or "")
+            hit = row.get("sheet_under") if side == "Under" else row.get("sheet_over")
+            if hit is not None and row.get("pp_sheet_edge") is None:
+                row["pp_sheet_edge"] = hit
+                row["pct_to_hit"] = hit
     apply_sibling_cash(rows)
     attach_fantasy_compare(rows)
     return rows
@@ -1195,6 +1260,8 @@ def attach_kalshi_share(bundle):
     """% of event and % of sport slate by dollar volume."""
     all_rows = []
     for kind, rows in (bundle or {}).items():
+        if kind == "props":
+            continue
         for r in rows or []:
             r["kind"] = kind
             all_rows.append(r)
@@ -1224,7 +1291,11 @@ def load_kalshi(sport: str):
             "td": "KXNFLTD", "any_td": "KXNFLANYTD",
             "sacks": "KXNFLSACK", "tackles": "KXNFLTKL",
         },
-        "NBA": {"ml": "KXNBAGAME", "spread": "KXNBASPREAD", "total": "KXNBATOTAL"},
+        "NBA": {
+            "ml": "KXNBAGAME", "spread": "KXNBASPREAD", "total": "KXNBATOTAL",
+            "pts": "KXNBAPTS", "reb": "KXNBAREB", "ast": "KXNBAAST",
+            "threes": "KXNBA3PT", "pra": "KXNBAPRA", "stl": "KXNBASTL", "blk": "KXNBABLK",
+        },
         "WNBA": {"ml": "KXWNBAGAME", "spread": "KXWNBASPREAD", "total": "KXWNBATOTAL"},
         "NHL": {"ml": "KXNHLGAME", "spread": "KXNHLSPREAD", "total": "KXNHLTOTAL"},
     }.get(sport)
@@ -1233,7 +1304,12 @@ def load_kalshi(sport: str):
     out = {}
     pages = 2 if sport in {"NBA", "WNBA", "NHL"} else 6
     for kind, ticker in series.items():
-        kind_pages = 2 if kind not in {"ml", "spread", "total"} else pages
+        if kind in {"ml", "spread", "total"}:
+            kind_pages = pages
+        elif sport == "NBA":
+            kind_pages = 3
+        else:
+            kind_pages = 2
         out[kind] = [kalshi_price(m) for m in fetch_kalshi_series(ticker, pages=kind_pages)]
     # Flatten player-prop series into one list for the UI.
     props = []
@@ -1434,7 +1510,7 @@ def build_sport(label, sheet_url, game_url, pp_url, ud_url, out_name):
         sheet_rows = extra or sheet_rows
     base.attach_no_vig(raw)
     rows = base.build_dashboard_rows(raw, games) if raw else []
-    rows = enrich_props(rows, load_pp(pp_url), load_ud(ud_url))
+    rows = enrich_props(rows, load_pp(pp_url), load_ud(ud_url), label)
     rows = link_combo_books(rows)
     for row in rows:
         row["sport"] = label
