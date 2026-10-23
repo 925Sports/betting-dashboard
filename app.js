@@ -491,15 +491,62 @@ function fantasyAdjustedPct(row) {
   return +Math.max(8, Math.min(92, raw)).toFixed(1);
 }
 
+function saneSheet(n) {
+  return Number.isFinite(n) && n > 0.5 && n < 99;
+}
+
+function nbaEdgePack(row) {
+  if (!state.nbaEdgeIdx || state.nbaEdgeSrc !== state.data) {
+    const idx = new Map();
+    (state.data?.props || []).forEach((r) => {
+      if (sportOf(r) !== "NBA") return;
+      const e = Number(r.pp_sheet_edge);
+      if (!saneSheet(e)) return;
+      const key = `${nameKey(r.player)}|${r.stat}|${r.line}`;
+      if (!idx.has(key)) idx.set(key, {});
+      idx.get(key)[r.side] = e;
+    });
+    state.nbaEdgeIdx = idx;
+    state.nbaEdgeSrc = state.data;
+  }
+  return state.nbaEdgeIdx.get(`${nameKey(row.player)}|${row.stat}|${row.line}`) || null;
+}
+
+function nbaSheetHit(row) {
+  const side = String(row.side || "");
+  const over = Number(row.sheet_over);
+  const under = Number(row.sheet_under);
+  if (side === "Under" && saneSheet(under)) return +under.toFixed(1);
+  if ((side === "Over" || side === "Yes") && saneSheet(over)) return +over.toFixed(1);
+  const direct = Number(row.pp_sheet_edge);
+  if (saneSheet(direct)) return +direct.toFixed(1);
+  const pack = nbaEdgePack(row);
+  if (pack) {
+    if (saneSheet(pack[side])) return +Number(pack[side]).toFixed(1);
+    const other = side === "Under" ? "Over" : side === "Over" ? "Under" : "";
+    if (other && saneSheet(pack[other])) return +(100 - Number(pack[other])).toFixed(1);
+  }
+  if (row.hit_model === "cash_no_push") {
+    const raw = Number(row.pct_raw);
+    if (saneSheet(raw)) return +raw.toFixed(1);
+  }
+  const stored = Number(row.pct_to_hit);
+  if (row.hit_model !== "cash_no_push" && saneSheet(stored)) return +stored.toFixed(1);
+  return null;
+}
+
 function hitPct(row) {
+  if ((state.view === "pp" || state.view === "ev") && sportOf(row) === "NBA") {
+    const sheet = nbaSheetHit(row);
+    if (sheet != null) return sheet;
+  }
+  const sheet = Number(row.pct_to_hit);
+  const sheetOk = Number.isFinite(sheet) && sheet > 5 && sheet < 95;
   if (state.view === "pp" || state.view === "ev") {
-    if (isWholeLine(gradedLine(row))) return ppCashPct(row);
+    if (sheetOk) return +sheet.toFixed(1);
     const cash = ppCashPct(row);
     if (cash != null) return cash;
     const nv = bookNoVig(row);
-    const sheet = Number(row.pct_to_hit);
-    if (nv != null && Number.isFinite(sheet) && Math.abs(sheet - nv) > 12) return nv;
-    if (Number.isFinite(sheet) && sheet > 5 && sheet < 95) return +sheet.toFixed(1);
     if (nv != null) return nv;
   }
   if (state.view === "ud") {
@@ -1422,16 +1469,28 @@ function fillSelect(sel, values, allLabel) {
 }
 
 function teamNames(row) {
-  return unique([
-    row.away_team,
-    row.home_team,
-    teamLabel(row.away_team, row),
-    teamLabel(row.home_team, row),
-  ].map((t) => String(t || "").replace(/\s+/g, " ").trim()).filter((t) => t.length > 1));
+  const raw = [row.away_team, row.home_team]
+    .map((t) => String(t || "").replace(/\s+/g, " ").trim())
+    .filter((t) => t.length > 1);
+  if (sportOf(row) === "NBA") {
+    return unique(raw.map((t) => {
+      const full = canonicalNbaTeam(t);
+      return NBA_FULL.has(full) ? full : t;
+    }));
+  }
+  return unique(raw);
 }
 
 function rowHasTeam(row, team) {
   if (!team) return true;
+  const names = [row.away_team, row.home_team];
+  if (sportOf(row) === "NBA") {
+    const want = canonicalNbaTeam(team);
+    return names.some((n) => {
+      const full = canonicalNbaTeam(n);
+      return (NBA_FULL.has(full) && full === want) || normName(n) === normName(team);
+    });
+  }
   const needle = String(team).toLowerCase();
   return `${row.away_team || ""} ${row.home_team || ""} ${row.game || ""} ${gameKeyOf(row)} ${matchup(row)}`.toLowerCase().includes(needle);
 }
@@ -2417,6 +2476,41 @@ function setMinMode(group) {
   if (name) name.textContent = edge ? "Min edge" : "Min %";
 }
 
+const NBA_CANON = {
+  hawks: "Atlanta Hawks", celtics: "Boston Celtics", nets: "Brooklyn Nets",
+  hornets: "Charlotte Hornets", bulls: "Chicago Bulls", cavaliers: "Cleveland Cavaliers",
+  cavs: "Cleveland Cavaliers", mavericks: "Dallas Mavericks", mavs: "Dallas Mavericks",
+  nuggets: "Denver Nuggets", pistons: "Detroit Pistons", warriors: "Golden State Warriors",
+  rockets: "Houston Rockets", pacers: "Indiana Pacers", clippers: "LA Clippers",
+  lakers: "Los Angeles Lakers", grizzlies: "Memphis Grizzlies", heat: "Miami Heat",
+  bucks: "Milwaukee Bucks", timberwolves: "Minnesota Timberwolves", wolves: "Minnesota Timberwolves",
+  pelicans: "New Orleans Pelicans", knicks: "New York Knicks", thunder: "Oklahoma City Thunder",
+  magic: "Orlando Magic", "76ers": "Philadelphia 76ers", sixers: "Philadelphia 76ers",
+  suns: "Phoenix Suns", blazers: "Portland Trail Blazers", kings: "Sacramento Kings",
+  spurs: "San Antonio Spurs", raptors: "Toronto Raptors", jazz: "Utah Jazz",
+  wizards: "Washington Wizards",
+};
+
+const NBA_FULL = new Set(Object.values(NBA_CANON));
+
+function canonicalNbaTeam(name) {
+  const raw = String(name || "").replace(/\s+/g, " ").trim();
+  const low = raw.toLowerCase();
+  if (!low) return "";
+  if (low.includes("clipper")) return "LA Clippers";
+  if (low.includes("laker")) return "Los Angeles Lakers";
+  if (low.includes("trail blazer") || low === "blazers") return "Portland Trail Blazers";
+  if (low.includes("76er") || low === "sixers") return "Philadelphia 76ers";
+  if (NBA_CANON[low]) return NBA_CANON[low];
+  const last = low.split(" ").pop();
+  const full = NBA_CANON[last];
+  if (!full) return raw;
+  if (raw.split(" ").length === 1) return full;
+  const words = low.split(" ");
+  if (words.every((w) => full.toLowerCase().includes(w))) return full;
+  return raw;
+}
+
 function gameKeyOf(row) {
   let away = row?.away_team;
   let home = row?.home_team;
@@ -2425,6 +2519,14 @@ function gameKeyOf(row) {
     const parts = g.split("@");
     away = away || parts[0].trim();
     home = home || parts.slice(1).join("@").trim();
+  }
+  away = away || "";
+  home = home || "";
+  if (sportOf(row) === "NBA") {
+    const ca = canonicalNbaTeam(away);
+    const ch = canonicalNbaTeam(home);
+    if (NBA_FULL.has(ca)) away = ca;
+    if (NBA_FULL.has(ch)) home = ch;
   }
   const a = abbr(away, row);
   const h = abbr(home, row);
@@ -3015,11 +3117,14 @@ function previewKalshi(sample) {
 function nbaTeam(name) {
   const intel = state.nbaIntel;
   if (!intel || !name) return null;
-  const n = normName(name);
+  const canon = canonicalNbaTeam(name) || name;
+  const n = normName(canon);
+  const nick = normName(name).split(" ").pop();
   return (intel.teams || []).find((t) => {
     const full = normName(t.name);
     const short = normName(t.short);
-    return full === n || short === n || full.endsWith(n) || n.endsWith(short);
+    const code = normName(t.abbr);
+    return full === n || short === n || code === n || short === nick || full.endsWith(` ${nick}`);
   });
 }
 
@@ -3028,22 +3133,106 @@ function nbaLineup(name) {
   return team ? (state.nbaIntel?.lineups || {})[team.abbr] || [] : [];
 }
 
+const NBA_LOG_CSV = "https://raw.githubusercontent.com/925Sports/nba-dfs-data/refs/heads/main/nba_game_log.csv";
+
+function nbaDateKey(s) {
+  const [m, d, y] = String(s || "").split("/").map(Number);
+  if (!y || !m || !d) return 0;
+  return y * 10000 + m * 100 + d;
+}
+
+function parseNbaLogCsv(text) {
+  const lines = String(text || "").split(/\r?\n/);
+  if (!lines.length) return {};
+  const head = lines[0].split(",").map((h) => h.trim());
+  const idx = Object.fromEntries(head.map((h, i) => [h, i]));
+  const need = ["PLAYER", "GAME DATE", "PTS", "REB", "AST"];
+  if (need.some((k) => idx[k] == null)) return {};
+  const num = (v) => {
+    const n = Number(String(v ?? "").replace(/[^\d.-]/g, ""));
+    return Number.isFinite(n) ? n : null;
+  };
+  const map = new Map();
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i]) continue;
+    const c = lines[i].split(",");
+    const name = c[idx.PLAYER];
+    if (!name) continue;
+    const rec = {
+      date: c[idx["GAME DATE"]] || "",
+      team: c[idx.TEAM] || "",
+      opp: c[idx["MATCH UP"]] || "",
+      min: c[idx.MIN] || "",
+      pts: num(c[idx.PTS]),
+      reb: num(c[idx.REB]),
+      ast: num(c[idx.AST]),
+      stl: num(c[idx.STL]),
+      blk: num(c[idx.BLK]),
+      to: num(c[idx.TOV]),
+      fg3: num(c[idx["3sPM"]]),
+      fp: num(c[idx.FP]),
+    };
+    const key = normName(name);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(rec);
+  }
+  const out = {};
+  map.forEach((rows, key) => {
+    rows.sort((a, b) => nbaDateKey(b.date) - nbaDateKey(a.date));
+    out[key] = rows.slice(0, 10);
+  });
+  return out;
+}
+
+async function loadNbaLogs() {
+  if (state.nbaLogMap || state.nbaLogLoading) return state.nbaLogMap || {};
+  state.nbaLogLoading = true;
+  try {
+    const res = await fetch(NBA_LOG_CSV, { cache: "no-cache" });
+    if (!res.ok) throw new Error(String(res.status));
+    state.nbaLogMap = parseNbaLogCsv(await res.text());
+  } catch (_) {
+    state.nbaLogMap = {};
+  }
+  state.nbaLogLoading = false;
+  if (state.section === "preview") renderPreview();
+  if (!$("popup")?.hidden && state.popupKey) {
+    const [player, eventId, market, side] = state.popupKey.split("|");
+    if (player) openPlayerPopup(player, eventId, market, side);
+  }
+  return state.nbaLogMap;
+}
+
 function nbaLogs(name) {
-  return (state.nbaIntel?.logs || {})[normName(name)] || [];
+  const key = normName(name);
+  const fromCsv = state.nbaLogMap?.[key];
+  if (fromCsv?.length) return fromCsv;
+  return (state.nbaIntel?.logs || {})[key] || [];
+}
+
+function nbaSameTeam(name, team) {
+  const hit = nbaTeam(name);
+  const other = nbaTeam(team);
+  if (hit && other) return hit.abbr === other.abbr;
+  const a = normName(canonicalNbaTeam(name) || name);
+  const b = normName(canonicalNbaTeam(team) || team);
+  return a && b && (a === b || a.endsWith(b) || b.endsWith(a));
 }
 
 function nbaInjuriesFor(sample) {
-  const teams = [normName(sample.away_team), normName(sample.home_team)];
-  return (state.nbaIntel?.injuries || []).filter((i) => teams.includes(normName(i.team)));
+  return (state.nbaIntel?.injuries || []).filter((i) => nbaSameTeam(sample.away_team, i.team) || nbaSameTeam(sample.home_team, i.team));
 }
 
 function nbaNewsFor(sample) {
   const away = nbaTeam(sample.away_team);
   const home = nbaTeam(sample.home_team);
-  const tokens = [sample.away_team, sample.home_team, away?.short, home?.short, away?.abbr, home?.abbr]
-    .filter(Boolean).map((s) => String(s).toLowerCase());
+  const tokens = [
+    sample.away_team, sample.home_team,
+    canonicalNbaTeam(sample.away_team), canonicalNbaTeam(sample.home_team),
+    away?.name, home?.name, away?.short, home?.short, away?.abbr, home?.abbr,
+  ].filter(Boolean).map((s) => String(s).toLowerCase());
   return (state.nbaIntel?.news || []).filter((n) => {
-    const blob = `${n.headline || ""} ${n.description || ""}`.toLowerCase();
+    const blob = `${n.headline || ""} ${n.description || ""} ${(n.categories || []).join(" ")}`.toLowerCase();
     return tokens.some((t) => t.length > 2 && blob.includes(t));
   }).slice(0, 6);
 }
@@ -3057,7 +3246,10 @@ function dvpCell(cell) {
 }
 
 function previewNba(sample) {
-  if (sportOf(sample) !== "NBA" || !state.nbaIntel) return "";
+  if (sportOf(sample) !== "NBA") return "";
+  if (!state.nbaIntel) {
+    return `<div class="preview-card"><h3>Lineups, DVP, injuries</h3><div class="muted">The NBA feed did not load. Publish data/nba-intel.json with the page.</div></div>`;
+  }
   const sides = [
     { name: sample.away_team, team: nbaTeam(sample.away_team) },
     { name: sample.home_team, team: nbaTeam(sample.home_team) },
@@ -3100,12 +3292,36 @@ function previewNba(sample) {
     return `<div><h3>${escapeHtml(side.team?.abbr || side.name || "")}</h3>${rows || `<div class="muted">No starter logs yet.</div>`}</div>`;
   }).join("");
   return `<div class="preview-grid">
-    ${sides.map((side) => `<div class="preview-card"><h3>Projected lineup · ${escapeHtml(side.team?.abbr || side.name || "")}</h3>${lineup(side)}</div>`).join("")}
+    ${sides.map((side) => `<div class="preview-card"><h3>Projected starting five · ${escapeHtml(side.team?.abbr || side.name || "")}</h3>${lineup(side)}</div>`).join("")}
   </div>
   <div class="preview-grid">
     ${sides.map((side) => `<div class="preview-card"><h3>DVP allowed · ${escapeHtml(side.team?.abbr || side.name || "")}</h3>${dvpTable(side)}</div>`).join("")}
   </div>
   <div class="preview-card"><h3>Starter logs</h3><div class="preview-grid">${logs}</div></div>`;
+}
+
+function previewHotCold(rows) {
+  const scored = (rows || [])
+    .filter((r) => r.dfs?.prizepicks && hitPct(r) != null)
+    .map((r) => ({ r, pct: hitPct(r) }));
+  const hot = scored.filter((x) => x.pct >= 56).sort((a, b) => b.pct - a.pct).slice(0, 8);
+  const cold = scored.filter((x) => x.pct <= 48).sort((a, b) => a.pct - b.pct).slice(0, 8);
+  const line = (x, kind) => `<div class="preview-prop">
+    <div class="player-row">${headshotTag(x.r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(x.r.player)}" data-eid="${escapeHtml(x.r.event_id || "")}" data-market="${escapeHtml(x.r.market || "")}" data-side="${escapeHtml(x.r.side)}">${escapeHtml(x.r.player)}</button>
+      ${sideTag(x.r.side)} <span class="line-num">${x.r.line ?? ""}</span> ${escapeHtml(x.r.stat)}</div>
+    <span class="${kind === "hot" ? "pct good" : "pct bad"}">${x.pct.toFixed(1)}%</span>
+  </div>`;
+  if (!hot.length && !cold.length) return "";
+  return `<div class="preview-grid">
+    <div class="preview-card"><h3>Hot hit rates</h3>
+      <div class="corr-why">PrizePicks sheet hit rate, 56% or better.</div>
+      ${hot.length ? hot.map((x) => line(x, "hot")).join("") : `<div class="muted">None on this game.</div>`}
+    </div>
+    <div class="preview-card"><h3>Cold hit rates</h3>
+      <div class="corr-why">Same sheet, 48% or worse.</div>
+      ${cold.length ? cold.map((x) => line(x, "cold")).join("") : `<div class="muted">None on this game.</div>`}
+    </div>
+  </div>`;
 }
 
 function previewNews(sample) {
@@ -3118,6 +3334,25 @@ function previewNews(sample) {
     if (tokens.some((t) => t.length > 2 && blob.includes(t))) return true;
     return names.some((nm) => nm && blob.includes(nm));
   }).slice(0, 8);
+}
+
+function injuryItem(r) {
+  return `<div class="preview-inj">
+    <button type="button" class="preview-inj-head" data-inj="1">
+      <div class="player-row">${headshotTag(r.headshot)}
+        <div>
+          <span class="player">${escapeHtml(r.name || "")}</span>
+          <div class="corr-why">${escapeHtml(r.pos || "")}</div>
+        </div>
+      </div>
+      ${injPill({ status: r.report_status, injury: r.report_injury }) || "—"}
+    </button>
+    <div class="preview-inj-body" hidden>
+      <div>${escapeHtml(r.report_injury || r.practice_injury || "No injury detail")}</div>
+      <div class="corr-why">${escapeHtml(r.practice_status || r.report_injury || "")}</div>
+      <button type="button" class="player-btn" data-player="${escapeHtml(r.name || "")}">Open ${escapeHtml(r.name || "")}</button>
+    </div>
+  </div>`;
 }
 
 function renderPreview() {
@@ -3179,6 +3414,7 @@ function renderPreview() {
     </div>
     ${previewGameMarkets(sample)}
     ${previewNba(sample)}
+    ${previewHotCold(rows)}
     ${previewAction(sample, best)}
     <div class="preview-grid">
       <div class="preview-card">
@@ -3202,32 +3438,22 @@ function renderPreview() {
     </div>
     ${previewUsage(sample)}
     <div class="preview-grid">
-      <div class="preview-card">
+      ${sportOf(sample) === "NBA" ? [
+        { name: sample.away_team, rows: inj.filter((r) => nbaSameTeam(sample.away_team, r.team)) },
+        { name: sample.home_team, rows: inj.filter((r) => nbaSameTeam(sample.home_team, r.team)) },
+      ].map((side) => `<div class="preview-card">
+        <h3>Injuries · ${escapeHtml(nbaTeam(side.name)?.abbr || side.name || "")}</h3>
+        ${side.rows.length ? side.rows.map(injuryItem).join("") : `<div class="muted">${state.nbaIntel ? "No injury rows for this team." : "NBA injury feed did not load."}</div>`}
+      </div>`).join("") : `<div class="preview-card">
         <h3>Injuries / availability <span class="muted" style="font-weight:400;font-size:12px">${escapeHtml(intelStamp())}</span></h3>
-        ${inj.length ? inj.map((r) => `<div class="preview-inj">
-          <button type="button" class="preview-inj-head" data-inj="1">
-            <div class="player-row">${headshotTag(r.headshot)}
-              <div>
-                <span class="player">${escapeHtml(r.name || "")}</span>
-                <div class="corr-why">${escapeHtml(r.team || "")} · ${escapeHtml(r.pos || "")}</div>
-              </div>
-            </div>
-            ${injPill({ status: r.report_status, injury: r.report_injury }) || "—"}
-          </button>
-          <div class="preview-inj-body" hidden>
-            <div>${escapeHtml(r.report_injury || r.practice_injury || "No injury detail")}</div>
-            <div class="corr-why">Practice: ${escapeHtml(r.practice_status || "—")}${r.practice_injury ? ` · ${escapeHtml(r.practice_injury)}` : ""}</div>
-            <div class="corr-why">${r.season || ""}w${r.week || ""} · click name in logs for full card</div>
-            <button type="button" class="player-btn" data-player="${escapeHtml(r.name || "")}">Open ${escapeHtml(r.name || "")} popup</button>
-          </div>
-        </div>`).join("") : `<div class="muted">${sportOf(sample) === "NBA" ? "No injury rows for these teams." : sample.sport === "NFL" || !sample.sport ? "No matching injury rows." : "Injury feed is NFL-only right now."}</div>`}
-      </div>
+        ${inj.length ? inj.map(injuryItem).join("") : `<div class="muted">${sample.sport === "NFL" || !sample.sport ? "No matching injury rows." : "Injury feed is NFL-only right now."}</div>`}
+      </div>`}
       <div class="preview-card">
         <h3>News</h3>
         ${news.length ? news.map((n) => `<div class="preview-prop">
           <div><a class="player-btn" href="${escapeHtml(n.url || "#")}" target="_blank" rel="noopener">${escapeHtml(n.headline || "")}</a>
           <div class="corr-why">${escapeHtml(n.source || "")} · ${escapeHtml(n.published || "")}</div></div>
-        </div>`).join("") : `<div class="muted">No tagged headlines for this matchup.</div>`}
+        </div>`).join("") : `<div class="muted">${sportOf(sample) === "NBA" && !state.nbaIntel ? "NBA news feed did not load." : "No tagged headlines for this matchup."}</div>`}
       </div>
     </div>`;
   $("count").textContent = `${shown.length} games · ${rows.length} props`;
@@ -3243,7 +3469,12 @@ function showSectionWraps() {
   if (arbWrap) arbWrap.hidden = state.view !== "arb" || state.section !== "props";
   if (propsWrap) propsWrap.style.display = state.section === "props" && state.layout !== "cards" ? "block" : "none";
   const cards = $("cardGrid");
-  if (cards) cards.hidden = !(state.section === "props" && state.layout === "cards");
+  if (cards) {
+    const on = state.section === "props" && state.layout === "cards";
+    cards.hidden = !on;
+    cards.style.display = on ? "grid" : "none";
+    if (!on) cards.innerHTML = "";
+  }
   const slip = $("slipPanel");
   if (slip) slip.hidden = state.section !== "slip";
   const bets = $("betsPanel");
@@ -3620,12 +3851,9 @@ function playerCards(rows) {
       const offer = viewOffer(r);
       const meta = BOOK_BY_KEY[offer.bookKey];
       return `<div class="pline" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">
-        <div>
-          <div class="pline-stat">${sideTag(r.side)} ${escapeHtml(r.stat || "")}</div>
-          <div class="pline-meta">${meta ? bookMark(meta, "sm") : ""} ${escapeHtml(meta?.name || offer.bookKey || "")} ${offer.price != null ? american(offer.price) : ""}${r.dfs?.prizepicks ? `<button type="button" class="slip-add" data-eid="${escapeHtml(r.event_id || "")}" data-player="${escapeHtml(r.player)}" data-stat="${escapeHtml(r.stat)}" data-line="${r.line ?? ""}" data-side="${escapeHtml(r.side)}">+ slip</button>` : ""} ${likeButton(pickFromRow(r, offer), "cell")}</div>
-        </div>
-        <div class="line-num">${displayLine(r) ?? "—"}</div>
-        <div class="pline-edge ${edge >= 0 ? "pct good" : "muted"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}<small>${hitPct(r) != null ? hitPct(r).toFixed(1) + "%" : ""}</small></div>
+        <div class="pline-main">${sideTag(r.side)} <span class="pline-stat">${escapeHtml(r.stat || "")}</span> <span class="line-num">${displayLine(r) ?? "—"}</span></div>
+        <div class="pline-edge ${edge == null ? "muted" : edge >= 0 ? "pct good" : "pct bad"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}<small>${hitPct(r) != null ? hitPct(r).toFixed(1) + "%" : ""}</small></div>
+        <div class="pline-meta">${meta ? bookMark(meta, "sm") : ""} ${escapeHtml(meta?.name || offer.bookKey || "")}${r.dfs?.prizepicks ? `<button type="button" class="slip-add" data-eid="${escapeHtml(r.event_id || "")}" data-player="${escapeHtml(r.player)}" data-stat="${escapeHtml(r.stat)}" data-line="${r.line ?? ""}" data-side="${escapeHtml(r.side)}">+ slip</button>` : ""} ${likeButton(pickFromRow(r, offer), "cell")}</div>
       </div>`;
     }).join("");
     return `<article class="pcard">
@@ -3643,8 +3871,11 @@ function playerCards(rows) {
 
 document.querySelectorAll(".layout-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
-    setLayout(btn.dataset.layout);
-    render();
+    const mode = btn.dataset.layout === "cards" ? "cards" : "table";
+    paintThen(mode === "cards" ? "Building player cards…" : "Building the table…", () => {
+      setLayout(mode);
+      render();
+    });
   });
 });
 $("cardGrid")?.addEventListener("click", (e) => {
@@ -4125,11 +4356,22 @@ function lineBoardHtml(rows, focus) {
     <div class="corr-why">Grouped by number. Your line is first. Green is the best price at that number. + saves that book, side, and line to My Bets.</div>`;
 }
 
+function shortLogDate(s) {
+  const t = String(s || "");
+  if (t.includes("T")) return t.slice(5, 10);
+  const parts = t.split("/");
+  if (parts.length >= 2 && parts[0] && parts[1]) return `${parts[0]}/${parts[1]}`;
+  return t.slice(0, 10);
+}
+
 function nbaLogBlock(name) {
   const recs = nbaLogs(name);
-  if (!recs.length) return "";
+  if (!recs.length) {
+    if (state.nbaLogLoading) return `<div class="muted">Loading NBA game log…</div>`;
+    return "";
+  }
   const row = (g) => `<tr>
-    <td>${escapeHtml((g.date || "").slice(5, 10))}</td>
+    <td>${escapeHtml(shortLogDate(g.date))}</td>
     <td>${g.starter ? "S" : ""}</td>
     <td class="match">${escapeHtml(g.opp || "")}</td>
     <td>${g.min ?? "—"}</td>
@@ -4233,7 +4475,9 @@ function openPlayerPopup(player, eventId, market, side) {
   })();
   if (liveInj && !focus.injury) focus.injury = liveInj;
   const kProps = kalshiPropsForPlayer(player);
-  const logBlock = nbaRecs.length ? nbaLogBlock(player) : recs.length ? contextLog(recs, focus) : `<div class="muted">No game log yet.</div>`;
+  const logBlock = sportOf(focus) === "NBA"
+    ? (nbaRecs.length || state.nbaLogLoading ? nbaLogBlock(player) || `<div class="muted">Loading NBA game log…</div>` : `<div class="muted">No game log yet.</div>`)
+    : (recs.length ? contextLog(recs, focus) : `<div class="muted">No game log yet.</div>`);
   const newsBlock = relatedNews.length ? `<h4 class="popup-h">News</h4>
     ${relatedNews.slice(0, 6).map((n) => `<div class="popup-stat" style="margin-bottom:8px"><b>${escapeHtml(n.source || "")} · ${escapeHtml(n.published || "")}</b>
       <a href="${escapeHtml(n.url || "#")}" target="_blank" rel="noopener">${escapeHtml(n.headline || "")}</a></div>`).join("")}` : "";
@@ -4247,9 +4491,24 @@ function openPlayerPopup(player, eventId, market, side) {
         <div class="popup-sub">${escapeHtml(matchup(focus))} · ${escapeHtml(fmtWhen(focus.commence_time))}${scriptLine(focus) ? ` · ${escapeHtml(scriptLine(focus))}` : ""}</div>
         <div class="popup-bet">
           <div class="bet-kicker">This bet${(() => { const o = viewOffer(focus); const meta = BOOK_BY_KEY[o.bookKey]; return meta ? ` · ${meta.name}` : ""; })()}</div>
-          <div class="bet-main">${sideTag(focus.side)} <span class="bet-line">${shownLine ?? "—"}</span></div>
-          <div class="bet-stat">${escapeHtml(focus.stat || "")}</div>
-          <div class="bet-meta">${hitPct(focus) != null ? `<span class="${pctClass(hitPct(focus))}">${hitPct(focus).toFixed(1)}% to hit</span>` : ""}${edge != null ? `<span class="${edgeClass(edge)}">${edge > 0 ? "+" : ""}${edge.toFixed(1)} edge</span>` : ""} ${likeButton(pickFromRow(focus, viewOffer(focus)), "hero")}</div>
+          <div class="bet-hero">
+            <div class="bet-main">
+              ${sideTag(focus.side)}
+              <div>
+                <div class="bet-line">${shownLine ?? "—"}</div>
+                <div class="bet-stat">${escapeHtml(focus.stat || "")}</div>
+              </div>
+            </div>
+            <div class="bet-rail">
+              <div><span>To hit</span><b class="${pctClass(hitPct(focus))}">${hitPct(focus) != null ? hitPct(focus).toFixed(1) + "%" : "—"}</b></div>
+              <div><span>Edge</span><b class="${edgeClass(edge)}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</b></div>
+              <div><span>Need</span><b>${breakEven().toFixed(1)}%</b></div>
+            </div>
+          </div>
+          <div class="bet-foot">
+            <div class="bet-sub">${escapeHtml(focus.player || "")}${focus.pp_tier ? ` · ${escapeHtml(focus.pp_tier)}` : ""}${matchup(focus) ? ` · ${escapeHtml(matchup(focus))}` : ""}</div>
+            ${likeButton(pickFromRow(focus, viewOffer(focus)), "hero")}
+          </div>
         </div>
       </div>
       <button type="button" class="popup-x" id="popupClose">✕</button>
@@ -4264,12 +4523,6 @@ function openPlayerPopup(player, eventId, market, side) {
     </div>
     <div class="pop-body">
     <div class="pop-pane" data-pop-pane="bet">
-    <div class="popup-grid">
-      <div class="popup-stat"><b>The bet</b>${escapeHtml(focus.stat || "")} ${escapeHtml(focus.side || "")} ${shownLine ?? ""}</div>
-      <div class="popup-stat"><b>Tier</b>${escapeHtml(focus.pp_tier || "—")}</div>
-      <div class="popup-stat"><b>% to hit</b>${hitPct(focus) != null ? hitPct(focus).toFixed(1) + "%" : "—"}</div>
-      <div class="popup-stat"><b>Edge</b>${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</div>
-    </div>
     ${pushNote}
     ${injBlock}
     ${newsNote}
@@ -4487,6 +4740,7 @@ const LOAD_LINES = [
   "Two-minute drill…",
 ];
 
+let loaderHold = false;
 function setLoader(msg) {
   const el = $("loaderText");
   if (el && msg) el.textContent = msg;
@@ -4494,12 +4748,14 @@ function setLoader(msg) {
 function showLoader(msg) {
   const el = $("loader");
   if (!el) return;
+  loaderHold = true;
   if (msg) setLoader(msg);
   el.classList.remove("out");
   el.hidden = false;
 }
 function hideLoader() {
   const el = $("loader");
+  loaderHold = false;
   if (!el) return;
   el.classList.add("out");
 }
@@ -4525,6 +4781,7 @@ function paintThen(msg, fn) {
 
 let lineIdx = 0;
 const lineTimer = setInterval(() => {
+  if (loaderHold) return;
   lineIdx = (lineIdx + 1) % LOAD_LINES.length;
   setLoader(LOAD_LINES[lineIdx]);
 }, 700);
@@ -4567,6 +4824,8 @@ async function loadData() {
     } catch (_) {
       state.nbaIntel = null;
     }
+    setLoader("Pulling NBA game logs…");
+    loadNbaLogs();
     const sport = $("sport")?.value || state.sport || "all";
     state.sport = sport;
     state.boardCache = state.boardCache || {};
