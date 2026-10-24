@@ -671,6 +671,13 @@ th[data-key="line"], td.line-cell, td.line-stack {
 @media (max-width: 900px) { .preview-grid { grid-template-columns: 1fr; } }
 .preview-card h3 { margin: 0 0 8px; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: #9ec0ff; }
 .preview-card .tag { font-size: 11px; }
+.lu-label {
+  margin: 12px 0 4px;
+  font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #9ec0ff; font-weight: 700;
+}
+.lu-meta { display: flex; align-items: baseline; gap: 6px; justify-content: flex-end; flex-wrap: wrap; text-align: right; }
+.lu-meta b { font-size: 14px; }
+.lu-meta span { color: var(--muted); font-size: 11px; }
 .preview-prop, .preview-corr {
   display: flex; justify-content: space-between; gap: 10px; align-items: center;
   padding: 7px 0; border-bottom: 1px solid #182236; font-size: 13px;
