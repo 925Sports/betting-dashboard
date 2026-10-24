@@ -2961,8 +2961,7 @@ function previewGameMarkets(sample) {
       r.kw = "spread";
     }
   });
-  if (!rows.length) return "";
-  return `<div class="preview-card">
+  const marketsHtml = rows.length ? `<div class="preview-card">
     <h3>Game markets · best book</h3>
     <div class="gm-board">
       ${rows.map((r) => {
@@ -2982,8 +2981,8 @@ function previewGameMarkets(sample) {
       }).join("")}
     </div>
     <div class="corr-why">${hasBooks ? "Each market is a column. Left / right inside it are the two sides. Green = lean." : "Run Update NFL Props so per-book game odds are written into the JSON."}</div>
-    ${previewKalshi(sample)}
-  </div>`;
+  </div>` : "";
+  return marketsHtml + previewKalshi(sample);
 }
 
 function formatKalshiProp(m, side) {
@@ -3263,7 +3262,7 @@ function nbaLineup(name) {
   const team = nbaTeam(name);
   const code = team?.abbr;
   if (code && state.nbaRoster?.length) {
-    const pool = state.nbaRoster.filter((p) => p.team === code && p.injury !== "Out");
+    const pool = state.nbaRoster.filter((p) => p.team === code && p.injury !== "Out" && p.injury !== "Doubtful");
     const starters = pool.filter((p) => p.starter);
     const order = ["PG", "SG", "SF", "PF", "C"];
     const used = new Set();
@@ -3286,6 +3285,25 @@ function nbaLineup(name) {
     if (five.length) return five;
   }
   return team ? (state.nbaIntel?.lineups || {})[team.abbr] || [] : [];
+}
+
+function nbaTeamBoard(name) {
+  const code = nbaTeam(name)?.abbr;
+  if (!code || !state.nbaRoster?.length) return { starters: [], bench: [], out: [] };
+  const pool = state.nbaRoster.filter((p) => p.team === code);
+  const sidelined = (p) => p.injury === "Out" || p.injury === "Doubtful";
+  const five = nbaLineup(name);
+  const used = new Set(five.map((p) => normName(p.name)));
+  const starters = five.map((p) => {
+    const r = nbaRosterOf(p.name) || {};
+    return { ...r, name: p.name, pos: p.pos || r.pos || "", headshot: p.headshot || r.headshot || "" };
+  });
+  const available = pool.filter((p) => !sidelined(p) && !used.has(normName(p.name)));
+  available.sort((a, b) => (b.fp || 0) - (a.fp || 0) || (b.projMin || b.min || 0) - (a.projMin || a.min || 0));
+  const withRole = available.filter((p) => (p.projMin || p.min || 0) >= 8 || (p.fp || 0) >= 8);
+  const bench = (withRole.length ? withRole : available).slice(0, 8);
+  const out = pool.filter(sidelined).sort((a, b) => (b.fp || 0) - (a.fp || 0) || String(a.name).localeCompare(String(b.name)));
+  return { starters, bench, out };
 }
 
 const NBA_LOG_CSV = "https://raw.githubusercontent.com/925Sports/nba-dfs-data/refs/heads/main/nba_game_log.csv";
@@ -3451,7 +3469,7 @@ function parseNbaStatsCsv(text) {
     const key = normName(name);
     const rec = by.get(key) || {
       name, team: "", opp: "", pos: "", starter: false,
-      injury: "", comment: "", dvpRank: "", dvpProj: null, headshot: "", min: 0,
+      injury: "", comment: "", dvpRank: "", dvpProj: null, headshot: "", min: 0, projMin: null, fp: null,
     };
     const pos = nbaPrimaryPos(posRaw);
     const slot = ["PG", "SG", "SF", "PF", "C"].includes(posRaw) ? posRaw : "";
@@ -3470,6 +3488,11 @@ function parseNbaStatsCsv(text) {
     if (!rec.headshot && c[idx["Headshot URL"]]) rec.headshot = c[idx["Headshot URL"]];
     const mins = Number(minIdx >= 0 ? c[minIdx] : "");
     if (Number.isFinite(mins)) rec.min = Math.max(rec.min || 0, mins);
+    const pminIdx = head.indexOf("Projected Minutes");
+    const pmin = Number(pminIdx >= 0 ? c[pminIdx] : "");
+    if (Number.isFinite(pmin) && pmin > 0) rec.projMin = Math.max(rec.projMin || 0, pmin);
+    const fp = Number(c[idx["Projected FP"]]);
+    if (Number.isFinite(fp) && fp > 0 && (rec.fp == null || fp > rec.fp)) rec.fp = fp;
     by.set(key, rec);
   });
   return [...by.values()];
@@ -3585,19 +3608,24 @@ function previewNba(sample) {
     { name: sample.away_team, team: nbaTeam(sample.away_team) },
     { name: sample.home_team, team: nbaTeam(sample.home_team) },
   ];
+  const numTxt = (n, digits) => n == null || !Number.isFinite(Number(n)) ? "—" : Number(n).toFixed(digits);
+  const row = (p) => {
+    const mins = p.projMin || p.min;
+    const pill = p.injury ? injPill({ status: p.injury, injury: p.comment }) : "";
+    const note = p.comment && (p.injury === "Out" || p.injury === "Doubtful") ? `<div class="corr-why">${escapeHtml(p.comment)}</div>` : "";
+    return `<div class="preview-prop">
+      <div class="player-row">${headshotTag(p.headshot)}<div><button type="button" class="player-btn" data-player="${escapeHtml(p.name)}">${escapeHtml(p.name)}</button>${pill}${note}</div></div>
+      <div class="lu-meta"><span class="tag">${escapeHtml(p.pos || "")}</span><b>${mins ? Math.round(mins) : "—"}</b><span>min</span><b>${numTxt(p.fp, 1)}</b><span>FP</span></div>
+    </div>`;
+  };
+  const group = (title, rows, empty) => `<div class="lu-label">${title}</div>${rows.length ? rows.map(row).join("") : `<div class="muted">${empty}</div>`}`;
   const lineup = (side) => {
-    const rows = nbaLineup(side.name);
-    if (!rows.length) return `<div class="muted">${state.nbaRosterLoading ? "Loading lineup…" : "No projected lineup yet."}</div>`;
-    return rows.map((p) => {
-      const roster = nbaRosterOf(p.name);
-      const log = nbaLogs(p.name)[0];
-      const last = log ? `${log.pts ?? "—"}/${log.reb ?? "—"}/${log.ast ?? "—"} vs ${log.opp || ""}` : "no 2026-27 log yet";
-      const tag = roster?.starter ? p.pos : `${p.pos || ""} min`;
-      return `<div class="preview-prop">
-        <div class="player-row">${headshotTag(p.headshot || roster?.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(p.name)}">${escapeHtml(p.name)}</button></div>
-        <div><span class="tag">${escapeHtml(tag)}</span><div class="corr-why">${escapeHtml(last)}</div></div>
-      </div>`;
-    }).join("");
+    if (!hasRoster) return `<div class="muted">${state.nbaRosterLoading ? "Loading lineup…" : "No projected lineup yet."}</div>`;
+    const board = nbaTeamBoard(side.name);
+    if (!board.starters.length && !board.bench.length && !board.out.length) return `<div class="muted">No roster rows for this team.</div>`;
+    return `${group("Starters", board.starters, "No projected five yet.")}
+      ${group("Bench", board.bench, "No bench minutes yet.")}
+      ${group("Out / Doubtful", board.out, "Nobody listed out or doubtful.")}`;
   };
   const dvpTable = (side) => {
     const five = nbaLineup(side.name);
@@ -3634,7 +3662,7 @@ function previewNba(sample) {
     <div class="corr-why">${board.games || 0} games. Rank 1 allows the most.</div>`;
   };
   return `<div class="preview-grid">
-    ${sides.map((side) => `<div class="preview-card"><h3>Projected starting five · ${escapeHtml(side.team?.abbr || side.name || "")}</h3>${lineup(side)}</div>`).join("")}
+    ${sides.map((side) => `<div class="preview-card"><h3>Projected lineup · ${escapeHtml(side.team?.abbr || side.name || "")}</h3>${lineup(side)}<div class="corr-why">Minutes and FP are the slate projection. Out and doubtful are under the bench.</div></div>`).join("")}
   </div>
   <div class="preview-grid">
     ${sides.map((side) => {
@@ -3662,13 +3690,25 @@ function nbaRecentHit(row, n) {
 }
 
 function previewHotCold(rows) {
-  const nba = rows?.some((r) => sportOf(r) === "NBA");
+  const sport = sportOf((rows || []).find((r) => sportOf(r)) || {});
+  if (sport !== "NBA" && sport !== "NFL") return "";
+  const fairPct = (r) => {
+    const p = hitPct(r);
+    if (p != null && Number.isFinite(p)) return p;
+    const nv = typeof bookNoVig === "function" ? bookNoVig(r) : null;
+    return nv != null && Number.isFinite(nv) ? nv : null;
+  };
+  const standard = (r) => {
+    if (!r?.dfs?.prizepicks || !r.player) return false;
+    const f = fairPct(r);
+    return f != null && f >= 48 && f <= 52;
+  };
   const line = (x, kind) => `<div class="preview-prop">
     <div class="player-row">${headshotTag(x.r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(x.r.player)}" data-eid="${escapeHtml(x.r.event_id || "")}" data-market="${escapeHtml(x.r.market || "")}" data-side="${escapeHtml(x.r.side)}">${escapeHtml(x.r.player)}</button>
       ${sideTag(x.r.side)} <span class="line-num">${x.r.line ?? ""}</span> ${escapeHtml(x.r.stat)}</div>
     <span class="${kind === "hot" ? "pct good" : "pct bad"}">${x.pct.toFixed(1)}%${x.graded != null ? ` <span class="line-note">${x.hits}/${x.graded}</span>` : ""}</span>
   </div>`;
-  if (nba) {
+  if (sport === "NBA") {
     const n = state.hotN === 20 ? 20 : 5;
     const toggle = `<div class="hot-toggle">
       <button type="button" class="hot-btn ${n === 5 ? "on" : ""}" data-hotn="5">Last 5</button>
@@ -3680,9 +3720,7 @@ function previewHotCold(rows) {
     const seen = new Set();
     const scored = [];
     (rows || []).forEach((r) => {
-      if (sportOf(r) !== "NBA" || !r.dfs?.prizepicks || !r.player) return;
-      if (r.pp_tier && r.pp_tier !== "Standard") return;
-      if (r.is_alternate && !isFantasyStat(r.stat)) return;
+      if (!standard(r)) return;
       const key = `${nameKey(r.player)}|${r.stat}|${String(r.side || "").toLowerCase()}`;
       if (seen.has(key)) return;
       const hit = nbaRecentHit(r, n);
@@ -3692,7 +3730,7 @@ function previewHotCold(rows) {
     });
     const hot = scored.filter((x) => x.pct >= 60).sort((a, b) => b.pct - a.pct || b.graded - a.graded).slice(0, 8);
     const cold = scored.filter((x) => x.pct <= 40).sort((a, b) => a.pct - b.pct || b.graded - a.graded).slice(0, 8);
-    const note = `2026-27 only. Cleared this standard line in the last ${n} games. Early season samples are short.`;
+    const note = `2026-27 only. Near-even lines (fair 48–52%) only. Cleared this line in the last ${n} games. Early season samples are short.`;
     return `<div class="preview-grid">
       <div class="preview-card"><h3>Hot hit rates</h3>
         ${toggle}
@@ -3707,18 +3745,18 @@ function previewHotCold(rows) {
     </div>`;
   }
   const scored = (rows || [])
-    .filter((r) => r.dfs?.prizepicks && hitPct(r) != null)
+    .filter((r) => standard(r) && hitPct(r) != null)
     .map((r) => ({ r, pct: hitPct(r) }));
   const hot = scored.filter((x) => x.pct >= 56).sort((a, b) => b.pct - a.pct).slice(0, 8);
   const cold = scored.filter((x) => x.pct <= 48).sort((a, b) => a.pct - b.pct).slice(0, 8);
   if (!hot.length && !cold.length) return "";
   return `<div class="preview-grid">
     <div class="preview-card"><h3>Hot hit rates</h3>
-      <div class="corr-why">PrizePicks sheet hit rate, 56% or better.</div>
+      <div class="corr-why">Near-even lines only (fair 48–52%). Sheet hit rate, 56% or better.</div>
       ${hot.length ? hot.map((x) => line(x, "hot")).join("") : `<div class="muted">None on this game.</div>`}
     </div>
     <div class="preview-card"><h3>Cold hit rates</h3>
-      <div class="corr-why">Same sheet, 48% or worse.</div>
+      <div class="corr-why">Near-even lines only (fair 48–52%). Same sheet, 48% or worse.</div>
       ${cold.length ? cold.map((x) => line(x, "cold")).join("") : `<div class="muted">None on this game.</div>`}
     </div>
   </div>`;
@@ -3838,13 +3876,7 @@ function renderPreview() {
     </div>
     ${previewUsage(sample)}
     <div class="preview-grid">
-      ${sportOf(sample) === "NBA" ? [
-        { name: sample.away_team, rows: inj.filter((r) => nbaSameTeam(sample.away_team, r.team)) },
-        { name: sample.home_team, rows: inj.filter((r) => nbaSameTeam(sample.home_team, r.team)) },
-      ].map((side) => `<div class="preview-card">
-        <h3>Injuries · ${escapeHtml(nbaTeam(side.name)?.abbr || side.name || "")}</h3>
-        ${side.rows.length ? side.rows.map(injuryItem).join("") : `<div class="muted">${state.nbaRosterLoading && !state.nbaRoster ? "Loading injuries…" : "No injury notes for this team."}</div>`}
-      </div>`).join("") : `<div class="preview-card">
+      ${sportOf(sample) === "NBA" ? "" : `<div class="preview-card">
         <h3>Injuries / availability <span class="muted" style="font-weight:400;font-size:12px">${escapeHtml(intelStamp())}</span></h3>
         ${inj.length ? inj.map(injuryItem).join("") : `<div class="muted">${sample.sport === "NFL" || !sample.sport ? "No matching injury rows." : "Injury feed is NFL-only right now."}</div>`}
       </div>`}
