@@ -172,9 +172,18 @@ def better_american(a, b):
 
 
 def download_csv(url: str) -> str:
-    req = urllib.request.Request(url, headers={"User-Agent": "betting-dashboard/sheet-2.0"})
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        return resp.read().decode("utf-8", errors="replace")
+    import time
+    last = None
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "betting-dashboard/sheet-2.0"})
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                return resp.read().decode("utf-8", errors="replace")
+        except Exception as e:
+            last = e
+            print(f"download attempt {attempt + 1} failed: {e}")
+            time.sleep(2 * (attempt + 1))
+    raise last
 
 
 def parse_csv_text(text: str, header_prefix: str | None = None):
@@ -403,7 +412,15 @@ def attach_no_vig(raw):
                 under["no_vig"] = nv_u
 
 
-def most_common_line(items):
+YESNO_STATS = {"Anytime TD", "1st TD", "Anytime Goal", "First Goal", "Double-Double", "Triple-Double"}
+
+
+def yesno_line(stat: str, line):
+    if line is not None:
+        return line
+    if stat in YESNO_STATS:
+        return 0.5
+    return line
     lines = [i.get("line") for i in items if i.get("line") is not None]
     if not lines:
         return None
@@ -480,6 +497,7 @@ def build_dashboard_rows(raw, games):
         line = primary.get("line")
         if line is None:
             line = most_common_line(items)
+        line = yesno_line(primary["stat"], line)
         book_cons = consensus_book_line(books)
 
         book_map = {}
@@ -489,10 +507,10 @@ def build_dashboard_rows(raw, games):
         for b in books:
             rec = {
                 "price": b.get("price"),
-                "line": b.get("line"),
+                "line": yesno_line(primary["stat"], b.get("line") if b.get("line") is not None else line),
                 "implied": b.get("implied"),
                 "no_vig": b.get("no_vig"),
-                "same_line": lines_close(b.get("line"), line),
+                "same_line": lines_close(b.get("line") if b.get("line") is not None else line, line),
             }
             book_map[canon_book(b["book"])] = rec
             if b.get("no_vig") is not None:
@@ -519,10 +537,13 @@ def build_dashboard_rows(raw, games):
 
         dfs_lines = {}
         for d in dfs:
+            if d.get("book") == "underdog":
+                continue
             dfs_lines[d["book"]] = {
                 "line": d.get("line"),
                 "price": d.get("price"),
                 "multiplier": None,
+                "source": "dfs" if d.get("book") in {"prizepicks", "pick6"} else "odds",
             }
 
         g = games.get(primary.get("game_key") or game_key(primary.get("away_team"), primary.get("home_team")), {})
