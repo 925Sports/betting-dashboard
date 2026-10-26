@@ -1198,19 +1198,40 @@ function kalshiOffer(row) {
   };
 }
 
+function yesNoMarket(stat) {
+  return /anytime|1st td|first td|first goal|double-double|triple-double|to score/i.test(String(stat || ""));
+}
+
+function samePropStat(a, b) {
+  const x = normName(a);
+  const y = normName(b);
+  if (x === y) return true;
+  const td = (s) => /anytime/.test(s) && /td|touchdown/.test(s);
+  return td(x) && td(y);
+}
+
+function boardLine(stat, bookLine, rowLine) {
+  const raw = bookLine != null && bookLine !== "" ? bookLine : rowLine;
+  const n = Number(raw);
+  if (raw != null && raw !== "" && Number.isFinite(n)) return n;
+  if (yesNoMarket(stat)) return 0.5;
+  return null;
+}
+
 function siblingBooks(row) {
   if (row?.books && Object.keys(row.books).length) return row.books;
   const pool = state.liveProps || state.data?.props || [];
   const key = normName(row?.player);
-  const stat = normName(row?.stat);
   const side = row?.side;
-  const line = Number(displayLine(row) ?? row?.line);
+  let line = Number(displayLine(row) ?? row?.line);
+  if (!Number.isFinite(line) && yesNoMarket(row?.stat)) line = 0.5;
   if (!key || !Number.isFinite(line)) return row?.books || {};
-  const hit = pool.find((m) =>
-    m && m !== row && m.books && Object.keys(m.books).length &&
-    normName(m.player) === key && normName(m.stat) === stat && m.side === side &&
-    Math.abs(Number(m.line) - line) <= 0.51
-  );
+  const hit = pool.find((m) => {
+    if (!m || m === row || !m.books || !Object.keys(m.books).length) return false;
+    if (normName(m.player) !== key || !samePropStat(m.stat, row.stat) || m.side !== side) return false;
+    const ml = boardLine(m.stat, m.line, m.line);
+    return ml != null && Math.abs(ml - line) <= 0.51;
+  });
   return hit?.books || row?.books || {};
 }
 
@@ -2514,7 +2535,7 @@ function syncTabs() {
 }
 
 const MARKET_GROUPS = {
-  dfs: ["pp", "ud", "pick6", "dabble", "betr", "ev", "all"],
+  dfs: ["pp", "ud", "pick6", "dabble", "betr", "ev", "all", "middles"],
   exchanges: ["prophetx", "novig", "kalshi", "polymarket"],
   books: ["books", "arb"],
 };
@@ -4082,10 +4103,12 @@ function togglePick(pick) {
   }
 }
 
-function likeButton(pick, kind) {
+function likeButton(pick, kind, label) {
   const id = pickId(pick);
   const on = state.picks.some((p) => p.id === id);
-  const text = kind === "hero" ? (on ? "On My Bets" : "Add to My Bets") : kind === "row" ? (on ? "Saved" : "+ bet") : (on ? "✓" : "+");
+  const text = label
+    ? (on ? `Saved ${label}` : `Add ${label}`)
+    : kind === "hero" ? (on ? "On My Bets" : "Add to My Bets") : kind === "row" ? (on ? "Saved" : "+ bet") : (on ? "✓" : "+");
   const cls = kind === "row" ? "bet-add" : kind === "hero" ? "like-btn" : "like-line";
   return `<button type="button" class="${cls}${on ? " on" : ""}" data-pick="${encodeURIComponent(JSON.stringify(pick))}">${text}</button>`;
 }
@@ -4110,6 +4133,92 @@ function renderBets() {
     </article>`;
   }).join("");
   $("count").textContent = `${rows.length} saved bet${rows.length === 1 ? "" : "s"}`;
+}
+
+function dfsPostedLine(row, book) {
+  if (book === "prizepicks" || book === "underdog" || book === "pick6") {
+    const n = Number(row?.dfs?.[book]?.line);
+    return Number.isFinite(n) ? n : null;
+  }
+  const src = bookOffer(row, book);
+  const n = Number(src?.line);
+  return Number.isFinite(n) ? n : null;
+}
+
+function bookBreakEven(book) {
+  if (book === "underdog") return 52.5;
+  if (book === "prizepicks" || book === "pick6") return PP_BE[pickSize()] || 54.93;
+  return 50;
+}
+
+function legEdge(row, book) {
+  if (!row) return null;
+  const p = Number(row.pct_to_hit);
+  if (!Number.isFinite(p) || p <= 5 || p >= 95) return null;
+  return +(p - bookBreakEven(book)).toFixed(1);
+}
+
+function middleBoard(rows) {
+  const game = $("game")?.value || "";
+  const team = $("team")?.value || "";
+  const stat = $("stat")?.value || "";
+  const q = ($("q")?.value || "").trim().toLowerCase();
+  const books = ["prizepicks", "underdog", "pick6", "dabble", "betr"];
+  const groups = new Map();
+  (rows || []).forEach((r) => {
+    if (!r?.player || hasStarted(r.commence_time) || !matchesWhen(r.commence_time)) return;
+    if (r.is_alternate) return;
+    if (r.pp_tier && r.pp_tier !== "Standard") return;
+    if (team && !rowHasTeam(r, team)) return;
+    if (game && gameKeyOf(r) !== game && r.game !== game) return;
+    if (stat && r.stat !== stat) return;
+    if (q && !`${r.player} ${r.stat} ${r.game}`.toLowerCase().includes(q)) return;
+    const key = `${nameKey(r.player)}|${normName(r.stat)}|${teamPairKey(r)}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  });
+  const out = [];
+  groups.forEach((list) => {
+    const offers = [];
+    books.forEach((book) => {
+      const counts = new Map();
+      list.forEach((r) => {
+        const n = dfsPostedLine(r, book);
+        if (n == null) return;
+        if (!counts.has(n)) counts.set(n, []);
+        counts.get(n).push(r);
+      });
+      if (!counts.size) return;
+      let line = null;
+      let best = -1;
+      counts.forEach((hits, n) => {
+        if (hits.length > best) { best = hits.length; line = n; }
+      });
+      offers.push({ book, line, rows: counts.get(line) });
+    });
+    if (offers.length < 2) return;
+    offers.sort((a, b) => a.line - b.line);
+    const low = offers[0];
+    const high = offers[offers.length - 1];
+    const gap = +(high.line - low.line).toFixed(2);
+    if (gap < 1) return;
+    const overRow = low.rows.find((r) => r.side === "Over" || r.side === "Yes") || null;
+    const underRow = high.rows.find((r) => r.side === "Under" || r.side === "No") || null;
+    const overEdge = legEdge(overRow, low.book);
+    const underEdge = legEdge(underRow, high.book);
+    let better = null;
+    if (overEdge != null || underEdge != null) {
+      if (underEdge == null || (overEdge != null && overEdge > underEdge)) better = "over";
+      else if (overEdge == null || underEdge > overEdge) better = "under";
+      else better = "tie";
+    }
+    out.push({
+      sample: list[0],
+      low, high, gap, overRow, underRow, overEdge, underEdge, better,
+    });
+  });
+  out.sort((a, b) => b.gap - a.gap || (b.overEdge ?? b.underEdge ?? -99) - (a.overEdge ?? a.underEdge ?? -99));
+  return out;
 }
 
 function render(full) {
@@ -4197,6 +4306,49 @@ function render(full) {
         <td>$${overDol}</td>
         <td>$${underDol}</td>
         <td><span class="pct good">$${profit}</span></td>
+      </tr>`;
+    }).join("");
+    return;
+  }
+
+  if (state.view === "middles") {
+    const hits = middleBoard(all);
+    $("count").textContent = `${hits.length} middles · Over the low line, Under the high line. Green side is the bigger edge.`;
+    $("empty").style.display = hits.length ? "none" : "block";
+    $("empty").textContent = "No standard-line gaps of 1 or more between DFS books.";
+    $("headrow").innerHTML = `<th>Player</th><th>Stat</th><th>Gap</th><th>Over · lower line</th><th>Under · higher line</th><th>Better edge</th>`;
+    const leg = (m, which) => {
+      const offer = which === "over" ? m.low : m.high;
+      const row = which === "over" ? (m.overRow || offer.rows[0]) : (m.underRow || offer.rows[0]);
+      const side = which === "over" ? "Over" : "Under";
+      const edge = which === "over" ? m.overEdge : m.underEdge;
+      const meta = BOOK_BY_KEY[offer.book];
+      const hot = m.better === which;
+      const pick = pickFromRow(
+        { ...row, side, line: offer.line, player: m.sample.player, stat: m.sample.stat, sport: m.sample.sport, game: m.sample.game, commence_time: m.sample.commence_time, headshot: m.sample.headshot },
+        { bookKey: offer.book, line: offer.line, price: offer.book === "prizepicks" ? -117 : (row?.dfs?.[offer.book]?.price ?? null) }
+      );
+      return `<td class="${hot ? "best-pay" : ""}">
+        <div>${meta ? bookMark(meta, "sm") + " " : ""}${escapeHtml(meta?.name || offer.book)} <b>${offer.line}</b></div>
+        <div class="${edge == null ? "muted" : edge >= 0 ? "pct good" : "pct bad"}">${edge == null ? "No hit %" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</div>
+        ${likeButton(pick, "row")}
+      </td>`;
+    };
+    $("tbody").innerHTML = hits.slice(0, 150).map((m) => {
+      const edgeTxt = (n) => n == null ? "—" : (n > 0 ? "+" : "") + n.toFixed(1);
+      const betterTxt = m.better === "over"
+        ? `Over ${edgeTxt(m.overEdge)}`
+        : m.better === "under"
+          ? `Under ${edgeTxt(m.underEdge)}`
+          : m.better === "tie" ? "Even" : "—";
+      return `<tr>
+        <td><div class="player-row">${headshotTag(m.sample.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(m.sample.player)}" data-eid="${escapeHtml(m.sample.event_id || "")}" data-market="${escapeHtml(m.sample.market || m.sample.stat || "")}" data-side="${escapeHtml(m.better === "under" ? "Under" : "Over")}">${escapeHtml(m.sample.player)}${posTag(m.sample)}</button></div>
+          <div class="game"><span class="sport-tag ${escapeHtml(String(m.sample.sport || "").toLowerCase())}">${escapeHtml(m.sample.sport || "")}</span> ${escapeHtml(matchup(m.sample))}</div></td>
+        <td>${escapeHtml(m.sample.stat)}</td>
+        <td><b>${m.gap}</b><div class="line-note">${m.low.line} to ${m.high.line}</div></td>
+        ${leg(m, "over")}
+        ${leg(m, "under")}
+        <td><span class="${m.better && m.better !== "tie" ? "pct good" : "muted"}">${betterTxt}</span></td>
       </tr>`;
     }).join("");
     return;
@@ -4697,10 +4849,11 @@ function dvpFor(row) {
 function bookLineBoard(rows) {
   const dfsKeys = new Set(["prizepicks", "underdog", "pick6", "betr", "dabble"]);
   const map = new Map();
-  const put = (book, line, side, price, dfs) => {
+  const put = (book, line, side, price, dfs, stat) => {
     const px = Number(price);
-    const n = Number(line);
-    if (!book || !Number.isFinite(n) || !Number.isFinite(px) || Math.abs(px) < 100 || Math.abs(px) > 2500) return;
+    const n = boardLine(stat, line, line);
+    const cap = yesNoMarket(stat) ? 8000 : 2500;
+    if (!book || n == null || !Number.isFinite(px) || Math.abs(px) < 100 || Math.abs(px) > cap) return;
     const key = `${book}|${n}`;
     if (!map.has(key)) map.set(key, { book, line: n, over: null, under: null, dfs: !!dfs });
     const slot = map.get(key);
@@ -4712,16 +4865,17 @@ function bookLineBoard(rows) {
   (rows || []).forEach((r) => {
     const side = String(r.side || "").toLowerCase();
     if (!["over", "under", "yes", "no"].includes(side)) return;
-    Object.entries(mergeBooks(r.books) || {}).forEach(([k, b]) => {
+    Object.entries(mergeBooks(siblingBooks(r)) || {}).forEach(([k, b]) => {
       if (!b || dfsKeys.has(k) || k === "kalshi") return;
-      put(k, b.line != null && b.line !== "" ? b.line : r.line, side, b.price, false);
+      const line = b.line != null && b.line !== "" ? b.line : boardLine(r.stat, r.line, r.line);
+      put(k, line, side, b.price, false, r.stat);
     });
     Object.entries(r.dfs || {}).forEach(([k, b]) => {
       if (!b) return;
-      put(k, b.line != null && b.line !== "" ? b.line : r.line, side, k === "prizepicks" ? -117 : b.price, true);
+      put(k, b.line != null && b.line !== "" ? b.line : r.line, side, k === "prizepicks" ? -117 : b.price, true, r.stat);
     });
   });
-  return [...map.values()].sort((a, b) => a.line - b.line || String(a.book).localeCompare(String(b.book)));
+  return [...map.values()].sort((a, b) => a.line - b.line || String(a.book).localeCompare(String(a.book)));
 }
 
 function lineBoardHtml(rows, focus) {
@@ -4926,7 +5080,13 @@ function openPlayerPopup(player, eventId, market, side) {
   }
   const edge = rowEdge(focus);
   const shownLine = displayLine(focus);
-  const quoteRows = mine.filter((r) => r.stat === focus.stat && (!focus.game || !r.game || r.game === focus.game));
+  const quoteRows = mine.filter((r) => {
+    if (!samePropStat(r.stat, focus.stat)) return false;
+    if (!focus.game && !focus.home_team && !focus.away_team) return true;
+    if (!r.game && !r.home_team && !r.away_team) return true;
+    if (r.game && focus.game && r.game === focus.game) return true;
+    return sameGame(r, focus);
+  });
   const bookLine = Number(focus.line);
   const wholePush = isWholeLine(shownLine) && Number.isFinite(bookLine) && Math.abs(bookLine - Number(shownLine)) > 0.2;
   const pushNote = wholePush
@@ -5000,6 +5160,14 @@ function openPlayerPopup(player, eventId, market, side) {
           <div class="bet-foot">
             <div class="bet-sub">${escapeHtml(focus.player || "")}${focus.pp_tier ? ` · ${escapeHtml(focus.pp_tier)}` : ""}${matchup(focus) ? ` · ${escapeHtml(matchup(focus))}` : ""}</div>
             ${likeButton(pickFromRow(focus, viewOffer(focus)), "hero")}
+            ${(() => {
+              if (!oppSide) return "";
+              const src = oppRow || focus;
+              const offer = viewOffer(src);
+              const line = boardLine(focus.stat, displayLine(src) ?? src.line, displayLine(focus) ?? focus.line);
+              const pick = pickFromRow({ ...focus, side: oppSide, line }, { bookKey: offer.bookKey, line, price: offer.price });
+              return likeButton(pick, "hero", oppSide);
+            })()}
           </div>
         </div>
       </div>
