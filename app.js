@@ -4095,12 +4095,21 @@ function togglePick(pick) {
   savePicks();
   updateBetsTab();
   toast(had ? "Removed from My Bets" : "Added to My Bets");
-  if (state.section === "bets") renderBets();
-  else if (state.section === "props") render();
-  if (!$("popup")?.hidden && state.popupKey) {
-    const [player, eventId, market, side] = state.popupKey.split("|");
-    if (player) openPlayerPopup(player, eventId, market, side);
+  if (state.section === "bets") {
+    renderBets();
+    return;
   }
+  const on = !had;
+  document.querySelectorAll("[data-pick]").forEach((btn) => {
+    let p;
+    try { p = JSON.parse(decodeURIComponent(btn.getAttribute("data-pick") || "")); } catch (_) { return; }
+    if (pickId(p) !== id) return;
+    btn.classList.toggle("on", on);
+    const label = btn.dataset.label || "";
+    if (btn.classList.contains("like-btn")) btn.textContent = label ? (on ? `Saved ${label}` : `Add ${label}`) : (on ? "On My Bets" : "Add to My Bets");
+    else if (btn.classList.contains("bet-add")) btn.textContent = on ? "Saved" : "+ bet";
+    else btn.textContent = on ? "✓" : "+";
+  });
 }
 
 function likeButton(pick, kind, label) {
@@ -4110,7 +4119,8 @@ function likeButton(pick, kind, label) {
     ? (on ? `Saved ${label}` : `Add ${label}`)
     : kind === "hero" ? (on ? "On My Bets" : "Add to My Bets") : kind === "row" ? (on ? "Saved" : "+ bet") : (on ? "✓" : "+");
   const cls = kind === "row" ? "bet-add" : kind === "hero" ? "like-btn" : "like-line";
-  return `<button type="button" class="${cls}${on ? " on" : ""}" data-pick="${encodeURIComponent(JSON.stringify(pick))}">${text}</button>`;
+  const lab = label ? ` data-label="${escapeHtml(label)}"` : "";
+  return `<button type="button" class="${cls}${on ? " on" : ""}"${lab} data-pick="${encodeURIComponent(JSON.stringify(pick))}">${text}</button>`;
 }
 
 function renderBets() {
@@ -4143,6 +4153,18 @@ function dfsPostedLine(row, book) {
   const src = bookOffer(row, book);
   const n = Number(src?.line);
   return Number.isFinite(n) ? n : null;
+}
+
+function middleLine(row, book) {
+  const raw = dfsPostedLine(row, book);
+  if (raw == null) return null;
+  const sport = String(row?.sport || "").toUpperCase();
+  const footballFantasy = book === "underdog" && isFantasyStat(row?.stat) && (sport === "NFL" || sport === "CFB");
+  if (!footballFantasy) return { line: raw, raw, converted: false, recs: null };
+  const cmp = fantasyCmp(row);
+  const adj = Number(cmp?.ud_as_pp);
+  if (Number.isFinite(adj)) return { line: adj, raw, converted: adj !== raw, recs: cmp.recs ?? null };
+  return { line: raw, raw, converted: false, recs: cmp?.recs ?? null, missing: true };
 }
 
 function bookBreakEven(book) {
@@ -4183,18 +4205,23 @@ function middleBoard(rows) {
     books.forEach((book) => {
       const counts = new Map();
       list.forEach((r) => {
-        const n = dfsPostedLine(r, book);
-        if (n == null) return;
-        if (!counts.has(n)) counts.set(n, []);
-        counts.get(n).push(r);
+        const hit = middleLine(r, book);
+        if (!hit) return;
+        const key = hit.line;
+        if (!counts.has(key)) counts.set(key, { line: hit.line, raw: hit.raw, converted: hit.converted, recs: hit.recs, missing: hit.missing, rows: [] });
+        const slot = counts.get(key);
+        slot.rows.push(r);
+        if (hit.converted) slot.converted = true;
+        if (hit.raw != null) slot.raw = hit.raw;
+        if (hit.recs != null) slot.recs = hit.recs;
       });
       if (!counts.size) return;
-      let line = null;
-      let best = -1;
-      counts.forEach((hits, n) => {
-        if (hits.length > best) { best = hits.length; line = n; }
+      let best = null;
+      let n = -1;
+      counts.forEach((slot) => {
+        if (slot.rows.length > n) { n = slot.rows.length; best = slot; }
       });
-      offers.push({ book, line, rows: counts.get(line) });
+      offers.push({ book, line: best.line, raw: best.raw, converted: best.converted, recs: best.recs, missing: best.missing, rows: best.rows });
     });
     if (offers.length < 2) return;
     offers.sort((a, b) => a.line - b.line);
@@ -4313,7 +4340,7 @@ function render(full) {
 
   if (state.view === "middles") {
     const hits = middleBoard(all);
-    $("count").textContent = `${hits.length} middles · Over the low line, Under the high line. Green side is the bigger edge.`;
+    $("count").textContent = `${hits.length} middles · Football fantasy uses UD converted to PP scoring. Green side is the bigger edge.`;
     $("empty").style.display = hits.length ? "none" : "block";
     $("empty").textContent = "No standard-line gaps of 1 or more between DFS books.";
     $("headrow").innerHTML = `<th>Player</th><th>Stat</th><th>Gap</th><th>Over · lower line</th><th>Under · higher line</th><th>Better edge</th>`;
@@ -4324,12 +4351,17 @@ function render(full) {
       const edge = which === "over" ? m.overEdge : m.underEdge;
       const meta = BOOK_BY_KEY[offer.book];
       const hot = m.better === which;
+      const betLine = offer.converted ? offer.raw : offer.line;
       const pick = pickFromRow(
-        { ...row, side, line: offer.line, player: m.sample.player, stat: m.sample.stat, sport: m.sample.sport, game: m.sample.game, commence_time: m.sample.commence_time, headshot: m.sample.headshot },
-        { bookKey: offer.book, line: offer.line, price: offer.book === "prizepicks" ? -117 : (row?.dfs?.[offer.book]?.price ?? null) }
+        { ...row, side, line: betLine, player: m.sample.player, stat: m.sample.stat, sport: m.sample.sport, game: m.sample.game, commence_time: m.sample.commence_time, headshot: m.sample.headshot },
+        { bookKey: offer.book, line: betLine, price: offer.book === "prizepicks" ? -117 : (row?.dfs?.[offer.book]?.price ?? null) }
       );
+      const note = offer.converted
+        ? `<div class="line-note">raw ${offer.raw}${offer.recs != null ? ` · ${offer.recs} rec` : ""}</div>`
+        : (offer.missing ? `<div class="line-note">no rec avg, raw UD</div>` : "");
       return `<td class="${hot ? "best-pay" : ""}">
-        <div>${meta ? bookMark(meta, "sm") + " " : ""}${escapeHtml(meta?.name || offer.book)} <b>${offer.line}</b></div>
+        <div>${meta ? bookMark(meta, "sm") + " " : ""}${escapeHtml(meta?.name || offer.book)} <b>${offer.line}</b>${offer.converted ? ` <span class="line-note">PP</span>` : ""}</div>
+        ${note}
         <div class="${edge == null ? "muted" : edge >= 0 ? "pct good" : "pct bad"}">${edge == null ? "No hit %" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</div>
         ${likeButton(pick, "row")}
       </td>`;
