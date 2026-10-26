@@ -4182,7 +4182,20 @@ function middleFair(row, book) {
 }
 
 function isStandardMiddleLine(row, book) {
-  if (!row || row.is_alternate) return false;
+  if (!row) return false;
+  const fantasy = isFantasyStat(row.stat);
+  if (fantasy) {
+    // Underdog posts one fantasy line and it is the standard line.
+    if (book === "underdog") return row.dfs?.underdog?.line != null;
+    if (book === "prizepicks") {
+      if (!row.dfs?.prizepicks || row.dfs.prizepicks.line == null) return false;
+      return !row.pp_tier || row.pp_tier === "Standard";
+    }
+    if (book === "pick6") return !!row.dfs?.pick6 && (!row.pp_tier || row.pp_tier === "Standard");
+    if (book === "dabble" || book === "betr") return !!bookOffer(row, book);
+    return false;
+  }
+  if (row.is_alternate) return false;
   if ((book === "prizepicks" || book === "pick6") && row.pp_tier && row.pp_tier !== "Standard") return false;
   if (book === "prizepicks" && !row.dfs?.prizepicks) return false;
   if (book === "pick6" && !row.dfs?.pick6) return false;
@@ -4191,7 +4204,6 @@ function isStandardMiddleLine(row, book) {
     if (!u || u.line == null) return false;
     if (u.source && u.source !== "filter") return false;
     const m = Number(u.multiplier);
-    // 1.7x / 0.63x style lines are not the standard near-even line.
     if (Number.isFinite(m) && m > 0 && (m > 1.12 || m < 0.89)) return false;
   }
   if (book === "dabble" || book === "betr") {
@@ -4224,8 +4236,10 @@ function middleBoard(rows) {
   const groups = new Map();
   (rows || []).forEach((r) => {
     if (!r?.player || hasStarted(r.commence_time) || !matchesWhen(r.commence_time)) return;
-    if (r.is_alternate) return;
-    if (r.pp_tier && r.pp_tier !== "Standard") return;
+    if (!isFantasyStat(r.stat)) {
+      if (r.is_alternate) return;
+      if (r.pp_tier && r.pp_tier !== "Standard") return;
+    }
     if (team && !rowHasTeam(r, team)) return;
     if (game && gameKeyOf(r) !== game && r.game !== game) return;
     if (stat && r.stat !== stat) return;
@@ -4376,9 +4390,9 @@ function render(full) {
 
   if (state.view === "middles") {
     const hits = middleBoard(all);
-    $("count").textContent = `${hits.length} middles · Both books are standard near-even lines. Football fantasy uses UD on PP scoring. Green side is the bigger edge.`;
+    $("count").textContent = `${hits.length} middles · Standard lines only. Fantasy compares every UD line to the standard PrizePicks line. Green side is the bigger edge.`;
     $("empty").style.display = hits.length ? "none" : "block";
-    $("empty").textContent = "No gaps of 1 or more between standard lines. Both books need a near-even standard line.";
+    $("empty").textContent = "No gaps of 1 or more. Non-fantasy needs near-even standard lines. Fantasy compares every Underdog line to the standard PrizePicks line.";
     $("headrow").innerHTML = `<th>Player</th><th>Stat</th><th>Gap</th><th>Over · lower line</th><th>Under · higher line</th><th>Better edge</th>`;
     const leg = (m, which) => {
       const offer = which === "over" ? m.low : m.high;
