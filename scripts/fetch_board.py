@@ -653,6 +653,9 @@ def attach_pp(row, p, take_hit=True):
             row["pp_sheet_edge"] = None
         if row.get("book_line") is None:
             row["book_line"] = p.get("avg_line")
+        # Whole-number PP lines push. Replace the sheet under with cash from the book .5.
+        if is_whole_line(row.get("line")):
+            apply_strict_hit(row)
         return
     edge = sane_pct(p.get("pp_edge"))
     nv = sane_pct(p.get("nv_pct"))
@@ -947,7 +950,7 @@ def enrich_props(rows, pp_rows, ud_rows, sport=""):
                 row["sheet_under"] = src.get("sheet_under")
             side = str(row.get("side") or "")
             hit = row.get("sheet_under") if side == "Under" else row.get("sheet_over")
-            if hit is not None and row.get("pp_sheet_edge") is None:
+            if hit is not None and row.get("pp_sheet_edge") is None and row.get("hit_model") != "cash_no_push":
                 row["pp_sheet_edge"] = hit
                 row["pct_to_hit"] = hit
     apply_sibling_cash(rows)
