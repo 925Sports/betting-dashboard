@@ -538,6 +538,12 @@ function nbaSheetHit(row) {
 
 function hitPct(row) {
   if ((state.view === "pp" || state.view === "ev") && sportOf(row) === "NBA") {
+    // Whole-number PP lines push at the number. Use the nearby book .5 line
+    // so Under 5 is P(X < 5), not the sheet under that still counts the push.
+    if (!isFantasyStat(row.stat) && isWholeLine(gradedLine(row))) {
+      const cash = ppCashPct(row);
+      if (cash != null) return cash;
+    }
     const sheet = nbaSheetHit(row);
     if (sheet != null) return sheet;
   }
