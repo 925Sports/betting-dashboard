@@ -421,6 +421,9 @@ def yesno_line(stat: str, line):
     if stat in YESNO_STATS:
         return 0.5
     return line
+
+
+def most_common_line(items):
     lines = [i.get("line") for i in items if i.get("line") is not None]
     if not lines:
         return None
