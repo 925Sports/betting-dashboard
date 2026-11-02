@@ -94,7 +94,7 @@ WNBA_PP_CSV = os.environ.get(
 )
 CBB_SHEET_CSV = os.environ.get(
     "CBB_SHEET_CSV",
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSlih5zVh4Cc8lD9adZlavkQ3cGIRubL0likj4LYyhuTtdpnnZ-BodsJVBCiQa2HC8kkSNYfGaywd6P/pub?gid=0&single=true&output=csv",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSlih5zVh4Cc8lD9adZlavkQ3cGIRubL0likj4LYyhuTtdpnnZ-BodsJVBCiQa2HC8kkSNYfGaywd6P/pub?gid=1009829399&single=true&output=csv",
 )
 CBB_PP_CSV = os.environ.get(
     "CBB_PP_CSV",
@@ -555,7 +555,7 @@ def apply_sibling_cash(rows):
         if not halves:
             continue
         for r in group:
-            if str(r.get("sport") or "").upper() == "NBA":
+            if str(r.get("sport") or "").upper() in ("NBA", "CBB"):
                 continue
             if not is_whole_line(r.get("line")):
                 continue
@@ -637,7 +637,7 @@ def attach_pp(row, p, take_hit=True):
     }
     stat = str(p.get("stat") or row.get("stat") or "")
     is_fantasy = "fantasy" in stat.lower()
-    nba = str(row.get("sport") or "").upper() == "NBA"
+    nba = str(row.get("sport") or "").upper() in ("NBA", "CBB")
     if nba and not is_fantasy:
         pp_line = base.to_float(p.get("line"))
         row_line = base.to_float(row.get("line"))
@@ -770,9 +770,9 @@ def stamp_pp_id(row, pp_id):
 
 
 def enrich_props(rows, pp_rows, ud_rows, sport=""):
-    if str(sport).upper() == "NBA":
+    if str(sport).upper() in ("NBA", "CBB"):
         for row in rows:
-            row["sport"] = "NBA"
+            row["sport"] = sport.upper()
     pp_by = defaultdict(list)
     ud_by = defaultdict(list)
     for r in pp_rows:
@@ -832,7 +832,7 @@ def enrich_props(rows, pp_rows, ud_rows, sport=""):
                 if "fantasy" in str(p.get("stat") or "").lower()
                 else (
                     side_sheet_hit(p, p.get("side") or "Over")
-                    if str(sport).upper() == "NBA"
+                    if str(sport).upper() in ("NBA", "CBB")
                     else (sane_pct(p.get("nv_pct")) or sane_pct(p.get("pp_edge")))
                 )
             ),
@@ -841,9 +841,9 @@ def enrich_props(rows, pp_rows, ud_rows, sport=""):
             "spread": p.get("spread"), "total": p.get("total"),
             "dfs": {"prizepicks": {"line": p.get("line"), "price": -117, "multiplier": None, "id": p.get("pp_id") or ""}},
             "books": {}, "headshot": p.get("headshot"), "projection": p.get("projection"),
-            "pp_sheet_edge": side_sheet_hit(p, p.get("side") or "Over") if str(sport).upper() == "NBA" else p.get("pp_edge"),
-            "sheet_over": sane_pct(p.get("edge_over")) if str(sport).upper() == "NBA" else None,
-            "sheet_under": sane_pct(p.get("edge_under")) if str(sport).upper() == "NBA" else None,
+            "pp_sheet_edge": side_sheet_hit(p, p.get("side") or "Over") if str(sport).upper() in ("NBA", "CBB") else p.get("pp_edge"),
+            "sheet_over": sane_pct(p.get("edge_over")) if str(sport).upper() in ("NBA", "CBB") else None,
+            "sheet_under": sane_pct(p.get("edge_under")) if str(sport).upper() in ("NBA", "CBB") else None,
             "true_point": p.get("true_point"),
             "proj_vs_line": p.get("proj_vs_line"),
             "correlates": p.get("correlates"), "pp_id": p.get("pp_id"),
@@ -930,9 +930,9 @@ def enrich_props(rows, pp_rows, ud_rows, sport=""):
         hit = row.get("pct_to_hit")
         if hit is not None and (hit > 99 or hit < 1):
             row["pct_to_hit"] = sane_pct(row.get("pp_sheet_edge"))
-        if str(row.get("sport") or "").upper() != "NBA":
+        if str(row.get("sport") or "").upper() not in ("NBA", "CBB"):
             apply_strict_hit(row)
-    if str(sport).upper() == "NBA":
+    if str(sport).upper() in ("NBA", "CBB"):
         stamped = {}
         for row in rows:
             if row.get("sheet_over") is None and row.get("sheet_under") is None:
