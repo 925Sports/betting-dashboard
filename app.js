@@ -500,7 +500,7 @@ function nbaEdgePack(row) {
   if (!state.nbaEdgeIdx || state.nbaEdgeSrc !== state.data) {
     const idx = new Map();
     (state.data?.props || []).forEach((r) => {
-      if (sportOf(r) !== "NBA") return;
+      if (sportOf(r) !== "NBA" && sportOf(r) !== "CBB") return;
       const e = Number(r.pp_sheet_edge);
       if (!saneSheet(e)) return;
       const key = `${nameKey(r.player)}|${r.stat}|${r.line}`;
@@ -537,7 +537,7 @@ function nbaSheetHit(row) {
 }
 
 function hitPct(row) {
-  if ((state.view === "pp" || state.view === "ev") && sportOf(row) === "NBA") {
+  if ((state.view === "pp" || state.view === "ev") && (sportOf(row) === "NBA" || sportOf(row) === "CBB")) {
     // Whole-number PP lines push at the number. Use the nearby book .5 line
     // so Under 5 is P(X < 5), not the sheet under that still counts the push.
     if (!isFantasyStat(row.stat) && isWholeLine(gradedLine(row))) {
