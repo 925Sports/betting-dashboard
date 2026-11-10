@@ -261,6 +261,7 @@ tr:hover td { background: rgba(255,255,255,0.025); }
   .line-group .popup-table td.best-pay { background: var(--green-bg); color: var(--green); }
   .preview-list { max-height: 220px; }
   .bets-grid { grid-template-columns: 1fr; }
+  .bet-desk { grid-template-columns: 1fr; }
 }
 
 .book-logo {
@@ -850,6 +851,17 @@ th[data-key="line"], td.line-cell, td.line-stack {
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
+.sum-kicker.warn { background: rgba(231, 181, 73, 0.16); color: #e7b549; }
+.bet-desk {
+  display: grid;
+  grid-template-columns: minmax(240px, 340px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.bet-desk .sum-card { margin: 0; }
+.bet-recent .log-bars { height: 168px; }
+.bet-recent .popup-h { margin-top: 0; }
+.prop-switch { flex-wrap: wrap; overflow: visible; }
 .gm-board {
   display: flex;
   gap: 12px;
@@ -963,3 +975,14 @@ th[data-key="line"], td.line-cell, td.line-stack {
 .slip-sizes button.on { background: #1f4fd0; border-color: #3d7bff; }
 .slip-sizes button small { display: block; font-weight: 500; color: var(--muted); }
 .slip-sizes button.on small { color: #d5e2ff; }
+
+.bet-actions { flex-direction: column; align-items: stretch; min-width: 150px; }
+.bet-actions .like-btn { text-align: center; }
+.l5-tile em { display: block; font-style: normal; font-size: 11px; color: #8b9bb4; margin-top: 2px; }
+.what-box {
+  margin-top: 12px; padding: 10px 12px;
+  background: #1a160c; border: 1px solid #5a4a20; border-radius: 10px;
+}
+.what-box b { color: #e7b549; font-size: 10px; letter-spacing: 0.06em; }
+.what-box .what-main { font-size: 15px; font-weight: 800; margin: 4px 0 2px; }
+.what-box .what-sub { color: #c5d0e0; font-size: 13px; }
