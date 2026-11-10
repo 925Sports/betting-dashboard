@@ -123,6 +123,8 @@ const state = {
   layout: localStorage.getItem("ev_layout") || "table",
   popupKey: "",
   hotN: 5,
+  arbDesk: "traditional",
+  betsBook: "all",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -762,7 +764,11 @@ function mergeBooks(map) {
 }
 
 function sportsbookCount(row) {
-  return Object.values(mergeBooks(row.books)).filter((b) => b && b.price != null).length;
+  const dfs = new Set(BOOKS.filter((b) => b.dfs).map((b) => b.key).concat(["dabble", "betr", "pick6"]));
+  return Object.entries(mergeBooks(row.books) || {}).filter(([k, b]) => {
+    if (!b || b.price == null) return false;
+    return !dfs.has(canonBook(k));
+  }).length;
 }
 
 const TEAM_CODE_NICK = {};
@@ -950,7 +956,7 @@ const LOG_STAT = {
   "INTs": (g) => g.int,
   "Rush+Rec Yds": (g) => (g.rush_yds || 0) + (g.rec_yds || 0),
   "Pass+Rush Yds": (g) => (g.pass_yds || 0) + (g.rush_yds || 0),
-  "Fantasy Score": (g) => g.fant,
+  "Fantasy Score": (g) => (g.ppr != null ? g.ppr : g.fant),
   "Anytime TD": (g) => (g.rush_td || 0) + (g.rec_td || 0),
   "Rec TDs": (g) => g.rec_td,
   "Rush TDs": (g) => g.rush_td,
@@ -964,6 +970,19 @@ function logValue(g, stat) {
   const fn = LOG_STAT[stat];
   if (fn) return Number(fn(g) || 0);
   return null;
+}
+
+function orderedLogs(recs) {
+  return (recs || []).slice().sort((a, b) => {
+    const key = (g) => {
+      if (g?.date) {
+        const d = nbaDateKey(g.date);
+        if (d) return d;
+      }
+      return (Number(g?.season) || 0) * 100 + (Number(g?.week) || 0);
+    };
+    return key(a) - key(b);
+  });
 }
 
 function splitStats(games, stat, line, side) {
@@ -1045,6 +1064,7 @@ function logBarLabel(g) {
 }
 
 function renderSplitChart(focus, recs) {
+  recs = orderedLogs(recs);
   if (!recs.length || !focus?.stat) return "";
   const splits = splitStats(recs, focus.stat, focus.line, focus.side);
   if (!splits) return "";
@@ -1085,7 +1105,7 @@ function renderSplitChart(focus, recs) {
     ? `<button type="button" class="chart-more" data-chart-more="${showAll ? "less" : "more"}" title="${showAll ? "Show last 5" : `Show last ${all.length}`}">${showAll ? "‹" : "›"}</button>`
     : "";
   return `<h4 class="popup-h">Recent vs ${escapeHtml(focus.side || "")} ${focus.line ?? ""} ${escapeHtml(focus.stat || "")}</h4>
-    <div class="split-note">Green cleared the line · red missed · gray push. Showing ${showAll ? `all ${bars.length}` : `last ${bars.length}`} game${bars.length === 1 ? "" : "s"}.</div>
+    <div class="split-note">Green cleared the line · red missed · gray push. Left bar is the most recent game, same order as the top of the game log. The Prop column there is this same number.</div>
     <div class="chart-row">
     <div class="log-bars" style="--slots:${slots}">
       ${bars.map((b) => {
@@ -1343,7 +1363,7 @@ function applyFilters(rows) {
     }
     if (hasStarted(r.commence_time)) return false;
     if (!matchesWhen(r.commence_time)) return false;
-    if (!q && state.minBooks && !isFantasyStat(r.stat) && !["pp", "dabble", "betr"].includes(state.view) && sportsbookCount(r) < 2) return false;
+    if (!q && state.minBooks && !isFantasyStat(r.stat) && !["dabble", "betr"].includes(state.view) && sportsbookCount(r) < 2) return false;
     if (team && !rowHasTeam(r, team)) return false;
     if (game && gameKeyOf(r) !== game && r.game !== game) return false;
     if (stat && r.stat !== stat) return false;
@@ -2189,20 +2209,22 @@ function renderSlip() {
   saveSlip();
 }
 
-function addToSlip(row) {
-  if (!row) return;
+function addToSlip(row, opts) {
+  if (!row) return false;
+  const quiet = !!(opts && opts.quiet);
   const key = `${row.player}|${row.stat}|${row.side}|${row.line}`;
   if (state.slip.some((s) => `${s.player}|${s.stat}|${s.side}|${s.line}` === key)) {
-    toast(`${row.player} is already on the slip`);
-    return;
+    if (!quiet) toast(`${row.player} is already on the slip`);
+    return false;
   }
   if (state.slip.length >= 10) {
-    toast("Slip is full at 10 legs");
-    return;
+    if (!quiet) toast("Slip is full at 10 legs");
+    return false;
   }
   state.slip.push(row);
   renderSlip();
-  toast(`Added ${row.player} ${row.side} ${slipLine(row) ?? ""} ${row.stat}`);
+  if (!quiet) toast(`Added ${row.player} ${row.side} ${slipLine(row) ?? ""} ${row.stat}`);
+  return true;
 }
 
 function toast(msg) {
@@ -3361,23 +3383,37 @@ function nbaStatValue(g, stat) {
   const ast = Number(g.ast) || 0;
   const stl = Number(g.stl) || 0;
   const blk = Number(g.blk) || 0;
-  const fg3 = Number(g.fg3) || 0;
+  const fg3 = g.fg3 == null ? null : Number(g.fg3);
+  const fg3a = g.fg3a == null ? null : Number(g.fg3a);
+  const fga = g.fga == null ? null : Number(g.fga);
+  const fgm = g.fgm == null ? null : Number(g.fgm);
+  const fta = g.fta == null ? null : Number(g.fta);
+  const ftm = g.ftm == null ? null : Number(g.ftm);
+  const fg2a = g.fg2a == null ? null : Number(g.fg2a);
   const to = Number(g.to) || 0;
   const pf = Number(g.pf) || 0;
+  const attempt = /att|attempt/.test(s);
   if (s.includes("fantasy")) return g.fp == null ? null : Number(g.fp);
   if (s.includes("pts+rebs+asts") || s.includes("points+rebounds+assists")) return pts + reb + ast;
   if (s.includes("pts+rebs") || s.includes("points+rebounds")) return pts + reb;
   if (s.includes("pts+asts") || s.includes("points+assists")) return pts + ast;
   if (s.includes("rebs+asts") || s.includes("rebounds+assists")) return reb + ast;
   if (s.includes("stock") || ((s.includes("blk") || s.includes("block")) && (s.includes("stl") || s.includes("steal")))) return stl + blk;
+  if ((s.includes("3") || s.includes("three")) && attempt) return fg3a;
+  if ((s.includes("free") || s.includes("ft")) && attempt) return fta;
+  if ((s.includes("2") || s.includes("two")) && attempt && (s.includes("point") || s.includes("fg") || s.includes("field"))) return fg2a;
+  if ((s.includes("field") || s.includes("fga") || s.includes("fgatt")) && attempt) return fga;
   if (s.includes("3") || s.includes("three")) return fg3;
+  if (s.includes("freethrow") || s === "ftm" || s.includes("freethrowsmade")) return ftm;
   if (s.includes("steal")) return stl;
   if (s.includes("block")) return blk;
   if (s.includes("turnover")) return to;
   if (s.includes("foul")) return pf;
   if (s.includes("rebound")) return reb;
   if (s.includes("assist")) return ast;
+  if ((s.includes("fieldgoal") || s.includes("fgmade")) && !attempt) return fgm;
   if (s.includes("point")) return pts;
+  if (s.includes("minute")) return g.min == null ? null : Number(g.min);
   return null;
 }
 
@@ -3719,16 +3755,11 @@ function nbaRecentHit(row, n) {
 function previewHotCold(rows) {
   const sport = sportOf((rows || []).find((r) => sportOf(r)) || {});
   if (sport !== "NBA" && sport !== "NFL") return "";
-  const fairPct = (r) => {
-    const p = hitPct(r);
-    if (p != null && Number.isFinite(p)) return p;
-    const nv = typeof bookNoVig === "function" ? bookNoVig(r) : null;
-    return nv != null && Number.isFinite(nv) ? nv : null;
-  };
   const standard = (r) => {
-    if (!r?.dfs?.prizepicks || !r.player) return false;
-    const f = fairPct(r);
-    return f != null && f >= 48 && f <= 52;
+    if (!r?.dfs?.prizepicks || !r.player || r.line == null) return false;
+    if (r.is_alternate && !isFantasyStat(r.stat)) return false;
+    if (r.pp_tier && r.pp_tier !== "Standard") return false;
+    return true;
   };
   const line = (x, kind) => `<div class="preview-prop">
     <div class="player-row">${headshotTag(x.r.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(x.r.player)}" data-eid="${escapeHtml(x.r.event_id || "")}" data-market="${escapeHtml(x.r.market || "")}" data-side="${escapeHtml(x.r.side)}">${escapeHtml(x.r.player)}</button>
@@ -3757,7 +3788,7 @@ function previewHotCold(rows) {
     });
     const hot = scored.filter((x) => x.pct >= 60).sort((a, b) => b.pct - a.pct || b.graded - a.graded).slice(0, 8);
     const cold = scored.filter((x) => x.pct <= 40).sort((a, b) => a.pct - b.pct || b.graded - a.graded).slice(0, 8);
-    const note = `2026-27 only. Near-even lines (fair 48–52%) only. Cleared this line in the last ${n} games. Early season samples are short.`;
+    const note = `PrizePicks standard lines only. Cleared this line in the last ${n} games. Early season samples are short.`;
     return `<div class="preview-grid">
       <div class="preview-card"><h3>Hot hit rates</h3>
         ${toggle}
@@ -3779,11 +3810,11 @@ function previewHotCold(rows) {
   if (!hot.length && !cold.length) return "";
   return `<div class="preview-grid">
     <div class="preview-card"><h3>Hot hit rates</h3>
-      <div class="corr-why">Near-even lines only (fair 48–52%). Sheet hit rate, 56% or better.</div>
+      <div class="corr-why">PrizePicks standard lines only. Sheet hit rate, 56% or better.</div>
       ${hot.length ? hot.map((x) => line(x, "hot")).join("") : `<div class="muted">None on this game.</div>`}
     </div>
     <div class="preview-card"><h3>Cold hit rates</h3>
-      <div class="corr-why">Near-even lines only (fair 48–52%). Same sheet, 48% or worse.</div>
+      <div class="corr-why">PrizePicks standard lines only. Same sheet, 48% or worse.</div>
       ${cold.length ? cold.map((x) => line(x, "cold")).join("") : `<div class="muted">None on this game.</div>`}
     </div>
   </div>`;
@@ -3818,6 +3849,72 @@ function injuryItem(r) {
       <button type="button" class="player-btn" data-player="${escapeHtml(r.name || "")}">Open ${escapeHtml(r.name || "")}</button>
     </div>
   </div>`;
+}
+
+const RECORD_LEAGUES = {
+  NFL: "football/nfl",
+  NBA: "basketball/nba",
+  CFB: "football/college-football",
+  CBB: "basketball/mens-college-basketball",
+  NHL: "hockey/nhl",
+  MLB: "baseball/mlb",
+  WNBA: "basketball/wnba",
+};
+
+function teamRecord(sport, team) {
+  const map = state.records?.[String(sport || "").toUpperCase()];
+  if (!map || !team) return "";
+  const nba = typeof nbaTeam === "function" ? nbaTeam(team) : null;
+  const tries = [team, abbr(team), nba?.abbr, nba?.name, nba?.short].filter(Boolean);
+  for (const t of tries) {
+    if (map[normName(t)]) return map[normName(t)];
+    if (map[String(t).toUpperCase()]) return map[String(t).toUpperCase()];
+  }
+  return "";
+}
+
+async function ensureRecords(sport) {
+  const key = String(sport || "").toUpperCase();
+  const path = RECORD_LEAGUES[key];
+  if (!path) return;
+  state.records = state.records || {};
+  state.recordLoading = state.recordLoading || {};
+  if (state.records[key] || state.recordLoading[key]) return;
+  state.recordLoading[key] = true;
+  try {
+    const res = await fetch(`https://site.api.espn.com/apis/v2/sports/${path}/standings`);
+    if (!res.ok) throw new Error(String(res.status));
+    const data = await res.json();
+    const map = {};
+    const put = (name, rec) => {
+      if (!name) return;
+      map[normName(name)] = rec;
+      map[String(name).toUpperCase()] = rec;
+    };
+    (data.children || []).forEach((conf) => {
+      (conf.standings?.entries || []).forEach((ent) => {
+        const team = ent.team || {};
+        const stats = Object.fromEntries((ent.stats || []).map((s) => [s.name, s]));
+        const w = stats.wins?.displayValue;
+        const l = stats.losses?.displayValue;
+        const t = stats.ties?.displayValue;
+        if (w == null || l == null) return;
+        const rec = t && t !== "0" ? `${w}-${l}-${t}` : `${w}-${l}`;
+        put(team.abbreviation, rec);
+        put(team.displayName, rec);
+        put(team.shortDisplayName, rec);
+        put(team.name, rec);
+        put(team.location, rec);
+        const nbaAb = NBA_ABBR[team.displayName];
+        if (nbaAb) put(nbaAb, rec);
+      });
+    });
+    state.records[key] = map;
+  } catch (_) {
+    state.records[key] = {};
+  }
+  state.recordLoading[key] = false;
+  if (state.section === "preview") renderPreview();
 }
 
 function renderPreview() {
@@ -3862,6 +3959,12 @@ function renderPreview() {
   const loc = STADIUMS[homeAbbr] || wxRow.venue_name || `${sample.home_team || "Home"} stadium`;
   const wx = [wxRow.venue_type, wxRow.weather, wxRow.temp != null ? `${wxRow.temp}°` : ""].filter(Boolean).join(" · ");
   const sportKey = String(sample.sport || "").toLowerCase();
+  ensureRecords(sample.sport);
+  const recAway = teamRecord(sample.sport, sample.away_team);
+  const recHome = teamRecord(sample.sport, sample.home_team);
+  const recordLine = (recAway || recHome)
+    ? `<div class="script">${escapeHtml(abbr(sample.away_team, sample) || sample.away_team)} ${escapeHtml(recAway || "—")} · ${escapeHtml(abbr(sample.home_team, sample) || sample.home_team)} ${escapeHtml(recHome || "—")}</div>`
+    : "";
   const lineBits = [
     sample.spread != null ? `<div class="preview-chip"><b>Spread</b>${escapeHtml(scriptLine(sample).split(" · ")[0] || String(sample.spread))}</div>` : "",
     sample.total != null ? `<div class="preview-chip"><b>Total</b>O/U ${Number(sample.total)}</div>` : "",
@@ -3874,6 +3977,7 @@ function renderPreview() {
       <div class="sport-tag">${escapeHtml(sample.sport || "")}</div>
       <h2>${escapeHtml(matchup(sample) || state.previewGame)}</h2>
       <div class="game">${escapeHtml(fmtWhen(sample.commence_time))}${sample.broadcasts ? ` · ${escapeHtml(sample.broadcasts)}` : ""}</div>
+      ${recordLine}
       <div class="script">${venueIcon(wxRow)} ${escapeHtml(loc)}${wx ? ` · ${weatherIcon(wxRow)} ${escapeHtml(wx)}` : ""}</div>
       <div class="preview-lines">${lineBits || `<span class="muted">No consensus game line yet</span>`}</div>
     </div>
@@ -3925,7 +4029,9 @@ function showSectionWraps() {
   const books = document.querySelector(".books-bar");
   const filt = document.querySelector(".filters");
   const arbWrap = $("arbStakeWrap");
+  const arbDeskEl = $("arbDesk");
   if (arbWrap) arbWrap.hidden = state.view !== "arb" || state.section !== "props";
+  if (arbDeskEl) arbDeskEl.hidden = state.view !== "arb" || state.section !== "props";
   if (propsWrap) propsWrap.style.display = state.section === "props" && state.layout !== "cards" ? "block" : "none";
   const cards = $("cardGrid");
   if (cards) {
@@ -3993,7 +4099,60 @@ function bestBookEdge(row) {
   return best && best.edge > 1 ? best : null;
 }
 
+const ARB_DESKS = {
+  traditional: ["draftkings", "fanduel", "betmgm", "williamhill_us", "betrivers", "espnbet", "bovada", "hardrockbet", "pinnacle", "betonlineag", "fanatics", "fliff", "betparx", "ballybet", "pointsbet", "mybookieag", "lowvig", "betus", "ladbrokes", "rebet", "sportsbet"],
+  exchange: ["novig", "prophetx", "kalshi", "polymarket"],
+  dfs: ["prizepicks", "underdog", "pick6", "dabble", "betr"],
+};
+
+function arbDesk() {
+  if (state.arbDesk === "cross") return "cross";
+  return ARB_DESKS[state.arbDesk] ? state.arbDesk : "traditional";
+}
+
+function arbQuote(row, book, line) {
+  if (!row) return null;
+  if (book === "prizepicks") {
+    const pp = row.dfs?.prizepicks;
+    if (!pp || pp.line == null) return null;
+    if (line != null && Math.abs(Number(pp.line) - Number(line)) > 0.26) return null;
+    return -117;
+  }
+  if (book === "underdog" || book === "pick6" || book === "dabble" || book === "betr") {
+    const src = row.dfs?.[book];
+    const px = Number(src?.price);
+    if (!src || !Number.isFinite(px) || Math.abs(px) < 100) return null;
+    if (src.line != null && line != null && Math.abs(Number(src.line) - Number(line)) > 0.26) return null;
+    return px;
+  }
+  if (book === "kalshi") {
+    const k = typeof kalshiOffer === "function" ? kalshiOffer(row) : null;
+    const px = Number(k?.price);
+    if (!Number.isFinite(px)) return null;
+    if (k.line != null && line != null && Math.abs(Number(k.line) - Number(line)) > 0.51) return null;
+    return px;
+  }
+  const b = mergeBooks(row.books || {})[book];
+  const px = Number(b?.price);
+  if (!Number.isFinite(px)) return null;
+  if (b.line != null && b.line !== "" && line != null && Math.abs(Number(b.line) - Number(line)) > 0.26) return null;
+  return px;
+}
+
+function bestArbQuote(row, books, line, cap) {
+  let best = null;
+  (books || []).forEach((k) => {
+    const px = arbQuote(row, k, line);
+    if (px == null || Math.abs(px) >= cap || Math.abs(px) < 100) return;
+    const ip = bookImplied(px);
+    if (ip == null) return;
+    if (!best || ip < best.ip) best = { book: k, price: px, ip };
+  });
+  return best;
+}
+
 function arbPairs(rows) {
+  const desk = arbDesk();
   const groups = new Map();
   rows.forEach((r) => {
     if (!r.player || r.line == null) return;
@@ -4004,25 +4163,35 @@ function arbPairs(rows) {
     else if (String(r.side).toLowerCase() === "under") g.under = r;
   });
   const out = [];
-  const TRAD = ["draftkings", "fanduel", "betmgm", "williamhill_us", "betrivers", "espnbet", "bovada", "hardrockbet", "pinnacle", "novig", "prophetx"];
+  const cap = desk === "traditional" ? 400 : 800;
   groups.forEach((g) => {
     if (!g.over || !g.under) return;
-    let bestOver = null, bestUnder = null;
-    TRAD.forEach((k) => {
-      const o = g.over.books?.[k];
-      const u = g.under.books?.[k];
-      if (o?.price != null && Math.abs(Number(o.price)) < 400 && Math.abs(Number(o.price)) >= 100) {
-        const ip = bookImplied(o.price);
-        if (ip != null && (!bestOver || ip < bestOver.ip)) bestOver = { book: k, price: o.price, ip };
-      }
-      if (u?.price != null && Math.abs(Number(u.price)) < 400 && Math.abs(Number(u.price)) >= 100) {
-        const ip = bookImplied(u.price);
-        if (ip != null && (!bestUnder || ip < bestUnder.ip)) bestUnder = { book: k, price: u.price, ip };
-      }
-    });
+    const line = Number(g.sample.line);
+    let bestOver = null;
+    let bestUnder = null;
+    if (desk === "cross") {
+      const legs = [
+        [bestArbQuote(g.over, ARB_DESKS.dfs, line, cap), bestArbQuote(g.under, ARB_DESKS.traditional, line, cap)],
+        [bestArbQuote(g.over, ARB_DESKS.traditional, line, cap), bestArbQuote(g.under, ARB_DESKS.dfs, line, cap)],
+      ];
+      let bestSum = 999;
+      legs.forEach(([over, under]) => {
+        if (!over || !under || over.book === under.book) return;
+        const sum = over.ip + under.ip;
+        if (sum < bestSum) {
+          bestSum = sum;
+          bestOver = over;
+          bestUnder = under;
+        }
+      });
+    } else {
+      const books = ARB_DESKS[desk] || ARB_DESKS.traditional;
+      bestOver = bestArbQuote(g.over, books, line, cap);
+      bestUnder = bestArbQuote(g.under, books, line, cap);
+    }
     if (!bestOver || !bestUnder || bestOver.book === bestUnder.book) return;
     const sum = bestOver.ip + bestUnder.ip;
-    if (sum >= 99.5 || sum < 96) return;
+    if (sum >= 99.5 || sum < 90) return;
     const arb = +(100 - sum).toFixed(2);
     const overStake = +(bestOver.ip / sum * 100).toFixed(1);
     const underStake = +(bestUnder.ip / sum * 100).toFixed(1);
@@ -4072,6 +4241,10 @@ function pickFromRow(row, offer) {
     game: matchup(row),
     when: row.commence_time || "",
     headshot: row.headshot || "",
+    event_id: row.event_id || "",
+    market: row.market || "",
+    pp_id: typeof ppId === "function" ? ppId(row) : "",
+    pct_to_hit: row.pct_to_hit,
   };
 }
 
@@ -4093,6 +4266,18 @@ function updateBetsTab() {
   if (tab) tab.textContent = state.picks.length ? `My Bets (${state.picks.length})` : "My Bets";
 }
 
+function rowForPick(pick) {
+  if (!pick?.player) return null;
+  const line = Number(pick.line);
+  return boardProps().find((r) => {
+    if (normName(r.player) !== normName(pick.player)) return false;
+    if (!samePropStat(r.stat, pick.stat)) return false;
+    if (String(r.side || "").toLowerCase() !== String(pick.side || "").toLowerCase()) return false;
+    const candidates = [r.line, r.dfs?.prizepicks?.line].map(Number);
+    return candidates.some((n) => Number.isFinite(n) && Number.isFinite(line) && Math.abs(n - line) < 0.26);
+  }) || null;
+}
+
 function togglePick(pick) {
   if (!pick?.player) return;
   const id = pickId(pick);
@@ -4100,7 +4285,18 @@ function togglePick(pick) {
   state.picks = had ? state.picks.filter((p) => p.id !== id) : state.picks.concat([{ ...pick, id }]);
   savePicks();
   updateBetsTab();
-  toast(had ? "Removed from My Bets" : "Added to My Bets");
+  let extra = "";
+  if (!had && pick.bookKey === "prizepicks") {
+    const src = rowForPick(pick) || {
+      player: pick.player, stat: pick.stat, side: pick.side, line: pick.line,
+      sport: pick.sport, game: pick.game, headshot: pick.headshot,
+      event_id: pick.event_id, market: pick.market, pct_to_hit: pick.pct_to_hit,
+      dfs: { prizepicks: { line: pick.line, price: -117, id: pick.pp_id || "" } },
+      pp_id: pick.pp_id || "",
+    };
+    if (addToSlip(src, { quiet: true })) extra = " and the PrizePicks slip";
+  }
+  toast(had ? "Removed from My Bets" : `Added to My Bets${extra}`);
   if (state.section === "bets") {
     renderBets();
     return;
@@ -4133,13 +4329,26 @@ function renderBets() {
   updateBetsTab();
   const grid = $("betsGrid");
   const empty = $("betsEmpty");
-  const rows = state.picks || [];
-  if (empty) empty.style.display = rows.length ? "none" : "block";
+  const picks = state.picks || [];
+  const filter = $("betsBook");
+  if (filter) {
+    const keys = [];
+    picks.forEach((p) => { if (p.bookKey && !keys.includes(p.bookKey)) keys.push(p.bookKey); });
+    const current = state.betsBook || "all";
+    filter.innerHTML = `<option value="all">All books</option>` + keys.map((k) => {
+      const name = BOOK_BY_KEY[k]?.name || k;
+      return `<option value="${escapeHtml(k)}">${escapeHtml(name)}</option>`;
+    }).join("");
+    if (current !== "all" && !keys.includes(current)) state.betsBook = "all";
+    filter.value = state.betsBook || "all";
+  }
+  const rows = picks.map((p, i) => ({ p, i })).filter(({ p }) => state.betsBook === "all" || !state.betsBook || p.bookKey === state.betsBook);
+  if (empty) empty.style.display = picks.length ? "none" : "block";
   if (!grid) return;
-  grid.innerHTML = rows.map((p, i) => {
+  grid.innerHTML = rows.map(({ p, i }) => {
     const sideClass = p.side === "Over" || p.side === "Yes" ? "over" : "under";
     const meta = BOOK_BY_KEY[p.bookKey];
-    return `<article class="bet-card">
+    return `<article class="bet-card" data-player="${escapeHtml(p.player)}" data-eid="${escapeHtml(p.event_id || "")}" data-market="${escapeHtml(p.market || "")}" data-side="${escapeHtml(p.side || "")}">
       <div class="who">${headshotTag(p.headshot)}<span>${escapeHtml(p.player)}</span></div>
       <div class="play"><span class="tag ${sideClass}">${escapeHtml(p.side || "")}</span><span class="num">${p.line ?? ""}</span></div>
       <div class="stat">${escapeHtml(p.stat || "")}</div>
@@ -4148,7 +4357,10 @@ function renderBets() {
       <button type="button" class="book-pick drop" data-bet-i="${i}">Remove</button>
     </article>`;
   }).join("");
-  $("count").textContent = `${rows.length} saved bet${rows.length === 1 ? "" : "s"}`;
+  if (!rows.length && picks.length) grid.innerHTML = `<div class="muted">No saved bets for that book.</div>`;
+  const shown = rows.length;
+  const note = state.betsBook && state.betsBook !== "all" ? ` · ${BOOK_BY_KEY[state.betsBook]?.name || state.betsBook}` : "";
+  $("count").textContent = `${shown} saved bet${shown === 1 ? "" : "s"}${note}`;
 }
 
 function dfsPostedLine(row, book) {
@@ -4368,9 +4580,13 @@ function render(full) {
     if (wrap) wrap.hidden = false;
     const pairs = arbPairs(all);
     const stake = Number($("arbStake")?.value || 10);
-    $("count").textContent = `${pairs.length} arbs`;
+    const deskName = { dfs: "DFS", exchange: "Exchange", cross: "DFS vs books", traditional: "Traditional" }[arbDesk()] || "Traditional";
+    document.querySelectorAll("#arbDesk [data-arb]").forEach((b) => b.classList.toggle("on", b.dataset.arb === arbDesk()));
+    $("count").textContent = `${pairs.length} ${deskName} arbs`;
     $("empty").style.display = pairs.length ? "none" : "block";
-    $("empty").textContent = "No arbitrage pairs right now.";
+    $("empty").textContent = arbDesk() === "cross"
+      ? "No DFS vs sportsbook arb at the same number. One side has to be PrizePicks, Underdog, Pick6, Dabble, or Betr, and the other a traditional book."
+      : `No ${deskName} arbitrage pairs right now. Over and under have to be different books at the same line.`;
     $("headrow").innerHTML = `<th>Player</th><th>Stat</th><th>Line</th><th>Over</th><th>Under</th><th>Arb</th><th>$ on Over</th><th>$ on Under</th><th>Profit</th>`;
     $("tbody").innerHTML = pairs.slice(0, 100).map((p) => {
       const om = BOOK_BY_KEY[p.over.book];
@@ -4518,25 +4734,38 @@ function playerCards(rows) {
   }).sort((a, b) => (b.best ?? -99) - (a.best ?? -99));
   return cards.slice(0, 80).map(({ list }) => {
     const top = list[0];
-    const lines = list.slice(0, 8).map((r) => {
+    const topEdge = rowEdge(top);
+    const tone = topEdge == null ? "" : topEdge >= 0 ? "up" : "down";
+    const hero = `<button type="button" class="pcard-hero" data-player="${escapeHtml(top.player)}" data-eid="${escapeHtml(top.event_id || "")}" data-market="${escapeHtml(top.market || "")}" data-side="${escapeHtml(top.side)}">
+        <div class="pcard-play">${sideTag(top.side)}<div><div class="pcard-num">${displayLine(top) ?? "—"}</div><div class="pcard-stat">${escapeHtml(top.stat || "")}</div></div></div>
+        <div class="pcard-score">
+          <b class="${edgeClass(topEdge)}">${topEdge == null ? "—" : (topEdge > 0 ? "+" : "") + topEdge.toFixed(1)}</b>
+          <span>${hitPct(top) != null ? hitPct(top).toFixed(1) + "% to hit" : ""}</span>
+        </div>
+      </button>
+      <div class="pcard-actions">
+        ${top.dfs?.prizepicks ? `<button type="button" class="slip-add" data-eid="${escapeHtml(top.event_id || "")}" data-player="${escapeHtml(top.player)}" data-stat="${escapeHtml(top.stat)}" data-line="${top.line ?? ""}" data-side="${escapeHtml(top.side)}">+ slip</button>` : ""}
+        ${likeButton(pickFromRow(top, viewOffer(top)), "cell")}
+      </div>`;
+    const lines = list.slice(1, 6).map((r) => {
       const edge = rowEdge(r);
-      const offer = viewOffer(r);
-      const meta = BOOK_BY_KEY[offer.bookKey];
       return `<div class="pline" data-player="${escapeHtml(r.player)}" data-eid="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || "")}" data-side="${escapeHtml(r.side)}">
         <div class="pline-main">${sideTag(r.side)} <span class="pline-stat">${escapeHtml(r.stat || "")}</span> <span class="line-num">${displayLine(r) ?? "—"}</span></div>
-        <div class="pline-edge ${edge == null ? "muted" : edge >= 0 ? "pct good" : "pct bad"}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}<small>${hitPct(r) != null ? hitPct(r).toFixed(1) + "%" : ""}</small></div>
-        <div class="pline-meta">${meta ? bookMark(meta, "sm") : ""} ${escapeHtml(meta?.name || offer.bookKey || "")}${r.dfs?.prizepicks ? `<button type="button" class="slip-add" data-eid="${escapeHtml(r.event_id || "")}" data-player="${escapeHtml(r.player)}" data-stat="${escapeHtml(r.stat)}" data-line="${r.line ?? ""}" data-side="${escapeHtml(r.side)}">+ slip</button>` : ""} ${likeButton(pickFromRow(r, offer), "cell")}</div>
+        <div class="pline-edge ${edgeClass(edge)}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}<small>${hitPct(r) != null ? hitPct(r).toFixed(1) + "%" : ""}</small></div>
       </div>`;
     }).join("");
-    return `<article class="pcard">
+    const more = list.length > 6 ? `<div class="pcard-more">${list.length - 6} more line${list.length - 6 === 1 ? "" : "s"}</div>` : "";
+    return `<article class="pcard ${tone}">
       <div class="pcard-top">
         ${headshotTag(top.headshot)}
-        <div>
-          <div class="pcard-name"><button type="button" class="player-btn" data-player="${escapeHtml(top.player)}" data-eid="${escapeHtml(top.event_id || "")}" data-market="${escapeHtml(top.market || "")}" data-side="${escapeHtml(top.side)}">${escapeHtml(top.player)}</button>${posTag(top)}</div>
-          <div class="pcard-sub">${escapeHtml(matchup(top))} · ${escapeHtml(fmtWhen(top.commence_time))}</div>
+        <div class="pcard-id">
+          <div class="pcard-name"><button type="button" class="player-btn" data-player="${escapeHtml(top.player)}" data-eid="${escapeHtml(top.event_id || "")}" data-market="${escapeHtml(top.market || "")}" data-side="${escapeHtml(top.side)}">${escapeHtml(top.player)}</button>${posTag(top)}${flagIcons(top)}</div>
+          <div class="pcard-sub"><span class="sport-tag ${escapeHtml(String(top.sport || "").toLowerCase())}">${escapeHtml(top.sport || "")}</span>${escapeHtml(matchup(top))} · ${escapeHtml(fmtWhen(top.commence_time))}</div>
         </div>
       </div>
-      <div class="pcard-lines">${lines}</div>
+      ${hero}
+      ${lines ? `<div class="pcard-lines">${lines}</div>` : ""}
+      ${more}
     </article>`;
   }).join("");
 }
@@ -4552,7 +4781,7 @@ document.querySelectorAll(".layout-btn").forEach((btn) => {
 });
 $("cardGrid")?.addEventListener("click", (e) => {
   if (e.target.closest(".slip-add") || e.target.closest(".like-btn")) return;
-  const line = e.target.closest(".pline, .player-btn");
+  const line = e.target.closest(".pline, .player-btn, .pcard-hero");
   if (!line?.dataset.player) return;
   openPlayerPopup(line.dataset.player, line.dataset.eid || "", line.dataset.market || "", line.dataset.side || "");
 });
@@ -4801,6 +5030,7 @@ function logFamily(stat) {
 }
 
 function contextLog(recs, focus) {
+  recs = orderedLogs(recs);
   if (!recs.length) return `<div class="muted">No ${currentSeason()} game log yet.</div>`;
   const pos = String(focus?.position || focus?.nfl_pos || intelPlayer(focus?.player)?.pos || "").toUpperCase();
   const fam = logFamily(focus?.stat);
@@ -4808,8 +5038,8 @@ function contextLog(recs, focus) {
   const rushOn = true;
   const recOn = fam === "rec" || fam === "mix" || ["WR", "TE", "RB", "FB", "HB"].includes(pos);
   const catchPct = (g) => (g.tgt ? Math.round((Number(g.rec || 0) / g.tgt) * 100) : null);
-  const groups = [`<th class="grp" colspan="3">Fantasy / game</th>`];
-  const sub = ["<th>Week</th><th>Fpts</th><th>Matchup</th>"];
+  const groups = [`<th class="grp" colspan="4">Fantasy / game</th>`];
+  const sub = ["<th>Week</th><th>Prop</th><th>Fpts</th><th>Matchup</th>"];
   if (passOn) { groups.push(`<th class="grp" colspan="5">Passing</th>`); sub.push("<th>Cmp</th><th>Att</th><th>Yds</th><th>TD</th><th>INT</th>"); }
   if (recOn) { groups.push(`<th class="grp" colspan="7">Receiving</th>`); sub.push("<th>Rec</th><th>Tar</th><th>Yds</th><th>TD</th><th>Tgt%</th><th>Catch%</th><th>Rte%</th>"); }
   if (rushOn) { groups.push(`<th class="grp" colspan="4">Rushing</th>`); sub.push("<th>Att</th><th>Yds</th><th>Avg</th><th>TD</th>"); }
@@ -4818,8 +5048,10 @@ function contextLog(recs, focus) {
   const row = (g) => {
     const match = `${g.home === false ? "@" : "vs"} ${g.opp || ""}`;
     const avg = g.car ? (Number(g.rush_yds || 0) / g.car).toFixed(1) : "—";
+    const prop = logValue(g, focus?.stat);
     const bits = [
       `<td>${String(g.season || "").slice(2)} W${g.week}</td>`,
+      `<td class="${propMark(prop, focus)}">${prop == null ? "—" : prop}</td>`,
       `<td>${g.ppr ?? g.fant ?? "—"}</td>`,
       `<td class="match">${escapeHtml(match)}</td>`,
     ];
@@ -5040,36 +5272,56 @@ function shortLogDate(s) {
 
 function shotPair(made, att) {
   if (made == null && att == null) return "—";
-  return `${made ?? "—"}-${att ?? "—"}`;
+  const m = made == null ? "—" : made;
+  const a = att == null ? "—" : att;
+  return `<span title="${m} made, ${a} attempted">${m}/${a}</span>`;
 }
 
-function nbaLogBlock(name) {
-  const recs = nbaLogs(name);
+function propMark(v, focus) {
+  const ln = Number(focus?.line);
+  if (v == null || !Number.isFinite(ln)) return "";
+  if (Number(v) === ln) return "pct";
+  const over = String(focus?.side || "Over").toLowerCase() !== "under";
+  const hit = over ? Number(v) > ln : Number(v) < ln;
+  return hit ? "pct good" : "pct bad";
+}
+
+function nbaLogBlock(name, focus) {
+  const recs = orderedLogs(nbaLogs(name)).reverse();
   if (!recs.length) {
     if (state.nbaLogLoading) return `<div class="muted">Loading the 2026-27 game log…</div>`;
     return `<div class="muted">No 2026-27 games in the log yet.</div>`;
   }
-  const row = (g) => `<tr>
+  const stat = focus?.stat || "";
+  const row = (g) => {
+    const prop = stat ? nbaStatValue(g, stat) : null;
+    return `<tr>
     <td>${escapeHtml(shortLogDate(g.date))}</td>
     <td class="match">${g.home === false ? "@" : "vs"} ${escapeHtml(g.opp || "")}</td>
     <td>${escapeHtml(g.minRaw || (g.min ?? "—"))}</td>
+    <td class="${propMark(prop, focus)}">${prop == null ? "—" : prop}</td>
     <td>${g.pts ?? "—"}</td>
     <td>${g.reb ?? "—"}</td>
     <td>${g.ast ?? "—"}</td>
     <td>${g.pf ?? "—"}</td>
+    <td>${g.fgm ?? "—"}</td>
+    <td>${g.fga ?? "—"}</td>
     <td>${shotPair(g.fg2m, g.fg2a)}</td>
-    <td>${shotPair(g.fg3, g.fg3a)}</td>
-    <td>${shotPair(g.ftm, g.fta)}</td>
+    <td>${g.fg3 ?? "—"}</td>
+    <td>${g.fg3a ?? "—"}</td>
+    <td>${g.ftm ?? "—"}</td>
+    <td>${g.fta ?? "—"}</td>
     <td>${g.stl ?? "—"}</td>
     <td>${g.blk ?? "—"}</td>
     <td>${g.to ?? "—"}</td>
   </tr>`;
+  };
   return `<div class="dfs-wrap">
     <div class="popup-h">2026-27 game log</div>
-    <div class="corr-why">${recs.length} game${recs.length === 1 ? "" : "s"} this season. 2PM-2PA, 3PM-3PA, and FTM-FTA are made-attempted. Last season is not loaded.</div>
+    <div class="corr-why">${recs.length} game${recs.length === 1 ? "" : "s"} this season, newest on top. Prop is ${escapeHtml(stat || "this bet")} and matches the chart. FGA, 3PA, and FTA are attempts. 2P is twos made/attempted (FGA minus 3PA).</div>
     <div class="log-scroll"><table class="popup-table popup-logs dfs-log">
       <thead><tr>
-        <th>Date</th><th>Opp</th><th>Min</th><th>Pts</th><th>Reb</th><th>Ast</th><th>PF</th><th>2PM-2PA</th><th>3PM-3PA</th><th>FTM-FTA</th><th>Stl</th><th>Blk</th><th>TO</th>
+        <th>Date</th><th>Opp</th><th>Min</th><th>Prop</th><th>Pts</th><th>Reb</th><th>Ast</th><th>PF</th><th>FGM</th><th>FGA</th><th>2P</th><th>3PM</th><th>3PA</th><th>FTM</th><th>FTA</th><th>Stl</th><th>Blk</th><th>TO</th>
       </tr></thead>
       <tbody>${recs.map(row).join("")}</tbody>
     </table></div>
@@ -5216,7 +5468,7 @@ function openPlayerPopup(player, eventId, market, side) {
   if (liveInj && !focus.injury) focus.injury = liveInj;
   const kProps = kalshiPropsForPlayer(player);
   const logBlock = sportOf(focus) === "NBA"
-    ? nbaLogBlock(player)
+    ? nbaLogBlock(player, focus)
     : (recs.length ? contextLog(recs, focus) : `<div class="muted">No game log yet.</div>`);
   const newsBlock = relatedNews.length ? `<h4 class="popup-h">News</h4>
     ${relatedNews.slice(0, 6).map((n) => `<div class="popup-stat" style="margin-bottom:8px"><b>${escapeHtml(n.source || "")} · ${escapeHtml(n.published || "")}</b>
@@ -5224,43 +5476,53 @@ function openPlayerPopup(player, eventId, market, side) {
   const injBlock = liveInj ? `<div class="popup-stat" style="margin-bottom:12px"><b>Injury</b>${injPill(liveInj)} ${escapeHtml(liveInj.injury || "")}${liveInj.week ? ` · ${liveInj.season || ""}w${liveInj.week}` : ""}</div>` : "";
   const newsNote = relatedNews.length ? `<div class="popup-stat" style="margin-bottom:12px"><b>Injury / news</b>${relatedNews.slice(0, 3).map((n) => `<div><a href="${escapeHtml(n.url || "#")}" target="_blank" rel="noopener">${escapeHtml(n.headline || "")}</a><div class="corr-why">${escapeHtml(n.source || "")} · ${escapeHtml(n.published || "")}</div></div>`).join("")}</div>` : "";
 
+  const propChips = others.slice(0, 8).map((r) => {
+    const e = rowEdge(r);
+    return `<button type="button" class="prop-chip" data-player="${escapeHtml(r.player)}" data-event="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || r.stat || "")}" data-side="${escapeHtml(r.side || "")}">
+      ${sideTag(r.side)}<b>${displayLine(r) ?? "—"}</b><span>${escapeHtml(r.stat || "")}</span><em class="${edgeClass(e)}">${e == null ? "—" : (e > 0 ? "+" : "") + e.toFixed(1)}</em>
+    </button>`;
+  }).join("");
+
   $("popupCard").innerHTML = `
     <div class="popup-top">
-      <div>
-        <div class="popup-name">${headshotTag(focus.headshot)} ${escapeHtml(focus.player)}${posTag(focus)}${liveInj ? injPill(liveInj) : ""}</div>
-        <div class="popup-sub">${escapeHtml(matchup(focus))} · ${escapeHtml(fmtWhen(focus.commence_time))}${scriptLine(focus) ? ` · ${escapeHtml(scriptLine(focus))}` : ""}</div>
-        <div class="popup-bet">
-          <div class="bet-kicker">This bet${(() => { const o = viewOffer(focus); const meta = BOOK_BY_KEY[o.bookKey]; return meta ? ` · ${meta.name}` : ""; })()}</div>
-          <div class="bet-hero">
-            <div class="bet-main">
-              ${sideTag(focus.side)}
-              <div>
-                <div class="bet-line">${shownLine ?? "—"}</div>
-                <div class="bet-stat">${escapeHtml(focus.stat || "")}</div>
-              </div>
-            </div>
-            <div class="bet-rail">
-              <div><span>To hit</span><b class="${pctClass(hitPct(focus))}">${hitPct(focus) != null ? hitPct(focus).toFixed(1) + "%" : "—"}</b></div>
-              <div><span>Edge</span><b class="${edgeClass(edge)}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</b></div>
-            </div>
-          </div>
-          ${nbaFormNote(focus)}
-          <div class="bet-foot">
-            <div class="bet-sub">${escapeHtml(focus.player || "")}${focus.pp_tier ? ` · ${escapeHtml(focus.pp_tier)}` : ""}${matchup(focus) ? ` · ${escapeHtml(matchup(focus))}` : ""}</div>
-            ${likeButton(pickFromRow(focus, viewOffer(focus)), "hero")}
-            ${(() => {
-              if (!oppSide) return "";
-              const src = oppRow || focus;
-              const offer = viewOffer(src);
-              const line = boardLine(focus.stat, displayLine(src) ?? src.line, displayLine(focus) ?? focus.line);
-              const pick = pickFromRow({ ...focus, side: oppSide, line }, { bookKey: offer.bookKey, line, price: offer.price });
-              return likeButton(pick, "hero", oppSide);
-            })()}
+      <div class="popup-id">
+        <div class="popup-name">${headshotTag(focus.headshot)} <span>${escapeHtml(focus.player)}</span>${posTag(focus)}${liveInj ? injPill(liveInj) : ""}</div>
+        <div class="popup-sub"><span class="sport-tag ${escapeHtml(String(focus.sport || "").toLowerCase())}">${escapeHtml(focus.sport || "")}</span>${escapeHtml(matchup(focus))} · ${escapeHtml(fmtWhen(focus.commence_time))}${scriptLine(focus) ? ` · ${escapeHtml(scriptLine(focus))}` : ""}</div>
+      </div>
+      <button type="button" class="popup-x" id="popupClose" aria-label="Close">✕</button>
+    </div>
+    <div class="popup-bet ${edge != null && edge >= 0 ? "up" : edge != null ? "down" : ""}">
+      <div class="bet-kicker">This bet${(() => { const o = viewOffer(focus); const meta = BOOK_BY_KEY[o.bookKey]; return meta ? ` · ${meta.name}` : ""; })()}</div>
+      <div class="bet-hero">
+        <div class="bet-main">
+          ${sideTag(focus.side)}
+          <div>
+            <div class="bet-line">${shownLine ?? "—"}</div>
+            <div class="bet-stat">${escapeHtml(focus.stat || "")}</div>
           </div>
         </div>
+        <div class="bet-rail">
+          <div><span>To hit</span><b class="${pctClass(hitPct(focus))}">${hitPct(focus) != null ? hitPct(focus).toFixed(1) + "%" : "—"}</b></div>
+          <div><span>Edge</span><b class="${edgeClass(edge)}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</b></div>
+        </div>
       </div>
-      <button type="button" class="popup-x" id="popupClose">✕</button>
+      ${nbaFormNote(focus)}
+      <div class="bet-foot">
+        <div class="bet-sub">${focus.pp_tier ? escapeHtml(focus.pp_tier) : "Open line"}${matchup(focus) ? ` · ${escapeHtml(matchup(focus))}` : ""}</div>
+        <div class="bet-actions">
+          ${likeButton(pickFromRow(focus, viewOffer(focus)), "hero")}
+          ${(() => {
+            if (!oppSide) return "";
+            const src = oppRow || focus;
+            const offer = viewOffer(src);
+            const line = boardLine(focus.stat, displayLine(src) ?? src.line, displayLine(focus) ?? focus.line);
+            const pick = pickFromRow({ ...focus, side: oppSide, line }, { bookKey: offer.bookKey, line, price: offer.price });
+            return likeButton(pick, "hero", oppSide);
+          })()}
+        </div>
+      </div>
     </div>
+    ${propChips ? `<div class="prop-switch"><span>Also</span>${propChips}</div>` : ""}
     <div class="pop-tabs">
       <button type="button" class="pop-tab on" data-pop-tab="bet">Bet</button>
       <button type="button" class="pop-tab" data-pop-tab="chart">Chart</button>
@@ -5372,6 +5634,11 @@ function openPlayerPopup(player, eventId, market, side) {
 }
 
 document.addEventListener("click", (e) => {
+  const chip = e.target.closest(".prop-chip");
+  if (chip) {
+    openPlayerPopup(chip.dataset.player, chip.dataset.event, chip.dataset.market, chip.dataset.side);
+    return;
+  }
   const line = e.target.closest("tr.popup-line");
   if (line) {
     openPlayerPopup(line.dataset.player, line.dataset.event, line.dataset.market, line.dataset.side);
@@ -5660,12 +5927,23 @@ async function loadData() {
 }
 
 document.addEventListener("click", (e) => {
+  const arbBtn = e.target.closest("#arbDesk [data-arb]");
+  if (arbBtn) {
+    state.arbDesk = arbBtn.dataset.arb || "traditional";
+    render();
+    return;
+  }
   const rm = e.target.closest("[data-bet-i]");
   if (rm && e.target.closest("#betsPanel")) {
     state.picks.splice(Number(rm.dataset.betI), 1);
     savePicks();
     updateBetsTab();
     renderBets();
+    return;
+  }
+  const betCard = e.target.closest("#betsGrid .bet-card");
+  if (betCard && !e.target.closest("[data-bet-i]")) {
+    openPlayerPopup(betCard.dataset.player, betCard.dataset.eid || "", betCard.dataset.market || "", betCard.dataset.side || "");
     return;
   }
   if (e.target.closest("#betsClear")) {
@@ -5675,6 +5953,11 @@ document.addEventListener("click", (e) => {
     renderBets();
     toast("My Bets cleared");
   }
+});
+
+$("betsBook")?.addEventListener("change", () => {
+  state.betsBook = $("betsBook").value || "all";
+  renderBets();
 });
 
 restorePicks();
