@@ -1078,8 +1078,9 @@ function renderSplitChart(focus, recs) {
     let cls = "void";
     if (v == null || ln == null) cls = "void";
     else if (v === ln) cls = "push";
-    else if (v > ln) cls = "hit";
-    else cls = "miss";
+    else if (v > ln) cls = "over";
+    else if (v < ln) cls = "under";
+    else cls = "push";
     return { g, v, cls, lab: logBarLabel(g) };
   });
   const maxV = Math.max(...bars.map((b) => Number(b.v) || 0), ln || 0, 1);
@@ -1105,7 +1106,7 @@ function renderSplitChart(focus, recs) {
     ? `<button type="button" class="chart-more" data-chart-more="${showAll ? "less" : "more"}" title="${showAll ? "Show last 5" : `Show last ${all.length}`}">${showAll ? "‹" : "›"}</button>`
     : "";
   return `<h4 class="popup-h">Recent vs ${escapeHtml(focus.side || "")} ${focus.line ?? ""} ${escapeHtml(focus.stat || "")}</h4>
-    <div class="split-note">Green cleared the line · red missed · gray push. Left bar is the most recent game, same order as the top of the game log. The Prop column there is this same number.</div>
+    <div class="split-note">Green is over the line. Red is under it. Gray is a push. Left bar is the most recent game.</div>
     <div class="chart-row">
     <div class="log-bars" style="--slots:${slots}">
       ${bars.map((b) => {
@@ -4968,18 +4969,33 @@ function betSummary(focus, recs, oppRow) {
   const edge = rowEdge(focus);
   const splits = splitStats(recs, focus.stat, focus.line, focus.side);
   const good = edge != null && edge >= 0;
+  const thin = edge != null && edge >= 0 && edge < 1.5;
+  const l5 = splits?.L5;
+  const formHit = l5?.n >= 4 ? l5.hit : null;
+  const formFights = formHit != null && ((good && formHit < 40) || (!good && edge != null && formHit >= 60));
   const fade = !good ? bestOppositePrice(oppRow) : null;
   const fadeMeta = fade ? BOOK_BY_KEY[fade.book] : null;
   const vs = lastVsOppNote(recs, focus);
+  const kicker = edge == null ? "No edge yet" : formFights ? "Recent games disagree" : !good ? "Skip this" : thin ? "Thin edge" : "Play";
   const rows = [];
-  rows.push(`<div class="sum-kicker">${good ? "Play" : edge == null ? "No edge yet" : "Pass / fade"}</div>`);
+  rows.push(`<div class="sum-kicker${formFights ? " warn" : ""}">${kicker}</div>`);
   rows.push(`<p><b>The bet:</b> ${escapeHtml(focus.player)} ${escapeHtml(focus.side || "")} ${displayLine(focus) ?? ""} ${escapeHtml(focus.stat)} · ${escapeHtml(matchup(focus) || "this game")}.</p>`);
   const cash = hitPct(focus);
   if (cash != null) {
-    rows.push(`<p><b>Why it screens ${good ? "good" : "soft"}:</b> ${cash.toFixed(1)}% to hit vs ${be}% needed on a ${pickSize()}-pick${edge == null ? "" : ` (${edge > 0 ? "+" : ""}${edge} edge)`}.</p>`);
+    const edgeTxt = edge == null ? "" : ` (${edge > 0 ? "+" : ""}${edge} edge)`;
+    const screen = formFights
+      ? `The sheet has this at ${cash.toFixed(1)}%. His last ${l5.n} only hit ${formHit}% of the time.`
+      : thin
+        ? `${cash.toFixed(1)}% to hit. That is only ${edge > 0 ? "+" : ""}${edge} above a coin flip.`
+        : `${cash.toFixed(1)}% to hit vs ${be}% needed on a ${pickSize()}-pick${edgeTxt}.`;
+    rows.push(`<p><b>${formFights ? "The number" : thin ? "The number" : `Why it looks ${good ? "good" : "soft"}`}:</b> ${screen}</p>`);
   }
-  if (splits?.L5?.n) {
-    rows.push(`<p><b>Recent form:</b> ${splits.L5.hits} of his last ${splits.L5.n} graded games cashed this ${escapeHtml(String(focus.side || "side").toLowerCase())} (${splits.L5.hit ?? "—"}% hit rate${splits.L5.pushes ? `, ${splits.L5.pushes} push` : ""}). L5 average: ${splits.L5.avg}.</p>`);
+  if (l5?.n) {
+    const avg = Number(l5.avg);
+    const line = Number(displayLine(focus) ?? focus.line);
+    const side = String(focus.side || "").toLowerCase();
+    const otherSide = Number.isFinite(avg) && Number.isFinite(line) && ((side === "under" && avg > line) || (side === "over" && avg < line));
+    rows.push(`<p><b>Last 5 games:</b> He hit this ${escapeHtml(side || "side")} ${l5.hits} of ${l5.n} times. Average was ${l5.avg}${otherSide ? `, above the line` : ""}.</p>`);
   }
   if (splits?.L10?.n >= 8 && splits.L10.hit != null) {
     rows.push(`<p><b>Longer sample:</b> ${splits.L10.hit}% hit rate over his last ${splits.L10.n} games.</p>`);
@@ -4992,6 +5008,13 @@ function betSummary(focus, recs, oppRow) {
     rows.push(`<p><b>If you fade it:</b> ${escapeHtml(oppRow.side)} ${fade.line ?? oppRow.line ?? ""} at ${escapeHtml(fadeMeta?.name || fade.book)} ${american(fade.price)}.</p>`);
   } else if (!good && oppRow) {
     rows.push(`<p><b>If you fade it:</b> ${escapeHtml(oppRow.side)} ${oppRow.line ?? ""}.</p>`);
+  }
+  if (formFights) {
+    rows.push(`<div class="what-box"><b>WHAT TO DO</b><div class="what-main">Skip the ${escapeHtml(String(focus.side || "side").toLowerCase())}.</div><div class="what-sub">Recent games have gone the other way.</div></div>`);
+  } else if (thin && good) {
+    rows.push(`<div class="what-box"><b>WHAT TO DO</b><div class="what-main">Thin edge.</div><div class="what-sub">The number is close to a coin flip.</div></div>`);
+  } else if (good) {
+    rows.push(`<div class="what-box"><b>WHAT TO DO</b><div class="what-main">Play it.</div><div class="what-sub">The number and the recent games agree.</div></div>`);
   }
   return rows.join("");
 }
@@ -5504,6 +5527,7 @@ function openPlayerPopup(player, eventId, market, side) {
         <div class="bet-rail">
           <div><span>To hit</span><b class="${pctClass(hitPct(focus))}">${hitPct(focus) != null ? hitPct(focus).toFixed(1) + "%" : "—"}</b></div>
           <div><span>Edge</span><b class="${edgeClass(edge)}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</b></div>
+          <div class="l5-tile"><span>Last 5</span><b>${(() => { const s = splitStats(chartRecs, focus.stat, focus.line, focus.side); return s?.L5?.n ? `${s.L5.hits} of ${s.L5.n}` : "—"; })()}</b><em>${(() => { const s = splitStats(chartRecs, focus.stat, focus.line, focus.side); return s?.L5?.avg != null ? `avg ${s.L5.avg}` : ""; })()}</em></div>
         </div>
       </div>
       ${nbaFormNote(focus)}
@@ -5535,8 +5559,11 @@ function openPlayerPopup(player, eventId, market, side) {
     <div class="pop-pane" data-pop-pane="bet">
     ${pushNote}
     ${injBlock}
+    <div class="bet-desk">
+      <div class="popup-stat sum-card">${betSummary(focus, chartRecs, oppRow)}</div>
+      <div class="bet-recent">${renderSplitChart(focus, chartRecs) || `<div class="muted">${sportOf(focus) === "NBA" ? (state.nbaLogLoading ? "Loading the 2026-27 game log…" : "No 2026-27 games for this stat yet.") : "No recent games for this stat yet."}</div>`}</div>
+    </div>
     ${newsNote}
-    <div class="popup-stat sum-card" style="margin-bottom:12px"><b>Bet write-up</b>${betSummary(focus, chartRecs, oppRow)}</div>
     </div>
     <div class="pop-pane" data-pop-pane="chart" hidden>
     ${renderSplitChart(focus, chartRecs) || `<div class="muted">${sportOf(focus) === "NBA" ? (state.nbaLogLoading ? "Loading the 2026-27 game log…" : "No 2026-27 games for this stat yet.") : "No chart for this stat yet."}</div>`}
