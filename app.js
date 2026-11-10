@@ -1009,7 +1009,7 @@ function splitStats(games, stat, line, side) {
   const home = pack("Home", vals.filter((x) => x.g.home === true));
   const away = pack("Away", vals.filter((x) => x.g.home === false));
   return {
-    L4: last(4), L5: last(5), L8: last(8), L12: last(12), L16: last(16), L20: last(20),
+    L4: last(4), L5: last(5), L8: last(8), L10: last(10), L12: last(12), L16: last(16), L20: last(20),
     home, away, all: pack("Avg", vals),
   };
 }
@@ -1084,9 +1084,10 @@ function renderSplitChart(focus, recs) {
     return { g, v, cls, lab: logBarLabel(g) };
   });
   const maxV = Math.max(...bars.map((b) => Number(b.v) || 0), ln || 0, 1);
-  const linePct = ln == null ? 0 : Math.max(8, Math.min(92, Math.round((ln / maxV) * 100)));
+  const trackH = 128;
+  const linePx = ln == null ? 0 : Math.max(2, Math.min(trackH - 2, Math.round((ln / maxV) * trackH)));
   const seenN = new Set();
-  const windows = [splits.L4, splits.L8, splits.L12, splits.L16, splits.L20]
+  const windows = [splits.L5, splits.L10, splits.all]
     .filter((s) => s && s.n)
     .filter((s) => {
       if (seenN.has(s.n)) return false;
@@ -1110,11 +1111,12 @@ function renderSplitChart(focus, recs) {
     <div class="chart-row">
     <div class="log-bars" style="--slots:${slots}">
       ${bars.map((b) => {
-        const h = b.v == null ? 8 : Math.max(14, Math.round((Number(b.v) / maxV) * 100));
+        const hPx = b.v == null ? 4 : Math.max(8, Math.round((Number(b.v) / maxV) * trackH));
         return `<div class="log-col" title="${escapeHtml(b.lab)} vs ${escapeHtml(b.g.opp || "")}: ${b.v ?? "—"}">
+          <div class="log-val ${b.cls}">${b.v == null ? "—" : b.v}</div>
           <div class="log-track">
-            ${ln != null ? `<i class="log-line" style="bottom:${linePct}%"></i>` : ""}
-            <b class="log-bar ${b.cls}" style="height:${h}%"><span>${b.v == null ? "—" : b.v}</span></b>
+            ${ln != null ? `<i class="log-line" style="bottom:${linePx}px"></i>` : ""}
+            <b class="log-bar ${b.cls}" style="height:${hPx}px"></b>
           </div>
           <div class="log-lab">${escapeHtml(b.lab)}</div>
           <div class="log-opp">${escapeHtml(b.g.opp || "")}</div>
@@ -1413,6 +1415,7 @@ function collapseOffers(rows) {
 }
 
 function displayLine(row) {
+  if (row?.popupLine != null && row.popupLine !== "") return Number(row.popupLine);
   if ((state.view === "pp" || state.view === "ev") && row.dfs?.prizepicks?.line != null) return row.dfs.prizepicks.line;
   if (state.view === "ud" && row.dfs?.underdog?.line != null) return row.dfs.underdog.line;
   if (state.view === "pick6" && row.dfs?.pick6?.line != null) return row.dfs.pick6.line;
@@ -3394,7 +3397,11 @@ function nbaStatValue(g, stat) {
   const to = Number(g.to) || 0;
   const pf = Number(g.pf) || 0;
   const attempt = /att|attempt/.test(s);
-  if (s.includes("fantasy")) return g.fp == null ? null : Number(g.fp);
+  if (s.includes("fantasy")) {
+    if (g.fp != null && Number.isFinite(Number(g.fp))) return Number(g.fp);
+    if (g.pts == null && g.reb == null && g.ast == null) return null;
+    return +((pts + 1.2 * reb + 1.5 * ast + 3 * stl + 3 * blk - to).toFixed(1));
+  }
   if (s.includes("pts+rebs+asts") || s.includes("points+rebounds+assists")) return pts + reb + ast;
   if (s.includes("pts+rebs") || s.includes("points+rebounds")) return pts + reb;
   if (s.includes("pts+asts") || s.includes("points+assists")) return pts + ast;
@@ -3565,8 +3572,8 @@ function parseNbaStatsCsv(text) {
 function refreshNbaViews() {
   if (state.section === "preview") renderPreview();
   if (!$("popup")?.hidden && state.popupKey) {
-    const [player, eventId, market, side] = state.popupKey.split("|");
-    if (player) openPlayerPopup(player, eventId, market, side);
+    const parts = state.popupKey.split("|");
+    if (parts[0]) openPlayerPopup(parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]);
   }
 }
 
@@ -3678,7 +3685,7 @@ function previewNba(sample) {
     const pill = p.injury ? injPill({ status: p.injury, injury: p.comment }) : "";
     const note = p.comment && (p.injury === "Out" || p.injury === "Doubtful") ? `<div class="corr-why">${escapeHtml(p.comment)}</div>` : "";
     return `<div class="preview-prop">
-      <div class="player-row">${headshotTag(p.headshot)}<div><button type="button" class="player-btn" data-player="${escapeHtml(p.name)}">${escapeHtml(p.name)}</button>${pill}${note}</div></div>
+      <div class="player-row">${headshotTag(p.headshot)}<div><button type="button" class="player-btn" data-player="${escapeHtml(p.name)}" data-open="points">${escapeHtml(p.name)}</button>${pill}${note}</div></div>
       <div class="lu-meta"><span class="tag">${escapeHtml(p.pos || "")}</span><b>${mins ? Math.round(mins) : "—"}</b><span>min</span><b>${numTxt(p.fp, 1)}</b><span>FP</span></div>
     </div>`;
   };
@@ -4202,6 +4209,14 @@ function arbPairs(rows) {
 }
 
 function viewOffer(row) {
+  if (row?.popupBook) {
+    const src = bookOffer(row, row.popupBook);
+    return {
+      bookKey: row.popupBook,
+      line: row.popupLine ?? src?.line ?? row.line,
+      price: src?.price ?? (row.popupBook === "prizepicks" ? -117 : null),
+    };
+  }
   const dfsView = { pp: "prizepicks", ud: "underdog", pick6: "pick6", dabble: "dabble", betr: "betr" };
   const v = state.view;
   if (dfsView[v]) {
@@ -4633,7 +4648,7 @@ function render(full) {
         ? `<div class="line-note">raw ${offer.raw}${offer.recs != null ? ` · ${offer.recs} rec` : ""}</div>`
         : (offer.missing ? `<div class="line-note">no rec avg, raw UD</div>` : "");
       return `<td class="${hot ? "best-pay" : ""}">
-        <div>${meta ? bookMark(meta, "sm") + " " : ""}${escapeHtml(meta?.name || offer.book)} <b>${offer.line}</b>${offer.converted ? ` <span class="line-note">PP</span>` : ""}</div>
+        <div>${meta ? bookMark(meta, "sm") + " " : ""}<button type="button" class="player-btn line-link" data-player="${escapeHtml(m.sample.player)}" data-eid="${escapeHtml(row?.event_id || m.sample.event_id || "")}" data-market="${escapeHtml(m.sample.stat || row?.stat || row?.market || "")}" data-side="${escapeHtml(side)}" data-line="${offer.line ?? ""}" data-book="${escapeHtml(offer.book || "")}">${escapeHtml(meta?.name || offer.book)} <b>${offer.line}</b></button>${offer.converted ? ` <span class="line-note">PP</span>` : ""}</div>
         ${note}
         <div class="${edge == null ? "muted" : edge >= 0 ? "pct good" : "pct bad"}">${edge == null ? "No hit %" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</div>
         ${likeButton(pick, "row")}
@@ -4646,8 +4661,13 @@ function render(full) {
         : m.better === "under"
           ? `Under ${edgeTxt(m.underEdge)}`
           : m.better === "tie" ? "Even" : "—";
+      const openWhich = m.better === "under" ? "under" : "over";
+      const openOffer = openWhich === "over" ? m.low : m.high;
+      const openSide = openWhich === "over" ? "Over" : "Under";
+      const openRows = (openOffer.rows || []).filter((r) => r.side === openSide || r.side === (openSide === "Over" ? "Yes" : "No"));
+      const openRow = (openRows.length ? openRows : (openOffer.rows || []))[0] || m.sample;
       return `<tr>
-        <td><div class="player-row">${headshotTag(m.sample.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(m.sample.player)}" data-eid="${escapeHtml(m.sample.event_id || "")}" data-market="${escapeHtml(m.sample.market || m.sample.stat || "")}" data-side="${escapeHtml(m.better === "under" ? "Under" : "Over")}">${escapeHtml(m.sample.player)}${posTag(m.sample)}</button></div>
+        <td><div class="player-row">${headshotTag(m.sample.headshot)}<button type="button" class="player-btn" data-player="${escapeHtml(m.sample.player)}" data-eid="${escapeHtml(openRow.event_id || m.sample.event_id || "")}" data-market="${escapeHtml(m.sample.stat || openRow.stat || openRow.market || "")}" data-side="${escapeHtml(openSide)}" data-line="${openOffer.line ?? ""}" data-book="${escapeHtml(openOffer.book || "")}">${escapeHtml(m.sample.player)}${posTag(m.sample)}</button></div>
           <div class="game"><span class="sport-tag ${escapeHtml(String(m.sample.sport || "").toLowerCase())}">${escapeHtml(m.sample.sport || "")}</span> ${escapeHtml(matchup(m.sample))}</div></td>
         <td>${escapeHtml(m.sample.stat)}</td>
         <td><b>${m.gap}</b><div class="line-note">${m.low.line} to ${m.high.line}</div></td>
@@ -4784,7 +4804,7 @@ $("cardGrid")?.addEventListener("click", (e) => {
   if (e.target.closest(".slip-add") || e.target.closest(".like-btn")) return;
   const line = e.target.closest(".pline, .player-btn, .pcard-hero");
   if (!line?.dataset.player) return;
-  openPlayerPopup(line.dataset.player, line.dataset.eid || "", line.dataset.market || "", line.dataset.side || "");
+  openPlayerPopup(line.dataset.player, line.dataset.eid || "", line.dataset.market || "", line.dataset.side || "", line.dataset.line || "");
 });
 document.querySelectorAll(".tab[data-view]").forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -4967,38 +4987,48 @@ function bestOppositePrice(row) {
 function betSummary(focus, recs, oppRow) {
   const be = breakEven();
   const edge = rowEdge(focus);
-  const splits = splitStats(recs, focus.stat, focus.line, focus.side);
+  const lineShown = displayLine(focus) ?? focus.line;
+  const lineN = Number(lineShown);
+  const splits = splitStats(recs, focus.stat, Number.isFinite(lineN) ? lineN : focus.line, focus.side);
   const good = edge != null && edge >= 0;
   const thin = edge != null && edge >= 0 && edge < 1.5;
   const l5 = splits?.L5;
   const formHit = l5?.n >= 4 ? l5.hit : null;
-  const formFights = formHit != null && ((good && formHit < 40) || (!good && edge != null && formHit >= 60));
+  const recentCold = formHit != null && formHit < 50;
+  const recentHot = formHit != null && formHit >= 50;
+  const rawSide = String(focus.side || "Over").toLowerCase();
+  const sideWord = rawSide === "under" || rawSide === "no" ? "under" : rawSide === "over" || rawSide === "yes" ? "over" : rawSide;
+  const otherWord = sideWord === "under" ? "over" : "under";
   const fade = !good ? bestOppositePrice(oppRow) : null;
   const fadeMeta = fade ? BOOK_BY_KEY[fade.book] : null;
   const vs = lastVsOppNote(recs, focus);
-  const kicker = edge == null ? "No edge yet" : formFights ? "Recent games disagree" : !good ? "Skip this" : thin ? "Thin edge" : "Play";
+  const shown = Number.isFinite(lineN) ? lineN : (lineShown ?? "");
+  const avg = l5 ? Number(l5.avg) : NaN;
+  const avgWord = Number.isFinite(avg) && Number.isFinite(lineN) ? (avg > lineN ? "above" : avg < lineN ? "below" : "right on") : "";
+  const kicker = edge == null ? "No edge yet" : !good ? "Skip this" : recentCold ? "Recent games disagree" : thin ? "Thin edge" : "Play";
   const rows = [];
-  rows.push(`<div class="sum-kicker${formFights ? " warn" : ""}">${kicker}</div>`);
-  rows.push(`<p><b>The bet:</b> ${escapeHtml(focus.player)} ${escapeHtml(focus.side || "")} ${displayLine(focus) ?? ""} ${escapeHtml(focus.stat)} · ${escapeHtml(matchup(focus) || "this game")}.</p>`);
+  rows.push(`<div class="sum-kicker${recentCold || !good ? " warn" : ""}">${kicker}</div>`);
+  rows.push(`<p><b>The bet:</b> ${escapeHtml(focus.player)} ${escapeHtml(focus.side || "")} ${shown ?? ""} ${escapeHtml(focus.stat)} · ${escapeHtml(matchup(focus) || "this game")}.</p>`);
   const cash = hitPct(focus);
   if (cash != null) {
-    const edgeTxt = edge == null ? "" : ` (${edge > 0 ? "+" : ""}${edge} edge)`;
-    const screen = formFights
-      ? `The sheet has this at ${cash.toFixed(1)}%. His last ${l5.n} only hit ${formHit}% of the time.`
-      : thin
-        ? `${cash.toFixed(1)}% to hit. That is only ${edge > 0 ? "+" : ""}${edge} above a coin flip.`
-        : `${cash.toFixed(1)}% to hit vs ${be}% needed on a ${pickSize()}-pick${edgeTxt}.`;
-    rows.push(`<p><b>${formFights ? "The number" : thin ? "The number" : `Why it looks ${good ? "good" : "soft"}`}:</b> ${screen}</p>`);
+    const edgeTxt = edge == null ? "" : ` The edge is ${edge > 0 ? "+" : ""}${edge}.`;
+    const screen = !good && recentHot && l5
+      ? `The sheet has this at ${cash.toFixed(1)}%. He was still ${sideWord} ${shown} in ${l5.hits} of his last ${l5.n}.`
+      : !good && recentCold && l5
+        ? `The sheet has this at ${cash.toFixed(1)}%. Only ${l5.hits} of his last ${l5.n} were ${sideWord} ${shown}.`
+        : thin
+          ? `${cash.toFixed(1)}% to hit. That is only ${edge > 0 ? "+" : ""}${edge} from the ${be}% breakeven.`
+          : `${cash.toFixed(1)}% to hit vs ${be}% needed on a ${pickSize()}-pick.${edgeTxt}`;
+    rows.push(`<p><b>The number:</b> ${screen}</p>`);
+  } else {
+    rows.push(`<p><b>The number:</b> No hit rate on this line. The last 5 games are the read.</p>`);
   }
   if (l5?.n) {
-    const avg = Number(l5.avg);
-    const line = Number(displayLine(focus) ?? focus.line);
-    const side = String(focus.side || "").toLowerCase();
-    const otherSide = Number.isFinite(avg) && Number.isFinite(line) && ((side === "under" && avg > line) || (side === "over" && avg < line));
-    rows.push(`<p><b>Last 5 games:</b> He hit this ${escapeHtml(side || "side")} ${l5.hits} of ${l5.n} times. Average was ${l5.avg}${otherSide ? `, above the line` : ""}.</p>`);
+    const place = avgWord ? `, which is ${avgWord} ${shown}` : "";
+    rows.push(`<p><b>Last 5 games:</b> ${l5.hits} of ${l5.n} were ${escapeHtml(sideWord)} ${shown}. Average was ${l5.avg}${place}.</p>`);
   }
   if (splits?.L10?.n >= 8 && splits.L10.hit != null) {
-    rows.push(`<p><b>Longer sample:</b> ${splits.L10.hit}% hit rate over his last ${splits.L10.n} games.</p>`);
+    rows.push(`<p><b>Longer sample:</b> ${splits.L10.hit}% were ${escapeHtml(sideWord)} this line over his last ${splits.L10.n} games.</p>`);
   }
   if (vs) rows.push(`<p><b>Last meeting:</b> ${escapeHtml(vs)}</p>`);
   if (focus.injury?.status) {
@@ -5009,12 +5039,35 @@ function betSummary(focus, recs, oppRow) {
   } else if (!good && oppRow) {
     rows.push(`<p><b>If you fade it:</b> ${escapeHtml(oppRow.side)} ${oppRow.line ?? ""}.</p>`);
   }
-  if (formFights) {
-    rows.push(`<div class="what-box"><b>WHAT TO DO</b><div class="what-main">Skip the ${escapeHtml(String(focus.side || "side").toLowerCase())}.</div><div class="what-sub">Recent games have gone the other way.</div></div>`);
+  const avgBit = avgWord && avgWord !== "right on" ? `, but the average (${l5?.avg}) is ${avgWord} ${shown}` : "";
+  let whatMain = "";
+  let whatSub = "";
+  if (!good && recentHot && l5) {
+    whatMain = `Skip the ${sideWord}.`;
+    whatSub = cash == null
+      ? `He was ${sideWord} ${shown} in ${l5.hits} of his last ${l5.n}${avgBit}. There is no hit rate on this number.`
+      : `He was ${sideWord} ${shown} in ${l5.hits} of his last ${l5.n}${avgBit}. The price is still bad.`;
+  } else if (!good && recentCold && l5) {
+    whatMain = `Skip the ${sideWord}.`;
+    whatSub = `${l5.n - l5.hits} of his last ${l5.n} went ${otherWord} ${shown}${cash == null ? "." : ", and the hit rate is too low."}`;
+  } else if (!good && edge != null) {
+    whatMain = `Skip the ${sideWord}.`;
+    whatSub = "The chance of hitting is too low for this price.";
+  } else if (edge == null && l5?.n) {
+    whatMain = "No sheet price.";
+    whatSub = `${l5.hits} of his last ${l5.n} were ${sideWord} ${shown}${avgWord ? `. Average is ${avgWord} ${shown}` : ""}.`;
   } else if (thin && good) {
-    rows.push(`<div class="what-box"><b>WHAT TO DO</b><div class="what-main">Thin edge.</div><div class="what-sub">The number is close to a coin flip.</div></div>`);
+    whatMain = "Thin edge.";
+    whatSub = "The number is close to a coin flip.";
+  } else if (good && recentCold && l5) {
+    whatMain = `Skip the ${sideWord}.`;
+    whatSub = `The price is fine, but ${l5.n - l5.hits} of his last ${l5.n} went ${otherWord} ${shown}.`;
   } else if (good) {
-    rows.push(`<div class="what-box"><b>WHAT TO DO</b><div class="what-main">Play it.</div><div class="what-sub">The number and the recent games agree.</div></div>`);
+    whatMain = `Play the ${sideWord}.`;
+    whatSub = "The price and the recent games agree.";
+  }
+  if (whatMain) {
+    rows.push(`<div class="what-box"><b>WHAT TO DO</b><div class="what-main">${escapeHtml(whatMain)}</div><div class="what-sub">${escapeHtml(whatSub)}</div></div>`);
   }
   return rows.join("");
 }
@@ -5374,10 +5427,12 @@ function nbaUsageBlock(name) {
 }
 
 function nbaFormNote(focus) {
-  if (sportOf(focus) !== "NBA" || focus.line == null) return "";
+  if ((sportOf(focus) !== "NBA" && sportOf(focus) !== "CBB") || focus.line == null) return "";
   const hit = nbaRecentHit(focus, 5);
   if (!hit) return state.nbaLogLoading ? `<div class="bet-form">Checking the last 5 games…</div>` : "";
-  return `<div class="bet-form">Last ${hit.graded}: ${hit.hits} of ${hit.graded} cleared this ${escapeHtml(String(focus.side || "side").toLowerCase())}.</div>`;
+  const side = String(focus.side || "Over").toLowerCase() === "under" ? "under" : "over";
+  const line = displayLine(focus) ?? focus.line;
+  return `<div class="bet-form">Last 5: ${hit.hits} of ${hit.graded} were ${side} ${escapeHtml(String(line))}.</div>`;
 }
 
 function nbaDvpFor(focus) {
@@ -5407,8 +5462,113 @@ function nbaDvpFor(focus) {
   return { opp: opp.abbr, pos, games: state.nbaIntel.dvp[opp.abbr].games, board };
 }
 
-function openPlayerPopup(player, eventId, market, side) {
-  const popupKey = `${player}|${eventId || ""}|${market || ""}|${side || ""}`;
+function postedBookLine(row, book) {
+  if (!row || !book) return null;
+  const raw = row.dfs?.[book]?.line ?? row.books?.[book]?.line;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function lockPopupLine(row, side, want, book) {
+  const own = Number(row.line);
+  const sameLine = Number.isFinite(own) && Math.abs(own - want) <= 0.26;
+  const sameSide = !side || String(row.side || "") === String(side);
+  if (sameLine && sameSide) {
+    return book ? { ...row, popupBook: book, popupLine: want } : row;
+  }
+  const next = { ...row, side: side || row.side, line: want, popupLine: want, popupBook: book || "" };
+  next.pp_tier = "";
+  next.is_alternate = false;
+  next.pct_to_hit = null;
+  next.sheet_over = null;
+  next.sheet_under = null;
+  next.pp_sheet_edge = null;
+  next.pct_raw = null;
+  next.pct_ud = null;
+  next.hit_model = "";
+  return next;
+}
+
+function choosePopupFocus(mine, eventId, market, side, line, book) {
+  const want = line === "" || line == null ? null : Number(line);
+  const sideOk = (r) => !side || String(r.side || "") === String(side);
+  const statOk = (r) => {
+    if (!market) return true;
+    return String(r.market || "") === String(market)
+      || String(r.stat || "") === String(market)
+      || samePropStat(r.stat, market)
+      || samePropStat(r.market, market);
+  };
+  const demon = (r) => r.pp_tier === "Demon" || r.pp_tier === "Goblin" || r.pp_tier === "Alternate" || r.is_alternate;
+  let pool = mine.filter((r) => sideOk(r) && statOk(r));
+  if (!pool.length) pool = mine.filter(statOk);
+  if (!pool.length) pool = mine.filter(sideOk);
+  if (eventId) {
+    const ev = pool.filter((r) => String(r.event_id || "") === String(eventId));
+    if (ev.length) pool = ev;
+  }
+  if (book && Number.isFinite(want)) {
+    const statPool = mine.filter(statOk);
+    const near = (n) => Number.isFinite(Number(n)) && Math.abs(Number(n) - want) <= 0.26;
+    const ownHits = statPool.filter((r) => near(r.line));
+    const sideOwn = ownHits.filter(sideOk).sort((a, b) => Number(demon(a)) - Number(demon(b)));
+    if (sideOwn.length) return lockPopupLine(sideOwn[0], side, want, book);
+    const postedHits = statPool.filter((r) => near(postedBookLine(r, book)));
+    const sidePosted = postedHits.filter(sideOk);
+    const postedPick = (sidePosted[0] || postedHits[0]);
+    if (postedPick) return lockPopupLine(postedPick, side, want, book);
+    if (ownHits.length) return lockPopupLine(ownHits[0], side, want, book);
+    const base = pool[0] || statPool[0] || mine[0];
+    if (base) return lockPopupLine(base, side, want, book);
+  }
+  if (!pool.length) return mine[0];
+  if (!Number.isFinite(want)) return pool[0];
+  const ownDist = (r) => {
+    const n = Number(r.line);
+    return Number.isFinite(n) ? Math.abs(n - want) : 99;
+  };
+  const exact = pool.filter((r) => ownDist(r) <= 0.26).sort((a, b) => Number(demon(a)) - Number(demon(b)) || ownDist(a) - ownDist(b));
+  if (exact.length) return exact[0];
+  const closest = pool.slice().sort((a, b) => ownDist(a) - ownDist(b) || Number(demon(a)) - Number(demon(b)))[0];
+  if (closest && ownDist(closest) > 0.51) return lockPopupLine(closest, side, want, "");
+  return closest || pool[0];
+}
+
+function openStandardPoints(player) {
+  const all = state.data?.props || [];
+  const key = nameKey(player);
+  const mine = all.filter((r) => nameKey(r.player) === key);
+  const points = (r) => {
+    const s = String(r.stat || "").toLowerCase().replace(/[^a-z]/g, "");
+    return s === "points" || s === "pts" || s === "playerpoints";
+  };
+  const standard = (r) => (!r.pp_tier || r.pp_tier === "Standard") && !r.is_alternate;
+  const fairDist = (r) => {
+    const p = Number(r.pct_to_hit);
+    return Number.isFinite(p) ? Math.abs(p - 50) : 40;
+  };
+  let pool = mine.filter((r) => points(r) && standard(r) && r.side === "Over" && r.dfs?.prizepicks);
+  if (!pool.length) pool = mine.filter((r) => points(r) && standard(r) && r.side === "Over");
+  if (!pool.length) pool = mine.filter((r) => points(r) && standard(r));
+  if (!pool.length) pool = mine.filter((r) => points(r) && r.side === "Over");
+  pool.sort((a, b) => fairDist(a) - fairDist(b));
+  const pick = pool[0];
+  if (!pick) {
+    openPlayerPopup(player, "", "Points", "Over");
+    return;
+  }
+  openPlayerPopup(
+    pick.player,
+    pick.event_id || "",
+    pick.stat || "Points",
+    pick.side || "Over",
+    pick.line,
+    pick.dfs?.prizepicks ? "prizepicks" : ""
+  );
+}
+
+function openPlayerPopup(player, eventId, market, side, line, book) {
+  const popupKey = `${player}|${eventId || ""}|${market || ""}|${side || ""}|${line ?? ""}|${book || ""}`;
   if (state.popupKey !== popupKey) {
     state.popupChartAll = false;
     state.popupTab = state.popupTab && state.popupKey.startsWith(`${player}|`) ? state.popupTab : "bet";
@@ -5417,9 +5577,7 @@ function openPlayerPopup(player, eventId, market, side) {
   const all = state.data?.props || [];
   const key = nameKey(player);
   const mine = all.filter((r) => r.player === player || nameKey(r.player) === key);
-  let focus = mine.find((r) => String(r.event_id || "") === String(eventId || "") && String(r.market || "") === String(market || "") && String(r.side || "") === String(side || ""))
-    || mine.find((r) => String(r.side || "") === String(side || "") && String(r.market || "") === String(market || ""))
-    || mine[0];
+  let focus = choosePopupFocus(mine, eventId, market, side, line, book);
   if (!focus) {
     const meta = intelPlayer(player);
     const inj = (state.intel?.injuries || []).find((i) => i.name === player || i.gsis_id === meta?.gsis_id);
@@ -5499,9 +5657,9 @@ function openPlayerPopup(player, eventId, market, side) {
   const injBlock = liveInj ? `<div class="popup-stat" style="margin-bottom:12px"><b>Injury</b>${injPill(liveInj)} ${escapeHtml(liveInj.injury || "")}${liveInj.week ? ` · ${liveInj.season || ""}w${liveInj.week}` : ""}</div>` : "";
   const newsNote = relatedNews.length ? `<div class="popup-stat" style="margin-bottom:12px"><b>Injury / news</b>${relatedNews.slice(0, 3).map((n) => `<div><a href="${escapeHtml(n.url || "#")}" target="_blank" rel="noopener">${escapeHtml(n.headline || "")}</a><div class="corr-why">${escapeHtml(n.source || "")} · ${escapeHtml(n.published || "")}</div></div>`).join("")}</div>` : "";
 
-  const propChips = others.slice(0, 8).map((r) => {
+  const propChips = others.slice(0, 18).map((r) => {
     const e = rowEdge(r);
-    return `<button type="button" class="prop-chip" data-player="${escapeHtml(r.player)}" data-event="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || r.stat || "")}" data-side="${escapeHtml(r.side || "")}">
+    return `<button type="button" class="prop-chip" data-player="${escapeHtml(r.player)}" data-event="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || r.stat || "")}" data-side="${escapeHtml(r.side || "")}" data-line="${displayLine(r) ?? r.line ?? ""}">
       ${sideTag(r.side)}<b>${displayLine(r) ?? "—"}</b><span>${escapeHtml(r.stat || "")}</span><em class="${edgeClass(e)}">${e == null ? "—" : (e > 0 ? "+" : "") + e.toFixed(1)}</em>
     </button>`;
   }).join("");
@@ -5529,10 +5687,6 @@ function openPlayerPopup(player, eventId, market, side) {
           <div><span>Edge</span><b class="${edgeClass(edge)}">${edge == null ? "—" : (edge > 0 ? "+" : "") + edge.toFixed(1)}</b></div>
           <div class="l5-tile"><span>Last 5</span><b>${(() => { const s = splitStats(chartRecs, focus.stat, focus.line, focus.side); return s?.L5?.n ? `${s.L5.hits} of ${s.L5.n}` : "—"; })()}</b><em>${(() => { const s = splitStats(chartRecs, focus.stat, focus.line, focus.side); return s?.L5?.avg != null ? `avg ${s.L5.avg}` : ""; })()}</em></div>
         </div>
-      </div>
-      ${nbaFormNote(focus)}
-      <div class="bet-foot">
-        <div class="bet-sub">${focus.pp_tier ? escapeHtml(focus.pp_tier) : "Open line"}${matchup(focus) ? ` · ${escapeHtml(matchup(focus))}` : ""}</div>
         <div class="bet-actions">
           ${likeButton(pickFromRow(focus, viewOffer(focus)), "hero")}
           ${(() => {
@@ -5545,8 +5699,12 @@ function openPlayerPopup(player, eventId, market, side) {
           })()}
         </div>
       </div>
+      ${nbaFormNote(focus)}
+      <div class="bet-foot">
+        <div class="bet-sub">${focus.pp_tier ? escapeHtml(focus.pp_tier) : (focus.popupBook ? escapeHtml(BOOK_BY_KEY[focus.popupBook]?.name || focus.popupBook) : "Open line")}${matchup(focus) ? ` · ${escapeHtml(matchup(focus))}` : ""}</div>
+      </div>
     </div>
-    ${propChips ? `<div class="prop-switch"><span>Also</span>${propChips}</div>` : ""}
+    ${propChips ? `<div class="prop-switch"><span>Also</span><div class="prop-track">${propChips}</div><button type="button" class="also-more" data-also-more aria-label="Show more bets">›</button></div>` : ""}
     <div class="pop-tabs">
       <button type="button" class="pop-tab on" data-pop-tab="bet">Bet</button>
       <button type="button" class="pop-tab" data-pop-tab="chart">Chart</button>
@@ -5641,7 +5799,7 @@ function openPlayerPopup(player, eventId, market, side) {
     <table class="popup-table">
       <thead><tr><th>Stat</th><th>Side</th><th>Line</th><th>% to hit</th></tr></thead>
       <tbody>
-        ${others.slice(0, 20).map((r) => `<tr class="popup-line" role="button" data-player="${escapeHtml(r.player)}" data-event="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || r.stat || "")}" data-side="${escapeHtml(r.side || "")}">
+        ${others.slice(0, 20).map((r) => `<tr class="popup-line" role="button" data-player="${escapeHtml(r.player)}" data-event="${escapeHtml(r.event_id || "")}" data-market="${escapeHtml(r.market || r.stat || "")}" data-side="${escapeHtml(r.side || "")}" data-line="${displayLine(r) ?? r.line ?? ""}">
           <td>${escapeHtml(r.stat)}</td><td>${escapeHtml(r.side)}</td>
           <td>${displayLine(r) ?? "—"}</td><td>${(() => { const p = hitPct(r); return p != null ? p.toFixed(1) + "%" : "—"; })()}</td>
         </tr>`).join("")}
@@ -5658,17 +5816,42 @@ function openPlayerPopup(player, eventId, market, side) {
     $("popupCard")?.querySelectorAll("[data-pop-tab]").forEach((b) => b.classList.toggle("on", b.dataset.popTab === state.popupTab));
     $("popupCard")?.querySelectorAll("[data-pop-pane]").forEach((p) => { p.hidden = p.dataset.popPane !== state.popupTab; });
   }
+  requestAnimationFrame(() => {
+    fitAlsoRow();
+    requestAnimationFrame(fitAlsoRow);
+  });
+  setTimeout(fitAlsoRow, 60);
 }
+
+function fitAlsoRow() {
+  const row = $("popupCard")?.querySelector(".prop-switch");
+  const track = row?.querySelector(".prop-track");
+  const more = row?.querySelector("[data-also-more]");
+  if (!row || !track || !more) return;
+  if (row.classList.contains("open")) {
+    more.hidden = false;
+    more.textContent = "‹";
+    more.setAttribute("aria-label", "Show fewer bets");
+    return;
+  }
+  more.textContent = "›";
+  more.setAttribute("aria-label", "Show more bets");
+  const overflow = track.scrollWidth > track.clientWidth + 4 || track.scrollHeight > track.clientHeight + 4;
+  more.hidden = !overflow;
+}
+window.addEventListener("resize", () => {
+  if (!$("popup")?.hidden) fitAlsoRow();
+});
 
 document.addEventListener("click", (e) => {
   const chip = e.target.closest(".prop-chip");
   if (chip) {
-    openPlayerPopup(chip.dataset.player, chip.dataset.event, chip.dataset.market, chip.dataset.side);
+    openPlayerPopup(chip.dataset.player, chip.dataset.event, chip.dataset.market, chip.dataset.side, chip.dataset.line);
     return;
   }
   const line = e.target.closest("tr.popup-line");
   if (line) {
-    openPlayerPopup(line.dataset.player, line.dataset.event, line.dataset.market, line.dataset.side);
+    openPlayerPopup(line.dataset.player, line.dataset.event, line.dataset.market, line.dataset.side, line.dataset.line);
     return;
   }
   const injHead = e.target.closest(".preview-inj-head");
@@ -5692,7 +5875,10 @@ document.addEventListener("click", (e) => {
   }
   const intelBtn = e.target.closest("#injBody .player-btn, #logsBody .player-btn, #previewMain .player-btn");
   if (intelBtn?.dataset.player) {
-    openPlayerPopup(intelBtn.dataset.player, intelBtn.dataset.eid || "", intelBtn.dataset.market || "", intelBtn.dataset.side || "");
+    const cardTitle = intelBtn.closest(".preview-card")?.querySelector("h3")?.textContent || "";
+    const minutes = intelBtn.dataset.open === "points" || /projected/i.test(cardTitle);
+    if (minutes) openStandardPoints(intelBtn.dataset.player);
+    else openPlayerPopup(intelBtn.dataset.player, intelBtn.dataset.eid || "", intelBtn.dataset.market || "", intelBtn.dataset.side || "", intelBtn.dataset.line || "");
   }
 });
 
@@ -5718,7 +5904,7 @@ $("tbody").addEventListener("click", (e) => {
   }
   const btn = e.target.closest(".player-btn");
   if (!btn) return;
-  openPlayerPopup(btn.dataset.player, btn.dataset.eid, btn.dataset.market, btn.dataset.side);
+  openPlayerPopup(btn.dataset.player, btn.dataset.eid, btn.dataset.market, btn.dataset.side, btn.dataset.line, btn.dataset.book);
 });
 $("slipList")?.addEventListener("click", (e) => {
   const btn = e.target.closest("[data-slip]");
@@ -5746,12 +5932,18 @@ $("popup")?.addEventListener("click", (e) => {
     return;
   }
   if (e.target.id === "popup") closePopup();
+  const also = e.target.closest("[data-also-more]");
+  if (also) {
+    also.closest(".prop-switch")?.classList.toggle("open");
+    fitAlsoRow();
+    return;
+  }
   const more = e.target.closest("[data-chart-more]");
   if (more) {
     state.popupChartAll = more.dataset.chartMore !== "less";
     state.popupTab = "chart";
-    const [player, eventId, market, side] = (state.popupKey || "").split("|");
-    if (player) openPlayerPopup(player, eventId, market, side);
+    const parts = (state.popupKey || "").split("|");
+    if (parts[0]) openPlayerPopup(parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]);
     return;
   }
   const tab = e.target.closest("[data-pop-tab]");
