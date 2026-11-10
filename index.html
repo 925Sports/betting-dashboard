@@ -126,6 +126,12 @@
       </select>
       <label class="chk" id="minPctLabel"><span class="min-name">Min %</span> <input type="number" id="minPct" value="50" min="-20" max="100" step="0.5" /></label>
       <label class="chk" id="arbStakeWrap" hidden>Stake $ <input type="number" id="arbStake" value="10" min="1" step="1" style="width:60px" /></label>
+      <div id="arbDesk" class="hot-toggle" hidden>
+        <button type="button" class="hot-btn on" data-arb="traditional">Traditional</button>
+        <button type="button" class="hot-btn" data-arb="dfs">DFS</button>
+        <button type="button" class="hot-btn" data-arb="exchange">Exchange</button>
+        <button type="button" class="hot-btn" data-arb="cross">DFS vs books</button>
+      </div>
       <label class="chk" title="Ignore Fantasy Score. Requires two sportsbook prices.">
         <input type="checkbox" id="minBooks" checked /> 2+ books
       </label>
@@ -192,8 +198,9 @@
       <div class="slip-head">
         <div>
           <div class="brand-title">My bets</div>
-          <div class="line-note">Saved from the board or a player profile. Built to read on camera at the end of a video.</div>
+          <div class="line-note">Saved from the board or a player profile. Click a card to open the player. A PrizePicks save also lands on the slip.</div>
         </div>
+        <label class="chk">Book <select id="betsBook"><option value="all">All books</option></select></label>
         <button type="button" class="book-pick" id="betsClear">Clear</button>
       </div>
       <div id="betsGrid" class="bets-grid"></div>
