@@ -3394,6 +3394,9 @@ function nbaStatValue(g, stat) {
   const fta = g.fta == null ? null : Number(g.fta);
   const ftm = g.ftm == null ? null : Number(g.ftm);
   const fg2a = g.fg2a == null ? null : Number(g.fg2a);
+  const fg2m = g.fg2m == null ? null : Number(g.fg2m);
+  const oreb = g.oreb == null ? null : Number(g.oreb);
+  const dreb = g.dreb == null ? null : Number(g.dreb);
   const to = Number(g.to) || 0;
   const pf = Number(g.pf) || 0;
   const attempt = /att|attempt/.test(s);
@@ -3409,7 +3412,11 @@ function nbaStatValue(g, stat) {
   if (s.includes("stock") || ((s.includes("blk") || s.includes("block")) && (s.includes("stl") || s.includes("steal")))) return stl + blk;
   if ((s.includes("3") || s.includes("three")) && attempt) return fg3a;
   if ((s.includes("free") || s.includes("ft")) && attempt) return fta;
-  if ((s.includes("2") || s.includes("two")) && attempt && (s.includes("point") || s.includes("fg") || s.includes("field"))) return fg2a;
+  // Two-pointers (made vs attempts)
+  if ((s.includes("2") || s.includes("two")) && (s.includes("point") || s.includes("fg") || s.includes("field"))) {
+    if (attempt) return fg2a;
+    return fg2m;
+  }
   if ((s.includes("field") || s.includes("fga") || s.includes("fgatt")) && attempt) return fga;
   if (s.includes("3") || s.includes("three")) return fg3;
   if (s.includes("freethrow") || s === "ftm" || s.includes("freethrowsmade")) return ftm;
@@ -3417,6 +3424,9 @@ function nbaStatValue(g, stat) {
   if (s.includes("block")) return blk;
   if (s.includes("turnover")) return to;
   if (s.includes("foul")) return pf;
+  // Offensive / Defensive rebounds before total
+  if ((s.includes("off") || s.includes("oreb")) && s.includes("rebound")) return oreb;
+  if ((s.includes("def") || s.includes("dreb")) && s.includes("rebound")) return dreb;
   if (s.includes("rebound")) return reb;
   if (s.includes("assist")) return ast;
   if ((s.includes("fieldgoal") || s.includes("fgmade")) && !attempt) return fgm;
@@ -3491,6 +3501,8 @@ function parseNbaLogCsv(text) {
       fgm, fga, fg3, fg3a,
       fg2m: fgm != null && fg3 != null ? fgm - fg3 : null,
       fg2a: fga != null && fg3a != null ? fga - fg3a : null,
+      oreb: num(c[idx.OREB]),
+      dreb: num(c[idx.DREB]),
       ftm: num(c[idx.FTM]),
       fta: num(c[idx.FTA]),
       minRaw: String(c[idx.MIN] || "").trim(),
@@ -5377,6 +5389,8 @@ function nbaLogBlock(name, focus) {
     <td>${escapeHtml(g.minRaw || (g.min ?? "—"))}</td>
     <td class="${propMark(prop, focus)}">${prop == null ? "—" : prop}</td>
     <td>${g.pts ?? "—"}</td>
+    <td>${g.oreb ?? "—"}</td>
+    <td>${g.dreb ?? "—"}</td>
     <td>${g.reb ?? "—"}</td>
     <td>${g.ast ?? "—"}</td>
     <td>${g.pf ?? "—"}</td>
@@ -5394,10 +5408,10 @@ function nbaLogBlock(name, focus) {
   };
   return `<div class="dfs-wrap">
     <div class="popup-h">2026-27 game log</div>
-    <div class="corr-why">${recs.length} game${recs.length === 1 ? "" : "s"} this season, newest on top. Prop is ${escapeHtml(stat || "this bet")} and matches the chart. FGA, 3PA, and FTA are attempts. 2P is twos made/attempted (FGA minus 3PA).</div>
+    <div class="corr-why">${recs.length} game${recs.length === 1 ? "" : "s"} this season, newest on top. Prop is ${escapeHtml(stat || "this bet")} and matches the chart. 2P is twos made/attempted. OREB/DREB are now pulled from the log.</div>
     <div class="log-scroll"><table class="popup-table popup-logs dfs-log">
       <thead><tr>
-        <th>Date</th><th>Opp</th><th>Min</th><th>Prop</th><th>Pts</th><th>Reb</th><th>Ast</th><th>PF</th><th>FGM</th><th>FGA</th><th>2P</th><th>3PM</th><th>3PA</th><th>FTM</th><th>FTA</th><th>Stl</th><th>Blk</th><th>TO</th>
+        <th>Date</th><th>Opp</th><th>Min</th><th>Prop</th><th>Pts</th><th>OREB</th><th>DREB</th><th>Reb</th><th>Ast</th><th>PF</th><th>FGM</th><th>FGA</th><th>2P</th><th>3PM</th><th>3PA</th><th>FTM</th><th>FTA</th><th>Stl</th><th>Blk</th><th>TO</th>
       </tr></thead>
       <tbody>${recs.map(row).join("")}</tbody>
     </table></div>
@@ -6049,6 +6063,138 @@ async function fetchBoard(url, version) {
 }
 
 let loadGen = 0;
+function sheetNum(v) {
+  const n = parseFloat(String(v ?? "").replace(/[%$,]/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+function sheetPct(v) {
+  const n = sheetNum(v);
+  if (n == null) return null;
+  const p = n <= 1 ? n * 100 : n;
+  if (p < 1 || p > 99) return null;
+  return +p.toFixed(1);
+}
+
+function ppTierFromOdds(odds) {
+  const t = String(odds || "").toLowerCase();
+  if (t.includes("demon")) return "Demon";
+  if (t.includes("goblin")) return "Goblin";
+  if (t.includes("alt") || t === "power" || t === "mm") return "Alternate";
+  return "Standard";
+}
+
+function fantasyLineKey(player, stat, side, line) {
+  const n = Number(line);
+  return `${normName(player)}|${normName(stat)}|${String(side || "")}|${Number.isFinite(n) ? n.toFixed(2) : ""}`;
+}
+
+async function injectFantasyFromSheet(props) {
+  const sports = [...new Set((props || []).map((r) => String(r.sport || "").toUpperCase()))].filter((s) => PP_SHEET_CSV[s]);
+  if (!sports.length) return props;
+  const byPlayer = new Map();
+  (props || []).forEach((r) => {
+    const k = `${String(r.sport || "").toUpperCase()}|${normName(r.player)}`;
+    if (!normName(r.player)) return;
+    const list = byPlayer.get(k) || [];
+    list.push(r);
+    byPlayer.set(k, list);
+  });
+  const have = new Set((props || []).filter((r) => isFantasyStat(r.stat) && r.dfs?.prizepicks?.line != null).map((r) =>
+    fantasyLineKey(r.player, r.stat, r.side, r.dfs.prizepicks.line)
+  ));
+  const added = [];
+  for (const sport of sports) {
+    let parsed = [];
+    try {
+      const res = await fetch(PP_SHEET_CSV[sport], { cache: "no-cache" });
+      if (!res.ok) continue;
+      parsed = parseCsvRows(await res.text());
+    } catch (_) {
+      continue;
+    }
+    parsed.forEach((row) => {
+      const stat = String(row["Stat Type"] || "").trim();
+      if (!isFantasyStat(stat)) return;
+      const player = String(row["Player Name"] || "").trim();
+      if (!player) return;
+      let side = String(row["Bet Tag"] || "").trim();
+      if (/^(more|higher)$/i.test(side)) side = "Over";
+      else if (/^(less|lower)$/i.test(side)) side = "Under";
+      else if (!/^(over|under|yes|no)$/i.test(side)) {
+        const over = sheetPct(row["Edge % Over"]);
+        const under = sheetPct(row["Edge % Under"]);
+        side = (under || 0) > (over || 0) ? "Under" : "Over";
+      } else side = side.charAt(0).toUpperCase() + side.slice(1).toLowerCase();
+      const line = sheetNum(row["Line Score"]);
+      if (line == null) return;
+      const key = fantasyLineKey(player, stat, side, line);
+      if (have.has(key)) return;
+      have.add(key);
+      const sibs = byPlayer.get(`${sport}|${normName(player)}`) || [];
+      const sib = sibs.find((r) => r.dfs?.prizepicks && r.home_team && r.away_team)
+        || sibs.find((r) => r.home_team && r.away_team && !isFantasyStat(r.stat))
+        || sibs.find((r) => r.commence_time && !isFantasyStat(r.stat))
+        || {};
+      const udRow = sibs.find((r) => isFantasyStat(r.stat) && r.dfs?.underdog?.line != null);
+      const edge = side === "Under" ? sheetPct(row["Edge % Under"]) : sheetPct(row["Edge % Over"]);
+      const udLine = udRow?.dfs?.underdog?.line ?? sheetNum(row["Underdog Line"]);
+      const dfs = {
+        prizepicks: { line, price: -117, multiplier: null, id: String(row["Data ID"] || "").trim() },
+      };
+      if (udLine != null) {
+        dfs.underdog = udRow?.dfs?.underdog
+          ? { ...udRow.dfs.underdog }
+          : { line: udLine, price: -112, multiplier: null, source: "filter" };
+      }
+      const head = String(row["Headshot URL"] || "");
+      added.push({
+        player,
+        stat,
+        market: stat,
+        side,
+        line,
+        sport: sib.sport || sport,
+        game: sib.game || row["Game Short Title"] || "",
+        home_team: sib.home_team || "",
+        away_team: sib.away_team || "",
+        commence_time: sib.commence_time || row["Game Start Time"] || row["Scheduled At"] || "",
+        event_id: String(row["Data ID"] || `pp-${normName(player)}-${stat}-${line}-${side}`),
+        pp_tier: ppTierFromOdds(row["Odds Type"]),
+        pp_id: String(row["Data ID"] || ""),
+        pct_to_hit: edge,
+        pp_sheet_edge: edge,
+        sheet_over: sheetPct(row["Edge % Over"]),
+        sheet_under: sheetPct(row["Edge % Under"]),
+        true_point: sheetNum(row["True Point Average Line"]) ?? sheetNum(row["Average Line"]),
+        avg_line: sheetNum(row["Average Line"]),
+        book_line: sheetNum(row["Average Line"]),
+        projection: sheetNum(row["Total Projection"]),
+        headshot: head.startsWith("http") ? head : (sib.headshot || ""),
+        spread: sib.spread ?? sheetNum(row.Spread),
+        total: sib.total ?? sheetNum(row["O/U"]),
+        position: sib.position || row.Position || "",
+        dfs,
+        books: {},
+        fantasy_cmp: udLine != null ? {
+          pp: line,
+          ud: Number(udLine),
+          ud_as_pp: Number(udRow?.dfs?.underdog?.line_pp ?? udLine),
+          pp_as_ud: line,
+          mode: "same",
+        } : null,
+      });
+      if (sib.game && udRow) {
+        udRow.game = sib.game;
+        udRow.home_team = sib.home_team || udRow.home_team;
+        udRow.away_team = sib.away_team || udRow.away_team;
+        udRow.commence_time = sib.commence_time || udRow.commence_time;
+      }
+    });
+  }
+  return added.length ? props.concat(added) : props;
+}
+
 async function loadData() {
   const gen = ++loadGen;
   showLoader(`Loading ${sportLoadLabel()}…`);
@@ -6126,6 +6272,9 @@ async function loadData() {
         props: boards.flatMap((b) => b.kalshi?.props || []),
       },
     };
+    setLoader("Adding fantasy score lines…");
+    state.data.props = await injectFantasyFromSheet(state.data.props || []);
+    if (gen !== loadGen) return;
     state.liveProps = (state.data.props || []).filter((r) => !hasStarted(r.commence_time));
     restoreSlip();
     state.uiReady = false;
