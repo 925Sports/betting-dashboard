@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-25T09:20:22Z",
+  "updated": "2026-11-25T09:24:37Z",
   "source": "google_sheet_csv+kalshi",
   "row_count": 10295,
   "cfb_rows": 10142,
@@ -7,7 +7,7 @@
   "soccer_rows": 55330,
   "wnba_rows": 0,
   "cbb_rows": 1900,
-  "nba_rows": 10522,
+  "nba_rows": 14953,
   "nhl_rows": 4022,
   "game_count": 30
 }
